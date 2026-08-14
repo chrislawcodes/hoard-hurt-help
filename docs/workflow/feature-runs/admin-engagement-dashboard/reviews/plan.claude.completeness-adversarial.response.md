@@ -1,82 +1,349 @@
-# Plan review — completeness-adversarial lens
+# Completeness-Adversarial Review — plan.md (Revision 2, Round 2)
+
+Round-1 findings are not re-argued. This round asks three things only: did
+revision 2's fixes land on **every** consumer, did they introduce new gaps, and
+does the plan still agree with the spec and `state.json`.
+
+Short answer: the fixes are real but **one-sided**. Revision 2 changed the plan
+and changed nothing else. The spec, `state.json` and `scope.json` all still carry
+revision 1's design, and two of the new items (the milestone split, the
+`first_source_channel` column) got a write side with no read side.
 
 ## Findings
 
-**H1. The middleware ordering constraint — the spec's own "most likely silent failure" — is absent from the plan.** [CODE-CONFIRMED] [HIGH]
-Spec D7 says `FirstTouchMiddleware` must be added *before* the `SessionMiddleware` call, that placing it after means "capture silently records nothing forever", and that three reviewers confirmed it. The plan mentions the word "middleware" twice (the ASCII diagram, and slice 5's title) and never mentions ordering, `add_middleware`'s insert-at-0 behaviour, `app/main.py`, or D7's verified skip-prefix list (`/static`, `/healthz`, `/api`, `/mcp`, `/openapi.json`, `/.well-known`, `/auth`). Real code: `app/main.py:240` adds `SessionMiddleware`, `:252` `OAuthRegistrationCompatMiddleware`, `:259` `CanonicalHostMiddleware` — the new middleware has to land above line 240 and nothing in the plan says so. Slice 5's "must prove" list is behavioural only ("survives navigation + OAuth"), and with the flag off (the shipped default) *no test in the plan exercises the ordering at all*. This is the one defect the spec spent three rounds isolating, and the plan drops it.
+### HIGH 1 — The spec was never updated: `set_up_a_way_to_play` and `agent_kind` are still its design [CODE-CONFIRMED]
 
-**H2. The ORM listeners have no registration home, and the plan's own proof slice may test nothing.** [CODE-CONFIRMED] [HIGH]
-The plan says listeners are "registered once at app startup" and never names a file or mechanism. This repo's existing precedent for a global `Session` event is `app/sqlite_parity.py:52` `install_sqlite_parity_guards()`, called at **import time from `app/db.py:22`** — not from `app/main.py`. The choice is load-bearing, not cosmetic: `tests/conftest.py`'s `engine`/`session_factory`/`db` fixtures (lines 118-175) import only `app.db` and `app.models`, never `app.main`. If registration lives in `app/main.py`, the listeners are inert for every non-HTTP test — including slice 2's "listeners fire for all three models" proof, which would pass or fail for reasons unrelated to the feature. If it lives in `app/db.py`, they fire across the whole 168-file suite. The plan picks neither.
+The plan drops both. The spec keeps both, in four places:
 
-**H3. `app/models/__init__.py` is never mentioned, and it is what makes the new table exist in every test database.** [CODE-CONFIRMED] [HIGH]
-`app/models/__init__.py` opens with "ORM models. Import all here so Alembic autogen discovers them" and re-exports all 20+ models; `tests/conftest.py:148` and `:170` build every test schema with `Base.metadata.create_all`. If `UserMilestone` is not imported there, `user_milestones` does not exist in any test DB. Combined with the recorder's `except SQLAlchemyError: logger.exception(...)` fail-open, every milestone write would fail silently and the whole suite would stay green while proving nothing. The plan's file scope names `app/models/user_milestone.py` but not the `__init__` that registers it, and no slice's "must prove" asserts the table is reachable.
+| Location | What it still says |
+|---|---|
+| `spec.md:75` (D1 milestone table) | `set_up_a_way_to_play` — "first `Agent` of kind `ai` **or** `human`" |
+| `spec.md:96` (D1 column table) | `agent_kind` (nullable), with the rationale "the `agents` row is hard-deleted, so the denominator **must** be captured here or it is unrecoverable" |
+| `spec.md:102` | the human-path rationale, phrased in terms of the single milestone |
+| `spec.md:433` (AC4) | "counted at `set_up_a_way_to_play`, `joined_match`, `played_turn` and `returned`" |
 
-**H4. `played_turn` — the milestone AC4 and AC8 turn on — is assigned to "two request-level hooks" that the plan never names.** [CODE-CONFIRMED] [HIGH]
-The plan correctly rules out hooking `record_player_action` and `record_submission`, then stops. It names zero concrete sites. The real map: `record_submission` has **five** call sites (`app/engine/player_move.py:46`, `app/engine/agent_play.py:269`, `app/engine/turn_drivers.py:136` and `:142`, `app/engine/bots/service.py:173`); `record_player_action` has **two** (`app/routes/web_play.py:253`, `app/engine/bots/service.py:124`). Critically, the genuine **AI-agent** play path runs through `agent_play.py:269` and is not reachable from `record_player_action` at all — so "two request-level hooks" cannot be `web_play` plus one thing. Every other milestone got a structural mechanism precisely because hand-found call-site lists were wrong in all three spec rounds; this one is left as an unresolved search for the implementer, and it is the milestone with the most paths.
+Plus `state.json`'s AC4, which repeats the old name verbatim.
 
-**H5. The `sync_google_user` change, its three production callers, and its fourteen test call sites are entirely absent from the plan.** [CODE-CONFIRMED] [HIGH]
-Spec "What we are building" item 12 names `tests/test_mcp.py` — "five monkeypatched two-parameter `sync_google_user` fakes break when the signature gains an argument". The plan mentions `sync_google_user` zero times, `auth.py` zero times, and no test file by name. Confirmed consumers: definition `app/routes/auth.py:24`; production callers `app/routes/auth.py:106`, `mcp_server/oauth_auth.py:156`, `mcp_server/connection_identity.py:176`; test callers `tests/test_mcp.py` fakes at 237/294/377/479/594, `tests/test_auth_user_sync.py` at 49/60/65/78/96/108/131, `tests/test_account_disabled.py` at 138/161. Two consequences: (a) the two `mcp_server/` callers are exactly where AC13's `first_source_channel="mcp"` must be written and the plan assigns that to no slice and no file; (b) the plan carries the spec's known test breakage forward as an unbudgeted surprise, and understates it — the spec named one test file, there are three.
+Three consequences, in order of cost:
 
-**H6. "Slice 5 is independently shippable and inert by default … nothing about the live site changes" is false for the other seven slices.** [CODE-CONFIRMED] [HIGH]
-`railway.json` sets `"preDeployCommand": ["alembic upgrade head"]` and `docs/deploy-railway.md:87` confirms push to `main` auto-deploys. The flag gates only the capture middleware. Everything else in this plan reaches production on the same merge, unflagged: the schema migration, the `is_internal` backfill (slice 4), the milestone backfill over 1,648 matches / 20,276 submissions (slice 6), the ORM listeners writing on **every** `User`, `Agent` and `Player` insert (slice 2), the read models, the page, and the admin toggle. The plan's own risk table contradicts the claim two sections earlier ("Extra write on the turn-submission hot path"). The sentence as written would let an implementer treat the whole feature as reversible by a config toggle; only one eighth of it is.
+1. **AC4 is now unsatisfiable as written.** It names a milestone value the plan
+   will never write. An implementer who tests AC4 literally writes a test for a
+   value that does not exist; one who tests it loosely writes no test at all.
+2. **`spec.md:96` states a requirement the plan refuses.** It says the AI
+   denominator is *unrecoverable* without an `agent_kind` column. The plan's
+   answer — capture it as a separate milestone at insert time — is sound, but it
+   lives only in the plan. The spec still instructs the opposite.
+3. **The spec is the artifact the tasks and implement stages read.** The plan is
+   currently the only place the new design exists.
 
-**H7. The plan's own `agent_kind`-on-the-milestone design makes AC7's denominator systematically wrong, because the default new-user path creates a `human` agent first.** [CODE-CONFIRMED] [HIGH]
-The plan captures `agent_kind` once, on the `set_up_a_way_to_play` row, and guards the row with `UniqueConstraint(user_id, milestone)` — so the value is first-write-wins and can never be updated. But `app/routes/web_join.py:113` `_default_human_choice` returns `True` for a brand-new user (its docstring: "the no-setup path"), and `app/engine/human_player.py:98-107` lazily inserts the `AgentKind.HUMAN` row on that path. For a typical user the first `Agent` insert is therefore `human`, permanently stamping `agent_kind='human'` even if they build an AI agent an hour later. AC7 ("`ai_connected` reported as a share of users who chose an AI agent") reads that column as its denominator, so the denominator collapses towards zero and the share goes to nonsense — the same class of silently-plausible wrong number the spec's `silent_risk` note describes. The plan does not mention the interaction, and no slice's "must prove" covers "user builds a human agent then an AI agent".
+Revision 2's changelog entry (`plan.md:291`) records the split as accepted, so
+this is a propagation failure, not a disagreement.
 
-**H8. The entire source-table half of the feature has no slice content.** [CODE-CONFIRMED] [HIGH]
-The feature's second headline question is "which traffic source produced the people who played?". Spec item 8 is `app/read_models/signup_sources.py` (source → signups → played, distinct users) and AC14 requires uncaptured source to render `"unknown"`, never `"direct"` — the spec calls out that getting this wrong makes the largest row silently mean "we failed to capture". The plan mentions `signup_sources` zero times, `unknown` zero times, `direct` zero times, and the label precedence rule (D9: `utm_source` → `first_referrer_host` → `"direct"`) zero times. Slice 7 is titled "Read models" (plural) and its five must-prove items are all milestone-side. The `first_source_channel` column is defined in the data model and then never read by anything in the plan.
+### HIGH 2 — The plan's own risk table still prescribes the `after_commit` shape the plan spends a section refuting [CODE-CONFIRMED]
 
-**M1. The stuck-people list (AC18) is not in the plan at all.** [CODE-CONFIRMED] [MEDIUM]
-Spec item 7 requires "the stuck list (users and their furthest milestone; handle-less users shown by email; capped at 50 with a remainder count)" and AC18 restates it. Zero mentions of "stuck" in the plan. For a 10–20-user platform the spec explicitly says named rows matter more than percentages, so this is the page's most useful element, and it has no slice, no query shape, and no test.
+`plan.md:266`:
 
-**M2. Neither explanatory note (AC19) appears in the plan.** [CODE-CONFIRMED] [MEDIUM]
-AC19 requires two rendered notes: the dated "milestones before &lt;deploy date&gt; are reconstructed and approximate" line (D4) and the MCP-attribution limit (D9). The plan mentions neither, and never says where the deploy date comes from (config key? migration timestamp? hardcoded?) — which is the part an implementer cannot guess. The spec's own test plan lists "Both explanatory notes render"; the plan's test strategy drops it.
+> | `after_insert` cannot do async work | Collect in the listener, write in **`after_commit`**; slice 2 exists to prove this shape before anything depends on it |
 
-**M3. The three summary numbers (AC1a) and the period-over-period rule have no slice.** [CODE-CONFIRMED] [MEDIUM]
-AC1a requires each of the three summary numbers to state its window, its population, and that it excludes internal users, each with a test — the spec notes rounds 2 and 3 *both* found these had no criterion. The word "summary" appears in the plan body zero times (its only hit is inside the review-reconciliation log). Also missing: the rule that a comparison with the preceding equal-length window is shown, except when the window is unbounded (the default) where no comparison is shown, and D2's "fewer than the step above" labelling.
+`plan.md:88` and `plan.md:95-97` say the opposite, in bold, with a measured
+result: `after_commit` "Raises `InvalidRequestError: session is in 'committed'
+state`, persists **0 rows** — and because that is a `SQLAlchemyError`, the
+fail-open handler swallows it."
 
-**M4. The admin-toggle surface is named only by its `colspan`.** [CODE-CONFIRMED] [MEDIUM]
-Slice 8 says "Page, nav, admin toggle … toggle works both ways and audit-logs … `colspan` 7→8". Unnamed: `app/models/admin_audit_log.py`, where `AdminAction` today holds exactly five values (`disable`, `enable`, `promote`, `demote`, `handle_reset`) and must gain `mark_internal` / `unmark_internal`; `app/services/admin_user_actions.py`, which carries the lock / no-op-guard / one-audit-row contract every other action follows; `app/templates/admin/user_detail.html` and its `{% if not floor_admin %}` gate the control must render *outside*; `app/templates/admin/users_list.html`'s header row (7 `<th>` at lines 18-24 — the `colspan` at line 41 is the empty-state cell, and changing only that leaves the header at 7); and `app/templates/admin/base.html` / `app/templates/admin/dashboard.html`. The spec names `admin/dashboard.html` explicitly as "the second admin nav surface"; the plan's word "nav" covers it by implication only, and slice 8's must-prove list contains no nav assertion, so AC1's "is in the Platform admin submenu" (`app/templates/base.html:93-99`) has no proof obligation on either surface.
+The risk row survived the rewrite untouched. Both halves of it are now wrong:
+the mechanism is refuted, and "slice 2 exists to prove this shape" is false —
+slice 2 now proves a different shape (`after_flush_postexec` + a connection-level
+savepoint).
 
-**M5. AC16's "defaults to the browser's timezone" has no mechanism and no consumer.** [CODE-CONFIRMED] [MEDIUM]
-The plan says "return detection in the window timezone" (slice 7) but the server cannot know the browser's timezone. Something must carry it — an `Intl.DateTimeFormat().resolvedOptions().timeZone` read plus a query param, a cookie, or a form default. The plan has no client-side asset in scope, slice 8 never mentions a window or timezone control, and nothing states the fallback when the value is absent (a crawler, curl, or JS-off request). AC16 is half-covered: the read model gets a timezone parameter, and nobody supplies it.
+This is the most dangerous leftover in the document. The risk table is the
+compact "what could go wrong / what we do about it" summary — the part that gets
+lifted into a slice prompt or skimmed by someone who did not read the mechanism
+section. It currently instructs the reader to build the exact silent-zero-rows
+failure the plan spent four paragraphs and an executed experiment establishing.
 
-**M6. Slice 7 depends only on slice 1, but AC9's exclusion needs slice 4.** [CODE-CONFIRMED] [MEDIUM]
-AC9 requires bots and internal users excluded from *every* number, via `users.is_internal`. `is_internal` is populated in slice 4 (predicate + wiring + backfill). Slice 7 (read models) lists "Depends on: 1" and its five must-prove items never mention internal or bot exclusion. As sequenced, the read models can be written, checkpointed and declared green without ever filtering the flag — and a page that silently includes the 500-plus internal player rows the spec measured looks completely normal.
+### HIGH 3 — "Dry run against a production copy" has no procedure in this repo, and the only documented prod-DB access is the live database [CODE-CONFIRMED]
 
-**M7. The listener write hook is named two contradictory ways, and the repo's own fixtures cannot exercise either.** [CODE-CONFIRMED] [MEDIUM]
-The plan says the listener "collects into `session.info` and a matching `after_flush_postexec` / `after_commit` hook performs the writes". Those two are not interchangeable: a write in `after_flush_postexec` is inside the caller's transaction and rolls back with it (breaking AC3's durability promise in any rolled-back request), while `after_commit` runs with the transaction already closed and cannot execute DB work on that session at all — and neither sync hook can `await`. Concretely: `tests/factories.py::make_user` (the canonical factory, re-exported from `tests/conftest.py`) does `db.add(user)` then `await db.flush()` with **no commit**, and most direct-logic tests never commit. A commit-based hook records nothing for them; a flush-based hook records something the plan calls durable. The plan defers this to "slice 2 exists to prove it" without saying which shape slice 2 is proving.
+Revision 2's correction is right, and its gate is the sole mitigation for two
+irreversible backfills that run as `preDeployCommand` on merge. But the gate is
+an instruction with no method:
 
-**M8. AC22's capture half — "first-touch capture is advisory" — has no slice proof and no test.** [CODE-CONFIRMED] [MEDIUM]
-AC22 covers milestone recording *and* first-touch capture; the spec's test plan lists "Capture raising does not fail the page". The plan's slice 5 must-prove list (flag off, survives navigation + OAuth, no overwrite, truncated at capture, cleared on sign-out, MCP channel) omits it, and the plan's seven highest-value tests cover the recorder's failure isolation but not the middleware's. A middleware that raises takes down every page on the site, so this is the higher-blast-radius half of the criterion.
+- Searched `docs/` and `MEMORY.md`: **no** `pg_dump`, no restore step, no
+  snapshot-to-scratch-DB procedure, nothing that produces a production copy.
+- `docs/deploy-railway.md:86` is the only backup mention in the whole doc set:
+  "Postgres backups: Railway → *Database* → *Backups*." That is a backup
+  existing, not a documented way to get one onto a machine and run a migration
+  against it.
+- The one documented way into prod data is `docs/operations/debugging-history.md:20`
+  — "Prod Postgres is reachable via `DATABASE_PUBLIC_URL`". That is the **live**
+  database. An implementer told to "dry run against a production copy", who then
+  greps the docs for how to reach prod data, finds a direct connection to
+  production.
 
-**M9. `source_match_id` is first-write-wins, so AC17's read-time smoke-test exclusion can delete genuine users from the count.** [CODE-CONFIRMED] [MEDIUM]
-`UniqueConstraint(user_id, milestone)` means a user's `joined_match` row carries the *first* match they ever joined. `TEST_NAME_PREFIX` is `"prod smoke"` (`app/match_naming.py:14`) and `app/read_models/admin_reports.py:109` excludes those matches by `Match.name.ilike(...)`. If a real user's first join happens to be a smoke-test match, read-time exclusion drops their `joined_match` milestone entirely rather than falling back to their next join — the count under-reports and no note explains it. The plan states the column "enables read-time smoke-test exclusion (AC17)" and never addresses the single-value limitation.
+Two uncited precedents that would make it actionable:
 
-**M10. No post-deploy verification for two backfills that run before the new code is live.** [CODE-CONFIRMED] [MEDIUM]
-Spec D10 requires that the internal-flag backfill "be verified after deploy by reading back the flagged row count against the known internal accounts", because the `.local` accounts have a creation path outside the app. The plan has no post-deploy step, no dry-run mode for either backfill, and no readback. It does note the `preDeployCommand` timing (old code serving, additive-only) but converts that into a code constraint, not a verification obligation. Both backfills are one-shot and irreversible in effect — a wrong predicate silently mislabels the population every number on the page is filtered by.
+- `scripts/preview_match_id_migration.py` — a read-only preview script whose own
+  usage line is `--db copy.db --dry-run`. Exactly this shape, already in the repo.
+- `docs/workflow/feature-runs/unified-connections/` shipped its migration with a
+  reviewed `--dry-run` pass (`plan.md:302`, `spec.md:321`, `closeout.md:65`).
 
-**L1. The plan cites spec decisions that do not exist.** [CODE-CONFIRMED] [LOW]
-The plan's opening line says "the decisions (D1–D14)". The spec has D1, D2, D3, D3a, D4–D12 — twelve numbered decisions plus D3a, no D13 or D14. An implementer tracing coverage decision-by-decision will look for two that were never written.
+The plan requires neither a `--dry-run` mode on the migration nor a named way to
+obtain the copy, so as written the gate is satisfiable by asserting it happened.
 
-**L2. `clear_session` is the named consumer for AC12 and the plan does not name it.** [CODE-CONFIRMED] [LOW]
-`app/auth/session.py:25-26` `clear_session` pops only `SESSION_USER_KEY`. Spec item 3 explicitly requires clearing `first_touch` there so a second user in the same browser does not inherit the first's source. The plan states the behaviour ("cleared on sign-out") but not the consumer, and `clear_session` is called from `app/routes/auth.py:123` — the only sign-out path, easy to miss when the work is filed under "middleware".
+### HIGH 4 — `state.json`'s acceptance-criteria list is still the 22-item revision-3 list, and the spec calls it authoritative [CODE-CONFIRMED]
 
-**L3. The two new config keys have no documentation consumer.** [UNVERIFIED — impact only] [LOW]
-`.env.example` exists (24 lines, 8 keys) and `docs/setup-dev.md:30` instructs `cp .env.example .env`. `FIRST_TOUCH_CAPTURE_ENABLED` and `INTERNAL_EMAIL_DOMAINS` both have defaults so nothing breaks, but the flag is the feature's production gate — Chris turning it on later is the whole point of D8, and nothing in the plan makes it discoverable outside `app/config.py`.
+`spec.md:411`: "Authoritative list lives in `state.json`, kept in lockstep with
+this revision."
 
-**L4. The plan claims "~26 files" but contains no file manifest.** [CODE-CONFIRMED] [LOW]
-Each slice "gets a diff checkpoint", and a diff checkpoint needs a declared scope to check the diff against. The plan names roughly nine modules in prose and one template change; the spec's "What we are building" lists twelve groups. The gap between "~26 files" and what the plan actually enumerates is where every H1–H8 omission above lives.
+It is not in lockstep. `state.json` holds 22 items; the spec holds 25
+(0, 1, 1a, 1b, 2–22). Missing entirely from the declared authority:
+
+- **AC0** — "With `FIRST_TOUCH_CAPTURE_ENABLED=false` (the default), a request
+  carrying `?utm_source=` sets no cookie and stores nothing." This is D8's
+  privacy gate: the decisive round-3 spec fix, and the only thing standing
+  between merging and tracking real visitors on a site with no disclosure.
+- **AC1a** — the three summary numbers stating window, population and internal
+  filtering. The plan itself notes these "lost their tests in three consecutive
+  rounds" (`plan.md:228-230`); the authoritative list is one of the places they
+  keep getting lost.
+- **AC1b** — shares suppressed below 20 users.
+
+Also stale within the 22: AC1 still reads "403 for a non-admin" without the
+401-anonymous correction the spec made (`spec.md:420-421`), and AC4 carries the
+removed milestone name (see HIGH 1).
+
+Round 1 found this list stale at 22 revision-3 items. It is still stale at 22
+revision-3 items — revision 2 did not touch it.
+
+### HIGH 5 — The milestone split has a write side and no read side [CODE-CONFIRMED]
+
+Tracing every consumer of the two new values:
+
+| Consumer | `set_up_ai_agent` | `set_up_human_play` |
+|---|---|---|
+| Listener mapping (`plan.md:144-145`) | written | written |
+| Slice 7 must-prove (`plan.md:186`) | — | — |
+| AC-to-slice table (`plan.md:232-241`) | AC7 denominator | — |
+| Slice 8 page items (`plan.md:187`) | — | — |
+| Backfill, slice 6 (`plan.md:185`) | — | — |
+
+`set_up_human_play` is written by the listener and **read by nothing**. Four
+concrete gaps follow:
+
+1. **Nobody owns the union.** The plan resolves the split with one sentence —
+   "'Set up a way to play' is then either of them" (`plan.md:152-153`) — and
+   stops. That union is a `COUNT(DISTINCT user_id) WHERE milestone IN (...)`,
+   it is what AC4 and D2's funnel row actually display, and it appears in no
+   slice's must-prove. AC4 is not in the AC-to-slice table at all; the only
+   trace of it is highest-value test #1, which covers the *play* half
+   ("Human player reaches `played_turn`") and not the setup half.
+2. **D2's page shape is now undefined.** The spec says the page presents
+   milestones "in the usual order with counts and the difference between
+   neighbours" (`spec.md:112-116`). Two parallel setup milestones have no
+   position in a single ordered chain. Does the page show seven rows, or six
+   with a merged row, or six plus an AI/human split? Neither artifact says.
+3. **The stuck list's "furthest milestone" needs a total ordering.** AC18 labels
+   each stuck user by how far they got. With two parallel values there is no
+   total order, and slice 7's "stuck list labels, caps at 50 (AC18)" does not
+   supply one. A user with `set_up_human_play` and a user with `set_up_ai_agent`
+   are equally far along, and the label logic has no rule for that.
+4. **The backfill names no milestone values.** Slice 6 must reconstruct these
+   from `agents.kind`, and its must-prove ("reconstructs from surviving rows;
+   excludes autopilot") never mentions either new value.
+
+This is the same class of defect this lens exists to catch, and it was created by
+revision 2's own fix: the value changed at the write site and stayed unchanged
+everywhere it is consumed.
+
+### MEDIUM 1 — `scope.json`, the manifest the diff checkpoints run against, does not contain the files revision 2 added [CODE-CONFIRMED]
+
+`factory_cmd_checkpoint.py:373` flows `scope.json`'s `allowed_dirty_paths` into
+the diff-stage dirty tolerance. Files outside it need a per-slice
+`--allow-dirty-path`. The manifest is missing, among others:
+
+| File | Why the plan needs it |
+|---|---|
+| `app/models/__init__.py` | **Slice 1's headline new item** (`plan.md:180`) — the registry line every test schema is built from |
+| `app/config.py` | Both new config keys (`plan.md:69-71`) |
+| `app/db.py` | Calls `install_sqlite_parity_guards()` at line 22 — the import-time registration pattern the plan says it mirrors (`plan.md:123-125`) |
+| `app/engine/connection_activity.py` | `mark_seen`, the `ai_connected` choke point (`plan.md:169`) |
+| `app/engine/agent_play.py` | `played_turn`, the genuine AI path (`plan.md:170`) |
+| `app/routes/web_play.py` | `played_turn`, the human path (`plan.md:170`) |
+| `app/routes/dev_login.py` | `picked_handle` + always-internal (`plan.md:72-73`, `:168`) |
+| `app/engine/bots/seating.py` | D10's `is_internal=True` creation site |
+| `.env.example` | The production gate's only discoverable surface |
+
+Stale in the other direction too: `app/routes/web_join.py` and
+`app/routes/agents_create.py` are still in scope from the pre-ORM-listener
+design and now need no edit at all. `scope.json` is a revision-1 artifact.
+
+### MEDIUM 2 — Slice 6 depends on 1 and 4 but not 3, and the plan's own test #6 spans 3 and 6 [CODE-CONFIRMED]
+
+Applying the round-1 slice-7→4 test to every other edge, this is the one that
+fails the same way.
+
+`plan.md:185` gives slice 6 (milestone backfill) dependencies "1,4". `plan.md:223-224`
+lists as a highest-value test: "Autopilot rows excluded in **both** live
+recording and backfill, so no step change at the deploy date." Live recording is
+slice 3. The backfill's genuineness filter must match slice 3's recorder
+definition or the page shows a step change at the deploy date — precisely the
+defect D4 exists to prevent (`spec.md:185-188`). As sequenced, slice 6 can be
+written, checkpointed and declared green against a definition slice 3 never
+agreed to.
+
+The reverse is also suspect: nothing in the milestone backfill reads
+`is_internal`, so slice 6's stated dependency on slice 4 looks like the spurious
+one. The two other edges check out — slice 3→2 and slice 8→7 are both real.
+
+### MEDIUM 3 — Slice 3 carries the proof obligation for a slice-2 behaviour [CODE-CONFIRMED]
+
+The house-bots-user exclusion is **listener** code: `plan.md:146` puts it in the
+`Player` row of the listener mapping and `plan.md:155-157` explains why. Listeners
+are slice 2. But the proof — "**bot seats record no `joined_match`**" — sits in
+**slice 3's** must-prove (`plan.md:182`).
+
+So slice 2's checkpoint can go green with a listener that records `joined_match`
+for every bot seat, and slice 3 then has to edit slice-2 code to pass its own
+gate, after slice 2 was declared done and checkpointed. This is the same failure
+the testability round already caught once ("slice 2's own must-prove list would
+have PASSED against the broken shape", `plan.md:290`).
+
+Related and unstated: the plan never says how the listener identifies the bots
+user. `get_or_create_bots_user` (`app/engine/bots/seating.py:45-58`) looks it up
+by `BOTS_USER_SUB`. If an implementer instead reaches for `is_internal` — the
+natural read of "the house account" — slice 2 silently acquires a dependency on
+slice 4, and the exclusion is a no-op until slice 4 lands.
+
+### MEDIUM 4 — The `is_internal` backfill got neither a dry run nor the readback the spec requires [CODE-CONFIRMED]
+
+`plan.md:198`: "The two backfills are irreversible in practice. Slice 6 requires
+a dry run against a copy of production data, with a row-count readback, before
+merge."
+
+The sentence names two backfills and gates one. Slice 4's must-prove
+(`plan.md:183`) is unchanged: "survives email rewrite and promote/demote;
+backfill and creation rule agree on one fixture set" — no dry run, no readback,
+no post-deploy step.
+
+Spec D10 requires the opposite, and explains why (`spec.md:326-329`): the `.local`
+accounts "cannot have come through Google sign-in … so a fourth creation path
+exists outside the app … The backfill is therefore the only thing that will ever
+flag them, **which is why it must be verified after deploy by reading back the
+flagged row count against the known internal accounts**."
+
+This is the higher-blast-radius backfill of the two. `is_internal` is the filter
+under *every* number on the page (AC9), the spec measured over 500 of 646 dev
+player rows as internal, and a wrong predicate mislabels the population with no
+visible symptom.
+
+### MEDIUM 5 — Slice 7 still never reads `first_source_channel`, and D9's label precedence is still absent [CODE-CONFIRMED]
+
+Revision 2 fixed the write half: `first_source_channel` is now named in slice 5
+(`plan.md:184`) and `signup_sources` in slice 7's title (`plan.md:186`). The read
+half did not move.
+
+- Slice 7's must-prove lists eight items and the channel is not among them.
+- The plan still contains **zero** statements of D9's label precedence
+  (`utm_source` → `first_referrer_host` → `"direct"`, `spec.md:286`), which is
+  the rule that decides what every row of the source table says.
+- AC13 has two halves: "record `mcp` in its own column" (slice 5, done) and "a
+  real `?utm_source=mcp` does not collide with it" — a read/render rule with no
+  owner.
+
+Round 1 flagged that the column "is defined in the data model and then never read
+by anything in the plan". It is now also written by a named slice and still read
+by none.
+
+### MEDIUM 6 — The `except ValueError` rationale does not hold for the mechanism revision 2 chose [CODE-CONFIRMED]
+
+`plan.md:115-116`: "`ValueError` is caught deliberately: `StringLengthExceeded`
+is a `ValueError` and would otherwise escape the advisory catch."
+
+Checked against the real guard:
+
+- `StringLengthExceeded` is raised only by `_check_string_lengths`
+  (`app/sqlite_parity.py:23`, `:45`).
+- That function is a **`before_flush`** listener (`app/sqlite_parity.py:53`) and
+  iterates `session.new` / `session.dirty` — **ORM objects only**.
+- It returns immediately on non-SQLite binds, and it explicitly skips
+  `FlexibleEnumType` columns (`app/sqlite_parity.py:38-40`: "FlexibleEnumType is a
+  TypeDecorator, not a String subclass, so enum members are skipped here"), which
+  is the type the plan chose for `milestone`.
+
+The recorder shown at `plan.md:101-113` is a **Core** insert on the connection
+(`conn.execute(insert(UserMilestone), row)`) running in `after_flush_postexec`.
+That row never enters `session.new`, and `before_flush` has already fired by
+then. The guard cannot raise on this path.
+
+Harmless on its own, but it is the plan's stated justification for a broad
+`except ValueError` in the one place the repo's fail-loud rule is deliberately
+suspended — a leftover from the pre-revision-2 `db.add` shape that now reads as
+evidence for a catch that catches nothing.
+
+### LOW 1 — Six accepted round-1 items were not applied in revision 2 [CODE-CONFIRMED]
+
+Recorded once as a fix-completeness observation, not re-argued:
+
+| Round-1 item | Status in revision 2 |
+|---|---|
+| M5 — AC16's browser-timezone carrier | Still no mechanism, no slice-8 window control, no stated fallback |
+| M8 — AC22's capture half ("capture raising does not fail the page") | Still absent from slice 5's must-prove and from the seven highest-value tests |
+| M9 — `source_match_id` first-write-wins vs AC17 | Unaddressed; `plan.md:41` still asserts it "enables read-time smoke-test exclusion" |
+| L1 — "decisions (D1–D14)" | `plan.md:4` unchanged; the spec has D1–D12 plus D3a |
+| L3 — config keys have no doc consumer | `.env.example` still lists 8 keys, neither of them new; the plan still does not name the file |
+| L4 — no file manifest | `scope.json` exists and would answer it, but the plan never points at it — and see MEDIUM 1 |
+
+### LOW 2 — The plan targets "spec.md revision 4"; the spec's header says "Revision 3" [CODE-CONFIRMED]
+
+`plan.md:3` versus `spec.md:3`. The spec *body* says "Revised in revision 4" in
+D1 and D3, so the content is revision 4 and only the header is stale — but every
+reconciliation note keys off that number, and the two artifacts now disagree on
+the spec's own version.
+
+### LOW 3 — `user_detail.html` is still unnamed in slice 8, and the milestone enum class is unnamed [CODE-CONFIRMED]
+
+- Slice 8 (`plan.md:187`) names `admin_user_actions.py`, `users_list.html`,
+  `admin/dashboard.html` and `base.html` — but not
+  `app/templates/admin/user_detail.html`, where the toggle actually renders, and
+  not the `{% if not floor_admin %}` gate it must render outside of. "Renders for
+  a floor admin" covers it behaviourally only.
+- `FlexibleEnumType(enum_cls, *, length)` requires a Python enum class
+  (`app/models/enum_types.py:25`). The plan lists seven milestone *values* and
+  names no enum class or its home. Every existing use in the repo passes
+  `length=16`; the plan specifies 32, and `set_up_human_play` is 18 characters —
+  so copying the established pattern silently truncates the value the split
+  introduced.
 
 ## Residual Risks
 
-- **The `after_insert`/`after_commit` shape is unproven and everything depends on it.** Five of six milestones (three via listeners, plus the ordering assumptions the other three inherit) rest on a mechanism the plan itself calls "the one genuinely fiddly bit". If slice 2 discovers the shape does not work in async SQLAlchemy, slices 3, 6, 7 and 8 all shift. The plan has no stated fallback (e.g. explicit calls at the insert sites, or a Core-level `after_flush` write on the flush connection).
-- **Recorder fail-open plus a suite that never asserts the table exists.** `except SQLAlchemyError: logger.exception(...)` means every category of write failure — missing table, missing column, wrong FK, unregistered model — presents as a green test run and an empty dashboard. Nothing in the plan asserts a positive row count end-to-end through a real request.
-- **Bot `Player` rows will record `joined_match` for house users.** The listener mapping excludes `Agent` rows of `kind='bot'` but has no exclusion on `Player`. This is caught downstream by `is_internal` (house users are created internal at `app/engine/bots/seating.py:51`), so the page should be right — but it makes the raw table's counts and the read models' counts diverge, and any future consumer reading `user_milestones` directly inherits the pollution.
-- **`played_turn` is not sourced from the same place as the derived play metrics.** The milestone is written at request time by hooks; "turns in the window", "users active in the window" and `returned` are derived at read time from `turn_submissions` with a different genuineness filter. Two definitions of "genuine play" now exist in one feature and the plan has no test pinning them to agree.
-- **Cross-game scope is unstated.** `record_submission` is a game-module method with implementations in both `app/games/hoard_hurt_help/game.py:194` and `app/games/liars_dice/game.py:212`. Whether `played_turn` and the windowed play metrics span both games, or only Hoard Hurt Help, is never said — and the answer changes both the hook placement and every number on the page.
-- **The 20,276-row milestone backfill has a stated measurement plan but no numbers and no dry run.** "Batch the UPDATE and measure before prod" is the whole mitigation for a migration that runs as `preDeployCommand` on the live database while the old code serves traffic.
+- **The bots user still records `signed_up`.** Revision 2 added a house-user
+  exclusion to the `Player` listener only (`plan.md:146`). The `User` listener has
+  none, so `get_or_create_bots_user` (`app/engine/bots/seating.py:45`) writes a
+  `signed_up` milestone for the house account. `is_internal` catches it at read
+  time once slice 4 lands, so the page should be right — but between slices 2 and
+  4 the raw table is polluted, and any future direct consumer inherits it.
+- **No kill switch for the listeners.** Revision 2 correctly withdrew the "inert
+  by default" claim, but did not add what the claim was standing in for. The
+  listeners begin writing on every `User`/`Agent`/`Player` insert the moment the
+  merge deploys, and the only flag in the feature gates the capture cookie. If
+  they misbehave in production the remedy is a revert-and-redeploy.
+- **Two definitions of "genuine play" still have no test pinning them together.**
+  `played_turn` is written at request time by two named hooks; "turns in the
+  window", "users active in the window" and `returned` are derived at read time
+  from `turn_submissions` with their own filter. Unchanged from round 1.
+- **Cross-game scope is still unstated.** `record_submission` has implementations
+  in both `app/games/hoard_hurt_help/` and `app/games/liars_dice/`. Whether the
+  page spans both games is never said, and it changes both hook placement and
+  every number.
+- **The listener registration home is named by pattern, not by file.** "Mirroring
+  the existing `install_sqlite_parity_guards` pattern" (`plan.md:123`) points at a
+  real precedent whose actual call site is `app/db.py:22` — a file that is in
+  neither the plan's prose nor `scope.json`.
+- **Milestone ordering is now an implementation-time design decision.** The split
+  removed a bug and handed the page a question it did not have before: what order
+  seven milestones with two parallel setup values render in, and how "furthest
+  reached" is defined over them. Deferring that to slice 7/8 means it gets decided
+  by whoever writes the query.
 
 ```json
-{"reviewed": true, "findings": [{"severity": "HIGH", "title": "D7 middleware ordering and main.py registration absent from the plan", "detail": "The spec's own most-likely-silent-failure (FirstTouchMiddleware must be added before SessionMiddleware at app/main.py:240) plus the verified skip-prefix list are mentioned nowhere in the plan, and no slice proves ordering."}, {"severity": "HIGH", "title": "ORM listeners have no registration home", "detail": "The plan says 'registered once at app startup' without naming a file; the repo's precedent installs global Session events at import in app/db.py:22, and tests/conftest.py's db fixtures never import app.main, so the choice decides whether slice 2's proofs test anything."}, {"severity": "HIGH", "title": "app/models/__init__.py not in scope, so the new table may not exist in test databases", "detail": "app/models/__init__.py is what puts models into Base.metadata and tests/conftest.py builds every schema with create_all; combined with the recorder's fail-open except SQLAlchemyError, an unregistered UserMilestone gives a green suite that proves nothing."}, {"severity": "HIGH", "title": "played_turn assigned to two unnamed 'request-level hooks'", "detail": "record_submission has five call sites and record_player_action two, and the genuine AI-agent path runs through app/engine/agent_play.py:269 which record_player_action never reaches, so AC4 and AC8 rest on a call-site search the plan leaves to the implementer."}, {"severity": "HIGH", "title": "sync_google_user change and all its consumers missing from the plan", "detail": "The plan never mentions sync_google_user, its three production callers (auth.py:106, mcp_server/oauth_auth.py:156, mcp_server/connection_identity.py:176) or its fourteen test call sites across test_mcp.py, test_auth_user_sync.py and test_account_disabled.py, and assigns AC13's first_source_channel='mcp' write to no file."}, {"severity": "HIGH", "title": "'Slice 5 is inert by default, nothing about the live site changes' is false", "detail": "railway.json runs alembic upgrade head as preDeployCommand and push to main auto-deploys, so the migration, both backfills, the ORM listeners on every User/Agent/Player insert, the page and the admin toggle all ship unflagged on the same merge."}, {"severity": "HIGH", "title": "First-write-wins agent_kind breaks AC7's denominator", "detail": "web_join.py:113 defaults brand-new users to manual play and human_player.py:98 inserts the human Agent first, so UNIQUE(user_id, milestone) permanently stamps agent_kind='human' and the 'share of AI-agent users' denominator collapses."}, {"severity": "HIGH", "title": "The signup-source half of the feature has no slice content", "detail": "signup_sources.py, the 'unknown' vs 'direct' rule (AC14), the D9 label precedence and any read of first_source_channel are mentioned zero times in the plan, leaving one of the feature's two headline questions unplanned."}, {"severity": "MEDIUM", "title": "Stuck-people list (AC18) absent from the plan", "detail": "The furthest-milestone list with handle-less users shown by email, a 50-row cap and a remainder count has no slice, query shape or test, despite being the most useful element at 10-20 users."}, {"severity": "MEDIUM", "title": "Neither explanatory note (AC19) is planned", "detail": "The dated reconstructed-history note and the MCP-attribution limit are unmentioned, and the plan never says where the deploy date used in the note comes from."}, {"severity": "MEDIUM", "title": "Three summary numbers (AC1a) and the period-over-period rule have no slice", "detail": "The word 'summary' does not appear in the plan body, so the window/population/internal-exclusion statements, their tests, and the 'no comparison on an unbounded window' rule are all unplanned."}, {"severity": "MEDIUM", "title": "Admin toggle surface named only by its colspan", "detail": "AdminAction's two new values, admin_user_actions.py's lock/no-op/audit contract, user_detail.html's floor_admin gate, users_list.html's seven-th header row, base.html and admin/dashboard.html are all unnamed, and slice 8 has no nav assertion for AC1."}, {"severity": "MEDIUM", "title": "AC16's browser-timezone default has no mechanism", "detail": "Nothing in the plan carries the browser timezone to the server, slice 8 mentions no window control, and no fallback is stated for requests without JavaScript."}, {"severity": "MEDIUM", "title": "Slice 7 depends only on slice 1 but AC9's exclusion needs slice 4's flag", "detail": "The read models can be built, checkpointed and called green without ever filtering users.is_internal, and a page including the 500-plus internal player rows looks entirely normal."}, {"severity": "MEDIUM", "title": "after_flush_postexec versus after_commit is left ambiguous", "detail": "The two hooks have opposite durability semantics and neither can await, and tests/factories.py::make_user only flushes without committing, so a commit-based hook records nothing for most existing fixtures."}, {"severity": "MEDIUM", "title": "AC22's capture half has no slice proof or test", "detail": "Slice 5's must-prove list and the plan's highest-value tests both omit 'capture raising does not fail the page', which is the higher-blast-radius half since a raising middleware takes down every page."}, {"severity": "MEDIUM", "title": "source_match_id is first-write-wins, so smoke-test exclusion can drop genuine users", "detail": "A user whose first join is a 'prod smoke' match has their joined_match milestone excluded entirely at read time with no fallback to their next join and no note explaining the undercount."}, {"severity": "MEDIUM", "title": "No post-deploy verification or dry run for two irreversible backfills", "detail": "Spec D10 requires reading back the flagged internal row count after deploy, but the plan has no post-deploy step, no dry-run mode, and both backfills run as preDeployCommand while the old code still serves."}, {"severity": "LOW", "title": "Plan cites spec decisions D13 and D14, which do not exist", "detail": "The spec has D1 through D12 plus D3a, so an implementer tracing coverage decision-by-decision looks for two decisions that were never written."}, {"severity": "LOW", "title": "clear_session is unnamed for AC12", "detail": "app/auth/session.py:25 pops only SESSION_USER_KEY and must also clear first_touch, but the plan states the behaviour without naming the single sign-out consumer."}, {"severity": "LOW", "title": "New config keys have no documentation consumer", "detail": "FIRST_TOUCH_CAPTURE_ENABLED is the feature's production gate yet nothing adds it to .env.example, which docs/setup-dev.md:30 tells developers to copy."}, {"severity": "LOW", "title": "Plan claims ~26 files but contains no file manifest", "detail": "Each slice gets a diff checkpoint with no declared file scope to check the diff against, and the gap between '~26 files' and the nine modules actually named is where the omissions above live."}]}
+{"reviewed": true, "findings": [{"severity": "HIGH", "title": "Spec never updated: set_up_a_way_to_play and agent_kind are still its design", "detail": "spec.md:75/96/102/433 and state.json's AC4 still name the milestone and column plan revision 2 dropped, so AC4 is unsatisfiable as written and spec.md:96 still states the agent_kind column is required or the AI denominator is unrecoverable."}, {"severity": "HIGH", "title": "Plan's risk table still prescribes the refuted after_commit shape", "detail": "plan.md:266 says 'Collect in the listener, write in after_commit; slice 2 exists to prove this shape' while plan.md:88 and :95-97 establish that after_commit raises InvalidRequestError and persists 0 rows, so the compact risk summary instructs the exact silent failure the rewrite removed."}, {"severity": "HIGH", "title": "'Dry run against a production copy' has no documented procedure and the only documented prod access is the live DB", "detail": "No pg_dump, restore or snapshot step exists in docs/ or MEMORY.md; docs/deploy-railway.md:86 only notes that Railway backups exist and docs/operations/debugging-history.md:20 documents DATABASE_PUBLIC_URL as live production, while the repo's own read-only precedent scripts/preview_match_id_migration.py (--db copy.db --dry-run) goes uncited and no --dry-run mode is required of the migration."}, {"severity": "HIGH", "title": "state.json's acceptance-criteria list is still the stale 22-item revision-3 list", "detail": "spec.md:411 calls state.json authoritative but it omits AC0 (the FIRST_TOUCH_CAPTURE_ENABLED privacy gate), AC1a and AC1b, still says 403-for-non-admin without the 401-anonymous correction, and still names set_up_a_way_to_play in AC4."}, {"severity": "HIGH", "title": "The milestone split has a write side and no read side", "detail": "set_up_human_play is written by the listener and read by no slice, AC-table row, page item or backfill; the union that AC4 and D2's funnel actually display is owned by nobody, D2's ordered presentation and AC18's 'furthest milestone' label are undefined over two parallel setup values, and slice 6 names neither new value."}, {"severity": "MEDIUM", "title": "scope.json does not contain the files revision 2 added", "detail": "The diff-checkpoint manifest omits app/models/__init__.py (slice 1's headline item), app/config.py, app/db.py, app/engine/connection_activity.py, app/engine/agent_play.py, app/routes/web_play.py, app/routes/dev_login.py, app/engine/bots/seating.py and .env.example, while still carrying web_join.py and agents_create.py from the pre-listener design."}, {"severity": "MEDIUM", "title": "Slice 6 depends on 1 and 4 but not 3, and the plan's own test #6 spans 3 and 6", "detail": "The backfill's genuineness filter must match slice 3's live recorder or the page shows a step change at the deploy date, yet slice 6 can be checkpointed green against a definition slice 3 never agreed to; conversely nothing in the milestone backfill reads is_internal, so the stated dependency on slice 4 is the questionable one."}, {"severity": "MEDIUM", "title": "Slice 3 carries the proof obligation for a slice-2 behaviour", "detail": "The house-bots-user exclusion is listener code (slice 2) but 'bot seats record no joined_match' is in slice 3's must-prove, so slice 2 can be declared done with the bug in it; the plan also never says whether the listener identifies the bots user by BOTS_USER_SUB or by is_internal, which would add a hidden slice-4 dependency."}, {"severity": "MEDIUM", "title": "The is_internal backfill got neither a dry run nor the readback spec D10 requires", "detail": "plan.md:198 names two irreversible backfills and gates only slice 6, while spec.md:326-329 explicitly requires reading back the flagged row count after deploy for the internal-flag backfill, which is the filter under every number on the page."}, {"severity": "MEDIUM", "title": "Slice 7 still never reads first_source_channel and D9's label precedence is still absent", "detail": "Revision 2 fixed the write half (slice 5) but slice 7's must-prove never mentions the channel, the plan still states D9's utm_source to referrer_host to 'direct' precedence zero times, and AC13's no-collision half has no owner."}, {"severity": "MEDIUM", "title": "The except ValueError rationale does not hold for the chosen mechanism", "detail": "StringLengthExceeded is raised only by a before_flush listener over session.new/session.dirty that skips FlexibleEnumType columns (app/sqlite_parity.py:23/38/45/53), so it cannot fire for the Core connection insert in after_flush_postexec that plan.md:101-113 specifies."}, {"severity": "LOW", "title": "Six accepted round-1 items were not applied in revision 2", "detail": "AC16's timezone carrier, AC22's capture half, source_match_id first-write-wins, the D1-D14 miscitation, .env.example and the file manifest are all unchanged from revision 1."}, {"severity": "LOW", "title": "Plan targets spec.md revision 4 while the spec header says Revision 3", "detail": "plan.md:3 versus spec.md:3; the spec body says 'Revised in revision 4' so only the header is stale, but every reconciliation note keys off that number."}, {"severity": "LOW", "title": "user_detail.html unnamed in slice 8 and the milestone enum class is unnamed", "detail": "Slice 8 lists four template and service files but not the one the toggle renders in or its floor_admin gate, and the plan names seven milestone values with no enum class while every existing FlexibleEnumType column in the repo uses length=16 against the plan's 32 and an 18-character set_up_human_play."}]}
 ```

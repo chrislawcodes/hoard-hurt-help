@@ -195,8 +195,25 @@ backfills, the listeners, the page and the admin toggle. **Only the visitor-sour
 cookie is behind the flag.**
 
 Consequences that must be respected:
-- The two backfills are irreversible in practice. Slice 6 requires a dry run
-  against a copy of production data, with a row-count readback, before merge.
+
+**The two backfills are irreversible in practice, so both need a rehearsal — and
+"do a dry run" is not a procedure.** This repo already has the pattern, at
+`scripts/preview_match_id_migration.py`:
+
+```bash
+python3 scripts/preview_match_id_migration.py --db copy.db --dry-run
+```
+
+It is read-only by construction and takes a path to a *copy*. Slice 6 ships an
+equivalent `scripts/preview_milestone_backfill.py` with the same interface, and
+slice 4 does the same for the `is_internal` backfill (spec D10 requires a
+post-deploy readback and revision 2 gave it neither a dry run nor one).
+
+**Getting the copy is the gap.** The only documented production database access is
+`DATABASE_PUBLIC_URL`, which points at the **live** database — there is no
+documented dump-and-restore step anywhere in `docs/` or `MEMORY.md`. Writing that
+down is part of slice 6, because a "dry run against a prod copy" nobody knows how
+to produce will be skipped.
 - The listeners begin writing on every user/agent/player insert the moment this
   deploys, flag or no flag.
 - The migration runs while the **old** code is still serving, so it must be
@@ -263,7 +280,8 @@ read makes the flag-on tests unrunnable.
 
 | Risk | Mitigation |
 |---|---|
-| `after_insert` cannot do async work | Collect in the listener, write in `after_commit`; slice 2 exists to prove this shape before anything depends on it |
+| `after_insert` cannot do async work | Collect in `after_insert`, write in **`after_flush_postexec`** using a Core insert on a connection-level savepoint — the shape verified by execution (see "The working shape"). **Not `after_commit`**, which persists zero rows and is swallowed by the fail-open handler |
+| A missing commit loses rows only in production | Savepoint writes survive an uncommitted session on SQLite but not Postgres. Slice 2 asserts from a fresh session after commit; see the open question below on whether SQLite-only tests can catch this at all |
 | Backfill volume in one migration | Dev DB has 1,648 matches / 20,276 submissions; batch the UPDATE and measure before prod. Railway runs it as `preDeployCommand` while old code still serves, so it must be additive-only |
 | Two admin pages disagreeing | `/admin/reports` also filters `state == COMPLETED` and windows on `completed_at`; the engagement page states its own window explicitly rather than claiming parity |
 | Extra write on the turn-submission hot path | Only the *first* genuine play writes; the unique constraint short-circuits the rest. Measure in slice 3 |

@@ -72,7 +72,8 @@ detection in the reader's timezone, chosen at read time) could not both hold.
 |---|---|
 | `signed_up` | a `User` row is created |
 | `picked_handle` | `handle_key` first set |
-| `set_up_a_way_to_play` | first `Agent` of kind `ai` **or** `human` |
+| `set_up_ai_agent` | first `Agent` of kind `ai` |
+| `set_up_human_play` | first `Agent` of kind `human` |
 | `ai_connected` | `first_connected_at` first stamped on any connection |
 | `joined_match` | first `Player` row |
 | `played_turn` | first genuine submission (D5) — "did they ever play at all" |
@@ -93,14 +94,19 @@ contradiction entirely.
 |---|---|
 | `user_id`, `milestone` | `UNIQUE(user_id, milestone)` |
 | `reached_at` (UTC) | **Round 3 caught this missing.** Without it no windowed count is possible at all |
-| `agent_kind` (nullable) | Lets `ai_connected` be reported against AI-agent users (AC7). The `agents` row is hard-deleted, so the denominator must be captured here or it is unrecoverable |
+| ~~`agent_kind`~~ | **Removed in revision 5.** It carried the AI-vs-human distinction on a single write-once milestone — but new users default to manual play, so almost everyone would record `human` first and the AC7 denominator would collapse toward zero. Two separate milestones (`set_up_ai_agent`, `set_up_human_play`) carry the distinction instead, and the denominator is simply the count of `set_up_ai_agent` holders |
 | `source_match_id` (nullable) | Lets smoke-test matches be excluded at read time (AC17). A milestone row carries no match reference otherwise |
 
 Why this still fixes both root causes: the milestone row survives every deletion
 site, and no ordering is assumed — an MCP user who connects before building an
 agent records both in whatever order they happen, and a human player records
-`set_up_a_way_to_play` and never records `ai_connected`, which is correct rather
+`set_up_human_play` and never records `ai_connected`, which is correct rather
 than a drop.
+
+**Reading the two setup milestones.** "Set up a way to play" on the page is the
+count of users holding **either**. `ai_connected` is reported against
+`set_up_ai_agent` holders only (AC7). The stuck list's "furthest milestone"
+treats the two as the same rung, breaking ties toward `set_up_ai_agent`.
 
 ### D2 — Independent counts, not strict nesting
 
@@ -430,7 +436,7 @@ Every criterion has a matching test in the plan below.
 3. A milestone survives deletion of the row that caused it — setup GC, seat
    release, agent hard-delete, match delete.
 4. **A human player (agent kind `human`, no connection) is counted at
-   `set_up_a_way_to_play`, `joined_match`, `played_turn` and `returned`.**
+   `set_up_human_play`, `joined_match`, `played_turn` and `returned`.**
 5. **An MCP user who connects before building an agent is counted at both, in
    either order, with no invented drop.**
 6. Milestone counts are independent — no count is suppressed because an earlier
