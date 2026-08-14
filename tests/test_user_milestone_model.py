@@ -26,7 +26,7 @@ from tests.factories import make_user
 
 
 @pytest.mark.asyncio
-def test_model_is_exported_from_the_models_package() -> None:
+async def test_model_is_exported_from_the_models_package() -> None:
     """app/models/__init__.py must export UserMilestone.
 
     This is the guard, and it has to be written this way. A declarative model
@@ -55,20 +55,28 @@ async def test_table_is_created_by_create_all(db) -> None:
 
 @pytest.mark.asyncio
 async def test_records_a_milestone(db) -> None:
+    # PLAYED_TURN, not SIGNED_UP: creating the user already records SIGNED_UP via
+    # the ORM listener, so adding it again by hand would collide with the unique
+    # constraint rather than testing storage.
     user = await make_user(db)
     db.add(
         UserMilestone(
             user_id=user.id,
-            milestone=MilestoneKind.SIGNED_UP,
+            milestone=MilestoneKind.PLAYED_TURN,
             reached_at=datetime.now(timezone.utc),
         )
     )
     await db.commit()
 
     stored = (
-        await db.execute(select(UserMilestone).where(UserMilestone.user_id == user.id))
+        await db.execute(
+            select(UserMilestone).where(
+                UserMilestone.user_id == user.id,
+                UserMilestone.milestone == MilestoneKind.PLAYED_TURN,
+            )
+        )
     ).scalar_one()
-    assert stored.milestone is MilestoneKind.SIGNED_UP
+    assert stored.milestone is MilestoneKind.PLAYED_TURN
     assert stored.source_match_id is None
 
 
@@ -100,10 +108,10 @@ async def test_different_milestones_for_one_user_are_allowed(db) -> None:
     db.add_all(
         [
             UserMilestone(
-                user_id=user.id, milestone=MilestoneKind.SIGNED_UP, reached_at=now
+                user_id=user.id, milestone=MilestoneKind.PICKED_HANDLE, reached_at=now
             ),
             UserMilestone(
-                user_id=user.id, milestone=MilestoneKind.PICKED_HANDLE, reached_at=now
+                user_id=user.id, milestone=MilestoneKind.PLAYED_TURN, reached_at=now
             ),
         ]
     )
@@ -114,7 +122,9 @@ async def test_different_milestones_for_one_user_are_allowed(db) -> None:
         .scalars()
         .all()
     )
-    assert len(rows) == 2
+    # Two added here, plus the SIGNED_UP the listener recorded when the user was
+    # created.
+    assert len(rows) == 3
 
 
 @pytest.mark.asyncio
