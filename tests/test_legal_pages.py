@@ -218,3 +218,44 @@ async def test_privacy_discloses_that_we_record_how_you_arrived(
     assert "no analytics" not in prose, (
         "the old claim contradicts the feature that now ships"
     )
+
+
+# The beacon and its disclosure are tested together on purpose. They are one
+# change: shipping the script without the paragraph makes the privacy page false,
+# and that has already happened once on this site — the page said "no analytics"
+# for as long as it took someone to notice.
+
+
+async def test_the_page_view_beacon_ships_on_every_page(
+    reset_db, client: AsyncClient
+) -> None:
+    """Cloudflare's snippet, installed manually rather than injected.
+
+    Automatic injection only works for traffic proxied through Cloudflare, and
+    this domain is DNS-only — it resolves straight to the host. The automatic mode
+    would have reported a healthy setup and collected nothing.
+    """
+    body = (await client.get("/", follow_redirects=False)).text
+    assert "static.cloudflareinsights.com/beacon.min.js" in body
+    assert "data-cf-beacon" in body
+
+
+async def test_privacy_names_the_company_that_counts_page_views(
+    client: AsyncClient,
+) -> None:
+    """A second company sees that a visit happened. The page has to say so.
+
+    Guarded as a presence, like the strategy-text caveat and the arrival
+    disclosure above it. Remove the paragraph while the beacon still ships and the
+    page is wrong about who receives visitor data.
+    """
+    prose = _prose(await client.get("/privacy", follow_redirects=False))
+
+    assert "cloudflare web analytics" in prose, "the page must name the third party"
+    assert "no cookie" in prose, (
+        "the reason this one was chosen over the alternatives is the point"
+    )
+    assert "does not identify you" in prose
+    assert "no third-party analytics service" not in prose, (
+        "that claim is false the moment the beacon ships"
+    )

@@ -220,5 +220,19 @@
         });
     });
     </script>
+
+    {# Cloudflare Web Analytics — page-view counts we cannot get from our own
+       database, because a visitor who never signs up leaves no row anywhere.
+
+       The manual snippet, not Cloudflare's automatic injection. Automatic only
+       works when traffic is proxied through Cloudflare, and this domain is
+       DNS-only: agentludum.com resolves straight to Railway, so the automatic
+       mode would have reported a healthy setup while collecting nothing.
+
+       Sets no cookie, so it does not add to the consent question the first-touch
+       capture already raises. The token is public by design — it ships in the
+       page source of every site that uses this. #}
+    <script defer src="https://static.cloudflareinsights.com/beacon.min.js"
+            data-cf-beacon='{"token": "243e1121cb5a46898d133013d0f28236"}'></script>
 </body>
 </html>

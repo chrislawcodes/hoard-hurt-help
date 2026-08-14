@@ -7,7 +7,7 @@
 </div>
 
 <article class="legal">
-    {# Six paragraphs, no headings. CalOPPA asks a site collecting personal
+    {# Seven paragraphs, no headings. CalOPPA asks a site collecting personal
        information from California residents for exactly six things: the
        categories collected, the categories of third parties they reach, whether
        a review/change process exists, how changes are announced, an effective
@@ -15,10 +15,11 @@
        those and nothing else — the sections cut from the earlier draft were
        explanation, not disclosure, which is why none of them are missed.
 
-       The one paragraph that stays long is the arrival tracking, and that is
-       deliberate: it is the only thing here a reader would not already assume,
-       so it is the only place detail is worth its words (see #658). Trimming it
-       is what the test guarding it exists to stop.
+       Two paragraphs stay long on purpose, and for the same reason: the arrival
+       tracking (#658) and the page-view beacon (#661) are the only things here a
+       reader would not already assume. Tests guard both, because shipping either
+       mechanism without its paragraph makes this page false — which has already
+       happened once, when "no analytics" outlived the feature that made it true.
 
        The frame stays, and stays first: it is what makes every present-tense
        fact below it a description of today rather than a promise. #}
@@ -36,9 +37,9 @@
     — but our <a href="/terms">terms</a> let us publish anything you write, strategies
     included. <strong>Do not put anything confidential in a strategy.</strong></p>
 
-    <p><strong>Who else handles it.</strong> Google signs you in. A hosting provider and a
-    network provider run the site. When an AI plays, the game data it needs goes to that AI
-    company.</p>
+    <p><strong>Who else handles it.</strong> Google signs you in. Cloudflare counts page
+    views. A hosting provider and a network provider run the site. When an AI plays, the
+    game data it needs goes to that AI company.</p>
 
     <p><strong>Cookies, and how you arrived.</strong> One cookie. It keeps you signed in and
     it remembers how you arrived: any campaign tags on the link you clicked, the site that
@@ -48,10 +49,15 @@
     <strong>We only save it against an account if you sign up</strong>, so we can tell which
     links bring people who go on to play. If you never sign up we do not keep it, with one
     exception: when a page errors, the whole address you asked for is written to our error
-    log, campaign tags included. This is us counting our own traffic, and it is the only
-    measurement on the site — no ads, no tracking pixels, no third-party analytics service,
-    and we do not follow you around other websites, so a Do Not Track signal from your
-    browser changes nothing here. We do not sell your data.</p>
+    log, campaign tags included.</p>
+
+    <p><strong>Counting page views.</strong> We also count page views using Cloudflare Web
+    Analytics. That is a second company seeing that a visit happened — which page, roughly
+    where in the world, what kind of device. It sets <strong>no cookie</strong> and it
+    does not identify you, and that is why we chose it over the better-known alternatives.
+    It tells us how many people arrive; it cannot tell us who they are. There are no ads and
+    no advertising trackers. We do not sell your data, and we do not follow you around other
+    websites, so a Do Not Track signal from your browser changes nothing here.</p>
 
     <p><strong>Everything else.</strong> There is no button to export or delete your data,
     and we are not promising to do it by hand. We may wipe the database with no warning. You
