@@ -1,24 +1,28 @@
-"""Unit tests for the sticky provider-aware turn routing helper."""
+"""Unit tests for the sticky provider-aware turn routing helper.
+
+Every rule here is asked through ``can_connection_claim_turn``, which is the one
+function the serving path actually calls (``agent_play_next_turn``). The pin
+itself is taken by a conditional UPDATE in SQL, so "only one claimant wins" is
+proven against the real database in ``tests/test_agent_next_turn_fanout.py``,
+not simulated here.
+"""
 
 from __future__ import annotations
 
-import asyncio
 from datetime import datetime, timedelta, timezone
 
 
 from app.engine.turn_routing import (
     ConnectionRouteState,
     TurnPin,
-    TurnPinClaimStore,
     can_connection_claim_turn,
-    choose_connection_id_for_provider,
-    eligible_connection_ids,
 )
 from app.models.connection import ConnectionProvider
 
 NOW = datetime(2026, 6, 1, 12, 0, tzinfo=timezone.utc)
 WARM = NOW - timedelta(seconds=20)
 COLD = NOW - timedelta(minutes=10)
+NO_PIN = TurnPin(None, None)
 
 
 def _connection(
@@ -39,102 +43,51 @@ def _connection(
 
 
 def test_eligible_when_provider_is_enabled_and_pin_is_empty() -> None:
-    connections = [
-        _connection(1, {"claude"}),
-        _connection(2, {"openai"}),
-    ]
+    covers = _connection(1, {"claude"})
+    does_not = _connection(2, {"openai"})
 
-    eligible = eligible_connection_ids(connections, ConnectionProvider.CLAUDE, now=NOW)
-
-    assert eligible == [1]
-    assert (
-        choose_connection_id_for_provider(
-            connections, ConnectionProvider.CLAUDE, now=NOW
-        )
-        == 1
+    assert can_connection_claim_turn(covers, ConnectionProvider.CLAUDE, NO_PIN, now=NOW)
+    assert not can_connection_claim_turn(
+        does_not, ConnectionProvider.CLAUDE, NO_PIN, now=NOW
     )
 
 
 def test_ineligible_when_provider_is_not_enabled_on_any_live_connection() -> None:
-    connections = [_connection(1, {"openai"})]
+    connections = [_connection(1, {"openai"}), _connection(2, {"gemini"})]
 
-    assert eligible_connection_ids(connections, "claude", now=NOW) == []
-    assert choose_connection_id_for_provider(connections, "claude", now=NOW) is None
+    assert not any(
+        can_connection_claim_turn(connection, "claude", NO_PIN, now=NOW)
+        for connection in connections
+    )
 
 
 def test_sticky_pin_keeps_the_same_connection() -> None:
-    connections = [
-        _connection(1, {"claude"}),
-        _connection(2, {"claude"}),
-    ]
+    connections = [_connection(1, {"claude"}), _connection(2, {"claude"})]
+    by_id = {c.connection_id: c for c in connections}
     pin = TurnPin(served_by_connection_id=1, served_pinned_at=NOW)
 
-    eligible = eligible_connection_ids(connections, "claude", pin=pin, now=NOW)
-
-    assert eligible == [1]
-    assert choose_connection_id_for_provider(connections, "claude", pin=pin, now=NOW) == 1
+    # Both cover the provider and both are live, so only the pin separates them.
     assert can_connection_claim_turn(
-        connections[0],
-        "claude",
-        pin,
-        now=NOW,
-        connections_by_id={c.connection_id: c for c in connections},
+        connections[0], "claude", pin, now=NOW, connections_by_id=by_id
+    )
+    assert not can_connection_claim_turn(
+        connections[1], "claude", pin, now=NOW, connections_by_id=by_id
     )
 
 
 def test_failover_when_pinned_connection_is_dead() -> None:
-    connections = [
-        _connection(1, {"claude"}, last_seen_at=COLD),
-        _connection(2, {"claude"}),
-    ]
+    dead = _connection(1, {"claude"}, last_seen_at=COLD)
+    live = _connection(2, {"claude"})
+    by_id = {dead.connection_id: dead, live.connection_id: live}
     pin = TurnPin(served_by_connection_id=1, served_pinned_at=NOW)
 
-    eligible = eligible_connection_ids(
-        connections, ConnectionProvider.CLAUDE, pin=pin, now=NOW
-    )
-
-    assert eligible == [2]
-    assert (
-        choose_connection_id_for_provider(
-            connections, ConnectionProvider.CLAUDE, pin=pin, now=NOW
-        )
-        == 2
-    )
     assert can_connection_claim_turn(
-        connections[1],
-        ConnectionProvider.CLAUDE,
-        pin,
-        now=NOW,
-        connections_by_id={c.connection_id: c for c in connections},
+        live, ConnectionProvider.CLAUDE, pin, now=NOW, connections_by_id=by_id
     )
-
-
-def test_zero_coverage_returns_no_candidate() -> None:
-    connections = [
-        _connection(1, {"openai"}),
-        _connection(2, {"gemini"}),
-    ]
-
-    assert eligible_connection_ids(connections, "claude", now=NOW) == []
-    assert choose_connection_id_for_provider(connections, "claude", now=NOW) is None
-
-
-async def test_two_simultaneous_claims_only_allow_one_winner() -> None:
-    store = TurnPinClaimStore(
-        [
-            _connection(1, {"claude"}),
-            _connection(2, {"claude"}),
-        ]
+    # The pinned connection has gone cold, so it cannot claim its own pin back.
+    assert not can_connection_claim_turn(
+        dead, ConnectionProvider.CLAUDE, pin, now=NOW, connections_by_id=by_id
     )
-
-    results = await asyncio.gather(
-        store.try_claim(1, "claude", now=NOW),
-        store.try_claim(2, "claude", now=NOW),
-    )
-
-    assert sorted(result.claimed for result in results) == [False, True]
-    assert store.pin.served_by_connection_id in {1, 2}
-    assert store.pin.served_pinned_at == NOW
 
 
 def test_provider_none_skips_cover_check_so_any_live_connection_claims() -> None:
@@ -143,10 +96,9 @@ def test_provider_none_skips_cover_check_so_any_live_connection_claims() -> None
     to a provider). A dead connection still cannot claim."""
     live = _connection(1, {"gemini"})  # enabled providers are irrelevant now
     dead = _connection(2, {"claude"}, last_seen_at=COLD)
-    empty_pin = TurnPin(None, None)
 
-    assert can_connection_claim_turn(live, None, empty_pin, now=NOW) is True
-    assert can_connection_claim_turn(dead, None, empty_pin, now=NOW) is False
+    assert can_connection_claim_turn(live, None, NO_PIN, now=NOW) is True
+    assert can_connection_claim_turn(dead, None, NO_PIN, now=NOW) is False
 
 
 def test_provider_none_respects_sticky_pin_to_a_live_connection() -> None:
