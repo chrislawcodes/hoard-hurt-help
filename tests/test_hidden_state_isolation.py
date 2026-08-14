@@ -25,7 +25,7 @@ import app.games as registry
 from app.db import make_engine
 from app.engine.tokens import generate_turn_token
 from app.games.base import BaseGameModule, GameConfig, GameTheme
-from app.models import Base, Match, GameState, PlayerState, Player
+from app.models import Base, Match, GameState, MatchState, PlayerState, Player
 from app.models.turn import Turn
 from app.routes.agent_next_turn import router as agent_next_turn_router
 from tests.factories import seat_player
@@ -45,6 +45,16 @@ class _HiddenStub(BaseGameModule):
             total_rounds=1, turns_per_round=16, per_turn_deadline_seconds=30,
             min_players=2, max_players=6, simultaneous=False,
         )
+
+    async def next_actor(self, db: Any, match: Match) -> str | None:
+        # Every sequential game must name the seat on the clock: the driver reads
+        # it to decide whose turn to open, and turn serving reads it to decide who
+        # gets handed that turn. The cursor lives in the generic match_state store,
+        # the same place the SequentialDriver conformance stub keeps its own.
+        ms = (
+            await db.execute(select(MatchState).where(MatchState.match_id == match.id))
+        ).scalar_one()
+        return ms.state_json["active"]
 
     def rules_text(self, total_rounds: int = 7, turns_per_round: int = 7) -> str:
         return "Hidden stub rules."
@@ -118,6 +128,9 @@ async def test_private_state_never_leaks_across_players(monkeypatch: pytest.Monk
         alice_key, bob_key = a._test_key, b._test_key
         db.add(PlayerState(match_id=match.id, player_id=a.id, state_json={"secret": "ALICE_DICE_55613"}))
         db.add(PlayerState(match_id=match.id, player_id=b.id, state_json={"secret": "BOB_DICE_22244"}))
+        # A sequential game serves the open turn to one seat: whoever is on the
+        # clock. Alice goes first; the cursor moves to Bob between the two polls.
+        db.add(MatchState(match_id=match.id, state_json={"active": "Alice"}))
         # An open, unresolved act-phase turn so the fan-out serves "your_turn".
         db.add(Turn(
             match_id=match.id, round=1, turn=1, turn_token=generate_turn_token(),
@@ -125,12 +138,21 @@ async def test_private_state_never_leaks_across_players(monkeypatch: pytest.Monk
         ))
         await db.commit()
 
+    async def _hand_the_clock_to(seat_name: str) -> None:
+        async with factory() as db:
+            ms = (
+                await db.execute(select(MatchState).where(MatchState.match_id == "M_HID"))
+            ).scalar_one()
+            ms.state_json = {"active": seat_name}
+            await db.commit()
+
     test_app = FastAPI()
     test_app.include_router(agent_next_turn_router)
     transport = ASGITransport(app=test_app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        # Each seat is served through its OWN connection key.
+        # Each seat is served through its OWN connection key, on its own turn.
         alice_payload = await _serve_turn(client, alice_key)
+        await _hand_the_clock_to("Bob")
         bob_payload = await _serve_turn(client, bob_key)
 
     # Each player sees ONLY their own secret.
