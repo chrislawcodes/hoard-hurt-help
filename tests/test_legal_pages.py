@@ -208,8 +208,12 @@ async def test_privacy_discloses_that_we_record_how_you_arrived(
 
     assert "how you arrived" in prose, "the page must say we record where you came from"
     assert "campaign tags" in prose, "the page must name what is taken from the link"
-    assert "only reaches our database if you sign up" in prose, (
+    assert "only save it against an account if you sign up" in prose, (
         "the page must say when this stops being a cookie and becomes a record"
+    )
+    assert "written to our error log" in prose, (
+        "the page must not claim signing up is the ONLY way this reaches us — a "
+        "failed request logs the whole address, campaign tags included"
     )
     assert "no analytics" not in prose, (
         "the old claim contradicts the feature that now ships"

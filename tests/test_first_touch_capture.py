@@ -104,6 +104,32 @@ def test_internal_navigation_is_not_a_traffic_source() -> None:
     assert _referrer_host("not-a-url", "agentludum.com") is None
 
 
+def test_referrer_never_keeps_credentials_or_a_port() -> None:
+    """The privacy page promises the site NAME, not the address. Pin that.
+
+    Reading the netloc instead of the hostname keeps whatever is in front of the
+    @ sign, so a referrer carrying HTTP basic-auth credentials would have stored
+    a username and password in our database and rendered them on an admin page.
+    """
+    assert (
+        _referrer_host("https://alice:hunter2@intranet.example.com/secret", "agentludum.com")
+        == "intranet.example.com"
+    ), "credentials in the referrer must never be stored"
+    assert _referrer_host("https://reddit.com:8443/r/x", "agentludum.com") == "reddit.com", (
+        "the port is not part of the site's name, and splits one source into two rows"
+    )
+
+
+def test_our_own_site_on_a_nonstandard_port_is_still_not_a_source() -> None:
+    """Dev and preview run on a port; production does not.
+
+    With the port left on, the self-comparison failed everywhere except 443 — so
+    the site recorded itself as its own traffic source in every local session.
+    """
+    assert _referrer_host("http://127.0.0.1:8766/games", "127.0.0.1") is None
+    assert _referrer_host("http://localhost:8000/guide", "localhost") is None
+
+
 def test_values_are_capped_before_they_reach_the_cookie() -> None:
     """The session is a signed cookie with a hard size limit, not server storage."""
     from starlette.datastructures import Headers

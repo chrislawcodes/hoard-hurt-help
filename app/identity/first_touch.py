@@ -82,10 +82,21 @@ def _clip(value: str | None, key: str) -> str | None:
 
 
 def _referrer_host(referer: str | None, own_host: str | None) -> str | None:
-    """The referring site's host, or None for internal navigation."""
+    """The referring site's host, or None for internal navigation.
+
+    ``hostname``, not ``netloc``, and the difference is the whole point. ``netloc``
+    keeps the userinfo and the port, so a referrer like
+    ``https://alice:hunter2@intranet.example.com/x`` would store the username and
+    password — exactly what the privacy policy promises we do not keep. ``hostname``
+    is already lowercased and drops both.
+
+    The port matters for a second reason: ``own_host`` below has no port, so with
+    ``netloc`` the self-comparison failed on any non-443 address and the site
+    recorded itself as its own traffic source in dev and preview.
+    """
     if not referer:
         return None
-    host = urlsplit(referer).netloc.lower()
+    host = urlsplit(referer).hostname
     if not host:
         return None
     if own_host and host == own_host.lower():
