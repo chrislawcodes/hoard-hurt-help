@@ -29,6 +29,7 @@ from app.engine.match_cancellation import mark_cancelled
 from app.engine.player_counts import active_player_count
 from app.engine.user_match_start import is_bot_kind
 from app.games import get as get_game_module
+from app.games.hoard_hurt_help.rules import DEFAULT_MUTUAL_HELP_MODE
 from app.models.agent import Agent, AgentKind
 from app.models.match import GameState, Match, MatchKind
 from app.models.player import Player
@@ -166,10 +167,15 @@ async def ensure_practice_arena(db: AsyncSession) -> None:
         # Guard against stale arenas (e.g. one created before PRACTICE_ARENA_MAX_PLAYERS
         # changed still carries the old capacity in its row, or a schema migration that
         # wiped the players table left the row in REGISTERING with 0 bots). If the bot
-        # count is short or the capacity is out of date, cancel the stale arena and fall
-        # through to create a fresh one so the poller self-heals without manual
-        # intervention. Only REGISTERING/SCHEDULED arenas reach here — once a human joins
-        # the arena goes ACTIVE, so this never cancels a match a person is in.
+        # count is short, the capacity is out of date, or the arena still carries a
+        # superseded mutual-help rule, cancel the stale arena and fall through to create
+        # a fresh one so the poller self-heals without manual intervention. Only
+        # REGISTERING/SCHEDULED arenas reach here — once a human joins the arena goes
+        # ACTIVE, so this never cancels a match a person is in.
+        #
+        # The rule belongs in this check because the arena is the one match nobody
+        # re-creates on a schedule: without it, a default change would never reach the
+        # match most people actually play.
         bot_count = (
             await db.scalar(
                 select(func.count())
@@ -185,6 +191,7 @@ async def ensure_practice_arena(db: AsyncSession) -> None:
         if (
             bot_count >= PRACTICE_ARENA_BOT_COUNT
             and existing.max_players == PRACTICE_ARENA_MAX_PLAYERS
+            and existing.mutual_help_mode == DEFAULT_MUTUAL_HELP_MODE.value
         ):
             return
         mark_cancelled(existing, datetime.now(timezone.utc))

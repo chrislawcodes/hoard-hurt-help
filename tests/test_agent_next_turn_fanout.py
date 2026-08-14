@@ -1365,7 +1365,10 @@ async def test_next_turn_payload_includes_current_pact_values(
     """`your_private_state.pact_values` carries what a mutual HELP with each
     other seat would pay each side RIGHT NOW: decayed for a partner the agent
     already farmed once this match, fresh for one it never mutually helped
-    (routed through `module.private_state_for`)."""
+    (routed through `module.private_state_for`).
+
+    Runs on the decay rule by name — a decayed-vs-fresh difference only exists
+    there, and the flat rules would make both seats read the same number."""
     async with session_factory() as db:
         user = await make_user(db)
         connection, key = await make_connection(db, user)
@@ -1379,6 +1382,7 @@ async def test_next_turn_payload_includes_current_pact_values(
             per_turn_deadline_seconds=60,
             current_round=1,
             current_turn=2,
+            mutual_help_mode="decay",
         )
         db.add(match)
         await db.flush()

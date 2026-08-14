@@ -12,6 +12,7 @@ from typing import Any
 
 from app.engine.tokens import generate_match_id
 from app.games import known_types
+from app.games.hoard_hurt_help.rules import DEFAULT_MUTUAL_HELP_MODE
 from app.models.game_state import MatchState
 from app.models.match import GameState, Match, MatchKind
 
@@ -102,7 +103,7 @@ async def create_match(
     state: GameState = GameState.REGISTERING,
     created_by_user_id: int | None = None,
     match_kind: str = MatchKind.MANUAL.value,
-    mutual_help_mode: str = "decay",
+    mutual_help_mode: str = DEFAULT_MUTUAL_HELP_MODE.value,
     commit: bool = True,
     max_attempts: int = 3,
 ) -> Match:
@@ -168,7 +169,7 @@ async def create_match_with_state(
     state: GameState = GameState.REGISTERING,
     created_by_user_id: int | None = None,
     match_kind: str = MatchKind.MANUAL.value,
-    mutual_help_mode: str = "decay",
+    mutual_help_mode: str = DEFAULT_MUTUAL_HELP_MODE.value,
 ) -> Match:
     """Create a match and seed its module-owned ``MatchState`` in one commit.
 

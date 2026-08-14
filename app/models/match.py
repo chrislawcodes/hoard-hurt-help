@@ -88,8 +88,13 @@ class Match(Base):
     # games/hoard_hurt_help/rules.py for each mode's payout. Replaced an earlier
     # yes/no decay switch: "decay" is what ON meant and "flat_8" what OFF meant,
     # so migrated rows keep the exact rule they were actually played under.
+    # The default is a backstop only — every create path passes the mode
+    # explicitly. It is written out rather than imported from the game module's
+    # DEFAULT_MUTUAL_HELP_MODE because the model layer cannot import a game (the
+    # games package imports the engine, which imports this module).
+    # test_model_default_matches_game_default pins the two together.
     mutual_help_mode: Mapped[str] = mapped_column(
-        String(16), nullable=False, default="decay", server_default="decay"
+        String(16), nullable=False, default="flat_6", server_default="flat_6"
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

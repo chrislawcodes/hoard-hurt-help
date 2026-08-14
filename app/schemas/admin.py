@@ -5,7 +5,7 @@ from datetime import datetime
 from pydantic import BaseModel, Field, field_validator
 
 from app.game_types import DEFAULT_GAME_TYPE
-from app.games.hoard_hurt_help.rules import MutualHelpMode
+from app.games.hoard_hurt_help.rules import DEFAULT_MUTUAL_HELP_MODE, MutualHelpMode
 
 
 class CreateGameRequest(BaseModel):
@@ -19,9 +19,9 @@ class CreateGameRequest(BaseModel):
     turns_per_round: int = Field(default=7, ge=3, le=20)
     wild_ones: bool = True
     dice_per_player: int = Field(default=5, ge=1, le=20)
-    # Hoard-Hurt-Help's per-match rule switch. Defaults to the shipped behavior,
-    # so a request that omits it creates the same match it always did.
-    mutual_help_mode: str = "decay"
+    # Hoard-Hurt-Help's per-match rule switch. Omitting it gets whatever the
+    # platform's current default rule is, the same as every other create path.
+    mutual_help_mode: str = DEFAULT_MUTUAL_HELP_MODE.value
 
     @field_validator("max_players")
     @classmethod

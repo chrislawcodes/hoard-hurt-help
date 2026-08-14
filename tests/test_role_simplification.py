@@ -23,6 +23,7 @@ from pathlib import Path
 import pytest
 from sqlalchemy import select
 
+from app.games.hoard_hurt_help.rules import DEFAULT_MUTUAL_HELP_MODE
 from app.models import Base, GameState, Match, MatchState
 from app.models.user import User, UserRole
 from tests.conftest import signed_in_cookies as _cookies
@@ -193,13 +194,18 @@ async def test_out_of_band_turn_deadline_is_rejected(client, reset_db, deadline)
 
 async def test_a_players_submitted_mutual_help_mode_is_ignored(client, reset_db):
     """Row 7. Choosing the per-match rule is an admin power. A player's value is
-    dropped, not honoured — and the match still gets the shipped default."""
+    dropped, not honoured — and the match still gets the platform default.
+
+    "flat_8" here is just a value the platform default is not, so the assertion
+    below can only pass by the value being dropped.
+    """
     player = await _user(reset_db, "player")
+    assert DEFAULT_MUTUAL_HELP_MODE.value != "flat_8"
     r = await _post_create(client, player, name="PlayerMode", mutual_help_mode="flat_8")
     assert r.status_code == 303, r.text
     match = await _named(reset_db, "PlayerMode")
     assert match is not None
-    assert match.mutual_help_mode == "decay"
+    assert match.mutual_help_mode == DEFAULT_MUTUAL_HELP_MODE.value
 
 
 async def test_an_admin_may_choose_the_mutual_help_mode(client, reset_db):

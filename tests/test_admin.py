@@ -9,6 +9,7 @@ from starlette.requests import Request
 
 from app.config import settings
 from app.engine.match_deletion import delete_match
+from app.games.hoard_hurt_help.rules import DEFAULT_MUTUAL_HELP_MODE
 from app.models import Base, GameState, Match, MatchState, Player, RequestIncident, Turn, TurnSubmission, User
 from app.models.user import UserRole
 from app.read_models.admin_reports import load_turn_timing_report
@@ -1196,16 +1197,18 @@ async def test_web_form_decay_is_the_default(client, reset_db):
     assert (await _match_named(reset_db, "Decaying")).mutual_help_mode == "decay"
 
 
-async def test_web_form_without_the_field_keeps_decay(client, reset_db):
-    """A form that never rendered the control must not silently turn decay off.
+async def test_web_form_without_the_field_uses_the_platform_default(client, reset_db):
+    """A form that never rendered the control must not silently pick a rule.
 
     An unchecked checkbox and a game whose form omits the control both arrive as
-    "absent" — that has to mean "shipped default", not "off".
+    "absent" — that has to mean "the platform default", not any one named mode.
     """
     admin = await _seed_user(reset_db, "admin@test.com")
     r = await _create_via_form(client, admin, "No Field")
     assert r.status_code == 303, r.text
-    assert (await _match_named(reset_db, "No Field")).mutual_help_mode == "decay"
+    assert (
+        await _match_named(reset_db, "No Field")
+    ).mutual_help_mode == DEFAULT_MUTUAL_HELP_MODE.value
 
 
 async def test_admin_api_can_create_a_flat_match(client, reset_db):
@@ -1224,7 +1227,7 @@ async def test_admin_api_can_create_a_flat_match(client, reset_db):
     assert (await _match_named(reset_db, "API Flat")).mutual_help_mode == "flat_8"
 
 
-async def test_admin_api_omitting_the_mode_keeps_decay(client, reset_db):
+async def test_admin_api_omitting_the_mode_uses_the_platform_default(client, reset_db):
     admin = await _seed_user(reset_db, "admin@test.com")
     when = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
     r = await client.post(
@@ -1233,7 +1236,9 @@ async def test_admin_api_omitting_the_mode_keeps_decay(client, reset_db):
         cookies=_cookies(admin.id),
     )
     assert r.status_code == 201, r.text
-    assert (await _match_named(reset_db, "API Default")).mutual_help_mode == "decay"
+    assert (
+        await _match_named(reset_db, "API Default")
+    ).mutual_help_mode == DEFAULT_MUTUAL_HELP_MODE.value
 
 
 async def test_web_form_rejects_an_unknown_mutual_help_mode(client, reset_db):

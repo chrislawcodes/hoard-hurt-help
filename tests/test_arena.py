@@ -22,6 +22,7 @@ from app.engine.arena import (
 )
 from app.engine.bot_presets import HISTORICAL_BOT_NAME_POOL
 from app.engine.bots.seating import BotSeatingError
+from app.games.hoard_hurt_help.rules import DEFAULT_MUTUAL_HELP_MODE, MutualHelpMode
 from app.models import Base
 from app.models.match import GameState, Match, MatchKind
 from app.models.player import Player
@@ -184,6 +185,58 @@ async def test_ensure_practice_arena_refreshes_stale_capacity(db_session):
         assert new_arena is not None
         assert new_arena.id != stale_id
         assert new_arena.max_players == PRACTICE_ARENA_MAX_PLAYERS
+
+
+async def test_ensure_practice_arena_refreshes_stale_mutual_help_mode(db_session):
+    """An arena still on a superseded mutual-help rule is replaced.
+
+    The arena is the one match nothing else re-creates on a schedule — it sits
+    open for a year. Without this, moving DEFAULT_MUTUAL_HELP_MODE would never
+    reach the match most people actually play, and the site would keep showing
+    the old rule with nothing to indicate why.
+    """
+    async with db_session() as db:
+        await ensure_practice_arena(db)
+        arena = (
+            await db.execute(
+                select(Match).where(Match.match_kind == MatchKind.PRACTICE_ARENA.value)
+            )
+        ).scalars().first()
+        assert arena is not None
+        assert arena.mutual_help_mode == DEFAULT_MUTUAL_HELP_MODE.value
+        stale_id = arena.id
+
+        # Simulate the live arena: created under the old default, fully seated,
+        # correct capacity — stale only in which rule it plays.
+        stale_mode = next(
+            m for m in MutualHelpMode if m is not DEFAULT_MUTUAL_HELP_MODE
+        )
+        arena.mutual_help_mode = stale_mode.value
+        await db.commit()
+
+    async with db_session() as db:
+        await ensure_practice_arena(db)
+
+    async with db_session() as db:
+        stale = (
+            await db.execute(select(Match).where(Match.id == stale_id))
+        ).scalar_one()
+        assert stale.state == GameState.CANCELLED
+        # The cancelled row keeps the rule it was created under: these rows are
+        # experiment results, and rewriting one would corrupt a comparison.
+        assert stale.mutual_help_mode == stale_mode.value
+
+        new_arena = (
+            await db.execute(
+                select(Match).where(
+                    Match.match_kind == MatchKind.PRACTICE_ARENA.value,
+                    Match.state.in_([GameState.SCHEDULED, GameState.REGISTERING]),
+                )
+            )
+        ).scalars().first()
+        assert new_arena is not None
+        assert new_arena.id != stale_id
+        assert new_arena.mutual_help_mode == DEFAULT_MUTUAL_HELP_MODE.value
 
 
 async def test_ensure_practice_arena_recreates_after_completion(db_session):

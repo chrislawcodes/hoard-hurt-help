@@ -19,8 +19,16 @@ from tests.factories import make_bot
 # --- Fixtures ---
 
 
-async def _make_game_with_players(db: AsyncSession, n: int) -> tuple[Match, list[Player]]:
-    """Create a game in ACTIVE state with n players, current_round_score=0."""
+async def _make_game_with_players(
+    db: AsyncSession, n: int, *, mutual_help_mode: str = "decay"
+) -> tuple[Match, list[Player]]:
+    """Create a game in ACTIVE state with n players, current_round_score=0.
+
+    The mutual-help rule is named, not inherited from the platform default: the
+    payout tests below are written against decay's sliding 8/7/6…, so a match
+    that quietly arrived on another rule would fail them for the wrong reason.
+    Which rule a NEW match gets is tested in tests/test_mutual_help_modes.py.
+    """
     game = Match(
         id="G_TEST",
         name="test",
@@ -28,6 +36,7 @@ async def _make_game_with_players(db: AsyncSession, n: int) -> tuple[Match, list
         scheduled_start=datetime.now(timezone.utc),
         started_at=datetime.now(timezone.utc),
         per_turn_deadline_seconds=60,
+        mutual_help_mode=mutual_help_mode,
     )
     db.add(game)
     await db.flush()
