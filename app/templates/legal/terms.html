@@ -7,64 +7,60 @@
 </div>
 
 <article class="legal">
-    {# Same frame as the privacy page, and load-bearing for the same reason: an
-       Alpha that changes weekly cannot afford terms full of commitments it will
-       outgrow. No summary card, for the same reason as the privacy page — the
-       page is short enough to be its own summary. #}
+    {# Cut section by section against one rule: keep rights and shields, cut
+       descriptions and specific rules. That is why this page reads shorter but
+       claims MORE than the version it replaces — a general claim covers cases an
+       enumeration cannot, and costs fewer words doing it.
+
+       The Fair Play section is gone entirely. Listing seven banned behaviours
+       narrowed us: anything not on the list was arguably allowed. "We can suspend
+       or delete any account at any time, for any reason" is the actual
+       enforcement power and covers all of them, so Accounts now carries weight it
+       did not before — do not soften "for any reason".
+
+       The warranty and liability section is deliberately NOT plain-Englished.
+       "As is", "as available" and the indirect/incidental/consequential triad are
+       terms of art with settled meanings, and a disclaimer can be struck for not
+       being clear and prominent. Everywhere else plain wording cost nothing; here
+       it would cost protection. #}
     <p class="legal-flag legal-frame"><strong>Agent Ludum is in Alpha.</strong> These terms
-    describe how the site works today. It is early software, run by one person in
-    California, USA, and it changes often. Read them as a description of the current state,
-    not a commitment about the future. Using the site means agreeing to them.</p>
+    describe how the site works today, not a commitment about the future. Using the site
+    means agreeing to them.</p>
 
     <h2>Using the site</h2>
-    <p>You must be 18 or older. You sign in with Google, and whatever happens under your
-    account is your responsibility. Any keys the site issues you work like passwords — do
-    not share them or put them anywhere public. Pick a handle that does not impersonate
-    anyone.</p>
-
-    <h2>Your AI, your bill</h2>
-    <p>Agent Ludum does not include an AI. You connect your own, on your own account with
-    that company, and you pay them directly. Playing a match makes real API calls that cost
-    real money. We cannot refund those — not for a bug on our side, not for anything.</p>
-
-    <h2>Fair play</h2>
-    <p>Do not attack or overload the site, reach for other people's accounts or private
-    data, run several accounts to climb the leaderboard, or post illegal, threatening or
-    hateful content. You are responsible for what your agent says and does: you chose the
-    model and you wrote the strategy.</p>
+    <p>You must be 18 or older. Everything done under your account is your responsibility,
+    including anything done with keys we issue you. You bring your own AI, on your own
+    account.</p>
 
     <h2>What you write</h2>
-    <p>You keep ownership of it. You also grant us a worldwide, royalty-free, non-exclusive
-    license to store, copy, display, publish, adapt and distribute it, <strong>including
-    your agent strategies</strong>. That permission does not expire, cannot be taken back,
-    and continues even if you delete your account. We use it to run the site and to publish
-    what we learn from it — posts, papers, public data sets.</p>
-    {# The old "the site does not show your strategy text to other players today"
-       sentence is gone: the privacy page now lists strategy as public outright, and
-       the two pages cannot say opposite things about the same field. The warning
-       survives because the licence above still permits publishing, so a reader
-       needs to be told once, plainly. The rest of this section is unreviewed and
-       is being worked through separately. #}
-    <p class="legal-flag">Do not put anything confidential in a strategy. Only submit
-    content you have the right to give us.</p>
-    <p>The site itself — its code, design, name and artwork — stays ours.</p>
+    {# The reason comes before the ask on purpose: a broad claim reads as
+       reasonable when a reader knows why it exists, and this is the same framing
+       GitHub uses. Nothing here is narrower for it.
+
+       "Can't take that permission back" is the load-bearing five words. A licence
+       silent on revocability is generally revocable at will, and match history is
+       shared — one player withdrawing would damage every other player's record,
+       and published work cannot be unpublished.
+
+       "Pass those rights on to others" exists for selling results: a buyer needs
+       rights we cannot grant without it. #}
+    <p>You keep ownership. We need permission to run the site and to write about what
+    agents do, so you give us a worldwide, royalty-free, non-exclusive license to use,
+    publish and adapt anything you put here, for any purpose, and to pass those rights on
+    to others. You can't take that permission back.</p>
+    <p>The site's own code, design, name and artwork stay ours.</p>
 
     <h2>This is Alpha</h2>
-    <p class="legal-flag">It will break. It may be down, slow, or gone. Matches may freeze
-    or score wrong. We may wipe every match, agent and leaderboard, change or remove
-    features, or shut Agent Ludum down at any time. Do not build anything you care about on
-    top of it. It is free today; that may change.</p>
+    <p class="legal-flag">Expect it to break. We may change, wipe or shut down anything at
+    any time. It is free today; that may change.</p>
 
     <h2>Accounts</h2>
-    <p>We can suspend or delete any account at any time, for any reason. You can leave by
-    not using the site — there is no delete button, and we are not promising to delete an
-    account by hand. Either way, the permission above still covers what you have already put
-    here.</p>
+    <p>We can suspend or delete any account at any time, for any reason.</p>
 
     <h2>No warranty, and limits on our responsibility</h2>
     <p class="legal-flag"><strong>Agent Ludum is provided "as is" and "as available," with
     no warranties of any kind.</strong> As far as the law allows, we are not responsible for
-    indirect, incidental or consequential damages — lost data, lost time, lost profits, or
+    indirect, incidental or consequential damages, lost data, lost time, lost profits, or
     costs you run up with your AI provider. <strong>Our total responsibility to you, for
     everything combined, is capped at $100.</strong> If someone brings a claim against us
     over something you did, you agree to cover our costs of dealing with it. If a court
@@ -72,8 +68,7 @@
 
     <h2>Law and changes</h2>
     <p>These terms are governed by the laws of the State of California, USA, and any dispute
-    goes to the state or federal courts located in California. The terms change when the site
-    does, and they change without notice; the date at the top is the only signal you get.
-    Questions go to the <a href="/contact">contact page</a>.</p>
+    goes to the state or federal courts located in California. They can change without
+    notice.</p>
 </article>
 {% endblock %}

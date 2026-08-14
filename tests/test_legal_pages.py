@@ -108,12 +108,50 @@ async def test_disabled_user_can_still_read_the_terms(
     assert resp.status_code == 200
 
 
-async def test_terms_claim_a_license_over_strategy_text(client: AsyncClient) -> None:
-    """The license has to name strategies, or it does not cover the thing it must."""
-    resp = await client.get("/terms", follow_redirects=False)
-    body = _prose(resp)
-    assert "license" in body
-    assert "strateg" in body
+async def test_terms_license_is_broad_enough_to_cover_strategies(
+    client: AsyncClient,
+) -> None:
+    """The licence covers strategies by scope now, not by naming them.
+
+    It used to assert the word "strateg" appeared here, because the two pages
+    disagreed: the product hid strategy text while the licence claimed the right
+    to publish it, so naming them explicitly was the bridge. The privacy page now
+    lists strategy as public outright, so there is nothing to bridge and the word
+    was cut from this page entirely.
+
+    What replaces it is the scope that makes the licence reach strategies at all:
+    "anything you put here", "for any purpose". Lose either and the licence
+    narrows to something a strategy could fall outside of.
+    """
+    prose = _prose(await client.get("/terms", follow_redirects=False))
+
+    assert "license" in prose
+    assert "anything you put here" in prose, (
+        "the licence must reach everything a user writes, strategies included"
+    )
+    assert "for any purpose" in prose, (
+        "listing purposes would limit us to them; this is the flexibility"
+    )
+
+
+async def test_terms_keep_the_licence_irrevocable_and_passable(
+    client: AsyncClient,
+) -> None:
+    """The two clauses that took the longest to settle, both nearly cut.
+
+    "Can't take that permission back": a licence silent on revocability is
+    generally revocable at will. Match history is shared, so one player
+    withdrawing damages every other player's record, and published work cannot be
+    unpublished. Five words standing between us and unpicking published output.
+
+    "Pass those rights on to others": added for selling results. Publishing a free
+    dataset needs only our own publish right, but a *buyer* needs rights we cannot
+    grant without this.
+    """
+    prose = _prose(await client.get("/terms", follow_redirects=False))
+
+    assert "can't take that permission back" in prose
+    assert "pass those rights on to others" in prose
 
 
 async def test_privacy_lists_strategy_as_public(client: AsyncClient) -> None:
@@ -135,16 +173,12 @@ async def test_privacy_lists_strategy_as_public(client: AsyncClient) -> None:
     )
 
 
-async def test_terms_warn_that_strategies_are_not_secret(client: AsyncClient) -> None:
-    """Terms only. The privacy page now says this by listing strategy as public.
-
-    Narrowed from both pages when the privacy policy was cut to its CalOPPA
-    floor. The warning still has to live somewhere, because the licence directly
-    above it is what makes the warning necessary.
-    """
-    assert "do not put anything confidential in a strategy" in _prose(
-        await client.get("/terms", follow_redirects=False)
-    )
+# The "do not put anything confidential in a strategy" test used to sit here. It
+# was deleted with the sentence it guarded, deliberately: that warning existed to
+# bridge a gap between a product that hid strategies and a licence that could
+# publish them. The privacy page now says "your strategy" is public in its own
+# public list, which is the warning — repeating it here was the same sentence
+# twice. `test_privacy_lists_strategy_as_public` is what guards it now.
 
 
 async def test_the_terms_warn_that_alpha_data_can_be_wiped(client: AsyncClient) -> None:
