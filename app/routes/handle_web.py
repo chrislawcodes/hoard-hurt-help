@@ -21,7 +21,9 @@ from app.deps import DbSession, require_user
 from app.identity import handle as handle_mod
 from app.identity import word_filter
 from app.identity.handle import HandleError
+from app.identity.milestones import record_milestone
 from app.models.user import User
+from app.models.user_milestone import MilestoneKind
 from app.routes.web_support import _is_any_admin, safe_internal_next
 from app.templating import templates
 
@@ -160,5 +162,8 @@ async def handle_submit(
     user.handle = display
     user.handle_key = key
     user.handle_changed_at = datetime.now(timezone.utc)
+    # Recorded on every save, not only the first: the unique constraint on the
+    # milestone table keeps the earliest one, so a later handle change is a no-op.
+    await record_milestone(db, user.id, MilestoneKind.PICKED_HANDLE)
     await db.commit()
     return RedirectResponse(url=next_url, status_code=status.HTTP_303_SEE_OTHER)

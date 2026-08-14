@@ -22,10 +22,12 @@ from app.config import settings
 from app.db_bootstrap import prepare_database_for_upgrade, verify_required_tables
 from app.engine.scheduler import registry as scheduler_registry
 from app.canonical_host import CanonicalHostMiddleware, canonical_host_of
+from app.identity.first_touch import FirstTouchMiddleware
 from app.oauth_dcr_compat import OAuthRegistrationCompatMiddleware
 from app.request_logging import install_request_logging
 from app.routes.web_support import GameSlugRedirect, game_slug_redirect_response
 from app.routes import (
+    admin_engagement,
     admin_api,
     admin_web,
     agent_api,
@@ -237,6 +239,13 @@ def create_app() -> FastAPI:
     # turns it into the 301/308 redirect those routes used to build by hand.
     app.add_exception_handler(GameSlugRedirect, game_slug_redirect_response)
 
+    # Added BEFORE SessionMiddleware, deliberately. add_middleware inserts at the
+    # front of the list, so the LAST one added is the OUTERMOST — see the
+    # "Outermost:" note on CanonicalHostMiddleware below. Registering first-touch
+    # here puts it INSIDE the session layer, which is the only way
+    # request.session exists when it runs. Move this call after the one below and
+    # capture silently records nothing, forever, with every test still green.
+    app.add_middleware(FirstTouchMiddleware)
     app.add_middleware(
         SessionMiddleware,
         secret_key=settings.session_secret,
@@ -280,6 +289,7 @@ def create_app() -> FastAPI:
     app.include_router(web_routes.router, dependencies=page_deps)
     app.include_router(handle_web.router, dependencies=page_deps)
     app.include_router(admin_web.router, dependencies=page_deps)
+    app.include_router(admin_engagement.router, dependencies=page_deps)
     app.include_router(match_manage_web.router, dependencies=page_deps)
     app.include_router(match_bots_web.router, dependencies=page_deps)
     app.include_router(admin_api.router)

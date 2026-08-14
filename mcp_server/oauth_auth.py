@@ -29,6 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.db import SessionLocal
+from app.identity.first_touch import CHANNEL_MCP
 from app.routes.auth import sync_google_user
 from app.models.user import User
 from app.schemas.auth import GoogleUserInfo
@@ -153,7 +154,11 @@ async def _sync_signin_user(
     if not isinstance(id_token, str) or not id_token.strip():
         return None
     userinfo = _userinfo_from_claims(_decode_jwt_claims(id_token))
-    return await sync_google_user(db, userinfo)
+    # An account born here has no web session, so there is no first touch to
+    # read. Recording the channel explicitly keeps MCP signups out of the
+    # "direct" bucket, where they would be indistinguishable from real direct
+    # web traffic.
+    return await sync_google_user(db, userinfo, source_channel=CHANNEL_MCP)
 
 
 class _ConnectAtSignInGoogleProvider(GoogleProvider):

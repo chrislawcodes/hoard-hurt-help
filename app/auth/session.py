@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api_errors import api_error
+from app.identity.first_touch import SESSION_KEY as FIRST_TOUCH_SESSION_KEY
 from app.models.user import User
 
 SESSION_USER_KEY = "user_id"
@@ -24,6 +25,10 @@ def set_session_user(request: Request, user_id: int) -> None:
 
 def clear_session(request: Request) -> None:
     request.session.pop(SESSION_USER_KEY, None)
+    # Also drop the recorded first touch. Left behind, the next person to sign in
+    # on this browser inherits the previous visitor's traffic source — on a shared
+    # machine that silently attributes one person's signup to another's campaign.
+    request.session.pop(FIRST_TOUCH_SESSION_KEY, None)
 
 
 def raise_account_disabled(request: Request) -> None:

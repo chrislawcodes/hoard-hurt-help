@@ -52,6 +52,10 @@ async def get_or_create_bots_user(db: AsyncSession) -> User:
             google_sub=BOTS_USER_SUB,
             email=BOTS_USER_EMAIL,
             name=BOTS_USER_NAME,
+            # Always internal: this account is the platform, not a player. Set
+            # explicitly rather than relying on the email domain rule, so it stays
+            # excluded even if the configured domain list changes.
+            is_internal=True,
         )
         db.add(user)
         await db.flush()

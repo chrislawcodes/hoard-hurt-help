@@ -16,10 +16,17 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from app.config import settings
+from app.identity.milestone_listeners import install_milestone_listeners
 from app.sqlite_parity import install_sqlite_parity_guards
 
 # Reproduce prod (Postgres) write-rejection on SQLite dev/test sessions.
 install_sqlite_parity_guards()
+
+# Record engagement milestones from ORM inserts. Registered here at import rather
+# than at app startup: the test client mounts the app without a lifespan, so a
+# startup-time registration would leave the whole suite running with no listeners
+# attached — passing, and proving nothing.
+install_milestone_listeners()
 
 
 def make_engine(url: str | None = None) -> AsyncEngine:

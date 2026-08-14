@@ -33,7 +33,9 @@ from app.engine.player_move import record_player_action
 from app.games import get as get_game_module
 from app.games.base import GameError
 from app.identity import word_filter
+from app.identity.milestones import record_milestone
 from app.models.agent import Agent, AgentKind
+from app.models.user_milestone import MilestoneKind
 from app.models.match import GameState, Match
 from app.models.player import Player
 from app.models.turn import Turn, TurnMessage, TurnSubmission
@@ -262,6 +264,13 @@ async def play_act(
         )
     except GameError as exc:
         raise _play_error(exc.code, exc.message, status.HTTP_400_BAD_REQUEST) from exc
+    # A person pressing a button in the play screen is a genuine move by
+    # definition. Neither the deadline defaulter nor autopilot reaches this path —
+    # both write submissions without going through a request — so no filtering is
+    # needed here, unlike a read-time rule over turn_submissions.
+    await record_milestone(
+        db, player.user_id, MilestoneKind.PLAYED_TURN, source_match_id=turn.match_id
+    )
     await db.commit()
     return await _render_live(request, db, match)
 

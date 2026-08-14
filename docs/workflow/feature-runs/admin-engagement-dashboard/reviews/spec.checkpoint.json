@@ -1,0 +1,48 @@
+{
+  "feature_slug": "admin-engagement-dashboard",
+  "stage": "spec",
+  "artifact_path": "docs/workflow/feature-runs/admin-engagement-dashboard/spec.md",
+  "git_base_ref": "",
+  "allowed_dirty_paths": [],
+  "required_reviews": [
+    {
+      "reviewer": "claude",
+      "lens": "feasibility-adversarial",
+      "stage": "spec",
+      "path": "docs/workflow/feature-runs/admin-engagement-dashboard/reviews/spec.claude.feasibility-adversarial.review.md",
+      "context_paths": [
+        "app/models/user.py",
+        "app/services/admin_user_actions.py",
+        "tests/test_mcp.py"
+      ],
+      "model": "claude-opus-4-8"
+    },
+    {
+      "reviewer": "claude",
+      "lens": "requirements-adversarial",
+      "stage": "spec",
+      "path": "docs/workflow/feature-runs/admin-engagement-dashboard/reviews/spec.claude.requirements-adversarial.review.md",
+      "context_paths": [
+        "app/models/user.py",
+        "app/services/admin_user_actions.py",
+        "tests/test_mcp.py"
+      ],
+      "model": "claude-opus-4-8"
+    },
+    {
+      "reviewer": "claude",
+      "lens": "completeness-adversarial",
+      "stage": "spec",
+      "path": "docs/workflow/feature-runs/admin-engagement-dashboard/reviews/spec.claude.completeness-adversarial.review.md",
+      "context_paths": [
+        "app/models/user.py",
+        "app/services/admin_user_actions.py",
+        "tests/test_mcp.py"
+      ],
+      "model": "claude-opus-4-8"
+    }
+  ],
+  "max_artifact_chars": 50000,
+  "max_context_chars": 60000,
+  "max_total_chars": 250000
+}

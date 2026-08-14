@@ -4,7 +4,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from typing import Annotated
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Request, status
+from fastapi import APIRouter, Depends, Form, HTTPException, Path, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import func, or_, select
 
@@ -22,6 +22,7 @@ from app.models.user import User
 from app.read_models.admin_reports import load_turn_timing_report
 from app.routes.web_support import _bucket_matches
 from app.services.admin_user_actions import (
+    set_internal,
     demote_user,
     disable_user,
     enable_user,
@@ -349,6 +350,26 @@ async def admin_promote_user(
     actor: Annotated[User, Depends(require_platform_admin)],
 ):
     await promote_user(db, actor=actor, target_id=user_id)
+    await db.commit()
+    return RedirectResponse(
+        url=f"/admin/users/{user_id}", status_code=status.HTTP_303_SEE_OTHER
+    )
+
+
+@router.post("/admin/users/{user_id}/internal")
+async def admin_set_internal(
+    user_id: Annotated[int, Path()],
+    db: DbSession,
+    actor: Annotated[User, Depends(require_platform_admin)],
+    internal: Annotated[bool, Form()] = False,
+):
+    """Mark an account as ours, or hand it back to the real-user numbers.
+
+    The migration that flagged existing accounts guessed from email domains, so a
+    real player on an unusual domain would otherwise vanish from the engagement
+    page with no way to fix it short of editing production.
+    """
+    await set_internal(db, actor=actor, target_id=user_id, internal=internal)
     await db.commit()
     return RedirectResponse(
         url=f"/admin/users/{user_id}", status_code=status.HTTP_303_SEE_OTHER

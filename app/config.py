@@ -113,6 +113,23 @@ class Settings(BaseSettings):
     # the live variable, dropping this locks every admin out of the platform.
     admin_emails: str = Field(default="")
 
+    # Accounts that belong to the platform rather than to a player: house test
+    # rigs, harness accounts, the bots service user, local dev logins. Excluded
+    # from every number on the engagement dashboard, because otherwise the page
+    # mostly measures our own testing — in the dev database these accounts own
+    # over 500 of 646 player rows, and all but one of them run agents marked as
+    # real AI, so filtering on agent kind alone does not touch them.
+    internal_email_domains: str = Field(
+        default="agentludum.local,house.local,local.test"
+    )
+
+    # First-touch capture writes a session cookie for anonymous visitors, which
+    # this site does not do today. OFF by default and deliberately so: pushing to
+    # main auto-deploys, so merging is not the moment to start tracking visitors.
+    # Turning it on is a separate decision, to be taken once the site carries a
+    # privacy note.
+    first_touch_capture_enabled: bool = Field(default=False)
+
     @field_validator("database_url")
     @classmethod
     def _force_async_driver(cls, v: str) -> str:
