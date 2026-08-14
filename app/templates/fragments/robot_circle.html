@@ -1,24 +1,31 @@
 {# Animated replay "robot circle" — the game viewer's animation core.
 
-   This file was one ~1.5k-line fragment, the single most-edited file in the
-   repo, so every viewer/animation/UX change collided here. It is now a thin
-   shell that includes its parts IN ORDER. The split is purely mechanical —
-   the rendered HTML is byte-for-byte identical to the old single file.
+   The front-end code lives in static assets under app/static/; this shell
+   loads them around the stage markup IN ORDER (the parts depend on it):
 
-   Parts (rendered in this exact order):
-     _style.html            — the scoped <style> block (.rc-* CSS)
-     _markup.html           — the .rc-wrap stage / controls / legend markup
-     _replay_script.html    — lobby-banter <script>, the rc-data JSON, and the
-                              main replay/animation engine <script>
-     _countdown_script.html — the pre-start countdown <script>
+     robot-circle.css                — the .rc-* CSS (stage, robots, effects)
+     robot_circle/_markup.html       — the .rc-wrap stage / controls / legend
+                                       markup; must be in the DOM before
+                                       rc-replay.js runs (it looks elements up
+                                       by id as it executes)
+     rc-lobby-banter.js              — the waiting-room banter lines
+                                       (window.RC_BANTER), read by rc-replay.js
+     #rc-data                        — the replay JSON island, plus the
+                                       data-autoplay flag rc-replay.js reads
+     rc-replay.js                    — the main replay/animation engine
+     rc-countdown.js                 — the pre-start countdown
 
-   Context (unchanged, passed straight through to the parts): rc_data,
-   rc_compact, rc_autoplay, rc_countdown_iso, rc_can_start, rc_start_game,
-   rc_start_match, rc_start_bots. -#}
-{% include "fragments/robot_circle/_style.html" %}
+   The scripts are deliberately NOT deferred: they execute in place, after the
+   markup above them, exactly like the inline scripts they replaced.
+
+   Context: rc_data, rc_compact, rc_autoplay, rc_countdown_iso, rc_can_start,
+   rc_start_game, rc_start_match, rc_start_bots. -#}
+<link rel="stylesheet" href="/static/robot-circle.css?v=1">
 
 {% include "fragments/robot_circle/_markup.html" %}
 
-{% include "fragments/robot_circle/_replay_script.html" %}
+<script src="/static/rc-lobby-banter.js"></script>
+<script type="application/json" id="rc-data" data-autoplay="{{ 'true' if rc_autoplay|default(false) else 'false' }}">{{ rc_data | safe }}</script>
+<script src="/static/rc-replay.js?v=1"></script>
 
-{% include "fragments/robot_circle/_countdown_script.html" %}
+<script src="/static/rc-countdown.js?v=1"></script>

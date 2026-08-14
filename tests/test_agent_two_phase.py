@@ -16,6 +16,8 @@ from app.models import Base, Match, GameState, Player, Turn, TurnMessage, TurnSu
 from tests.factories import make_match, seat_player
 
 
+# Bespoke: also resets agent_api._last_pull for this file's polling tests, so it
+# can't delegate to tests/conftest.py's shared reset_db.
 @pytest.fixture(autouse=True)
 async def reset_db(monkeypatch):
     """Rebind the production session factory to an in-memory SQLite database."""
