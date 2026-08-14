@@ -153,6 +153,58 @@ def _next_boundary() -> datetime:
     return floor + timedelta(minutes=AUTO_MATCH_INTERVAL_MINUTES)
 
 
+# The two match kinds the platform opens by itself. A player's match is created
+# once, on the rule that was current then, and is nobody's to revise afterwards —
+# these two are the platform's own standing offer, so they track the current rule.
+_MANAGED_MATCH_KINDS = (
+    MatchKind.PRACTICE_ARENA.value,
+    MatchKind.AUTO_SCHEDULED.value,
+)
+
+
+async def sync_managed_match_rules(db: AsyncSession) -> None:
+    """Move every unstarted managed match onto the current mutual-help rule.
+
+    The Practice Arena and the 15-minute auto-match are the two matches most
+    people meet first, and both would otherwise keep offering a superseded rule.
+    The arena is the worse of the two: it sits open for a year and nothing
+    re-creates it on a schedule, so a change to DEFAULT_MUTUAL_HELP_MODE would
+    simply never reach it. The auto-match rolls over on its own within 15
+    minutes, but the one already open when the rule changes would still be
+    played under the old one.
+
+    Edited in place rather than cancelled and rebuilt. Only SCHEDULED and
+    REGISTERING matches are touched, so nothing here has been played: there is no
+    result to relabel, and — unlike a rebuild — nobody who already joined loses
+    their seat. A match that has actually started keeps the rule it was played
+    under, which is the invariant the whole feature rests on; the state filter is
+    what enforces it.
+
+    Idempotent, and does no write at all when every managed match already agrees.
+    """
+    stale = (
+        await db.execute(
+            select(Match).where(
+                Match.match_kind.in_(_MANAGED_MATCH_KINDS),
+                Match.state.in_([GameState.SCHEDULED, GameState.REGISTERING]),
+                Match.mutual_help_mode != DEFAULT_MUTUAL_HELP_MODE.value,
+            )
+        )
+    ).scalars().all()
+    if not stale:
+        return
+
+    for match in stale:
+        logger.info(
+            "Moved managed match %s from mutual-help rule %s to %s.",
+            match.id,
+            match.mutual_help_mode,
+            DEFAULT_MUTUAL_HELP_MODE.value,
+        )
+        match.mutual_help_mode = DEFAULT_MUTUAL_HELP_MODE.value
+    await db.commit()
+
+
 async def ensure_practice_arena(db: AsyncSession) -> None:
     """Create a Practice Arena if none is open. Idempotent."""
     existing = (
@@ -167,15 +219,13 @@ async def ensure_practice_arena(db: AsyncSession) -> None:
         # Guard against stale arenas (e.g. one created before PRACTICE_ARENA_MAX_PLAYERS
         # changed still carries the old capacity in its row, or a schema migration that
         # wiped the players table left the row in REGISTERING with 0 bots). If the bot
-        # count is short, the capacity is out of date, or the arena still carries a
-        # superseded mutual-help rule, cancel the stale arena and fall through to create
-        # a fresh one so the poller self-heals without manual intervention. Only
-        # REGISTERING/SCHEDULED arenas reach here — once a human joins the arena goes
-        # ACTIVE, so this never cancels a match a person is in.
+        # count is short or the capacity is out of date, cancel the stale arena and fall
+        # through to create a fresh one so the poller self-heals without manual
+        # intervention. Only REGISTERING/SCHEDULED arenas reach here — once a human joins
+        # the arena goes ACTIVE, so this never cancels a match a person is in.
         #
-        # The rule belongs in this check because the arena is the one match nobody
-        # re-creates on a schedule: without it, a default change would never reach the
-        # match most people actually play.
+        # A superseded mutual-help rule is deliberately NOT in this check:
+        # `sync_managed_match_rules` fixes that in place, without throwing away seats.
         bot_count = (
             await db.scalar(
                 select(func.count())
@@ -191,7 +241,6 @@ async def ensure_practice_arena(db: AsyncSession) -> None:
         if (
             bot_count >= PRACTICE_ARENA_BOT_COUNT
             and existing.max_players == PRACTICE_ARENA_MAX_PLAYERS
-            and existing.mutual_help_mode == DEFAULT_MUTUAL_HELP_MODE.value
         ):
             return
         mark_cancelled(existing, datetime.now(timezone.utc))

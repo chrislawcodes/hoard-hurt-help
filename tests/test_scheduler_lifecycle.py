@@ -389,3 +389,40 @@ async def test_watchdog_restarts_dead_task(db, monkeypatch):
     await reg._watchdog(_same_session_factory(db))
 
     assert game.id in started
+
+
+# --- poller step ordering ---
+
+
+async def test_poll_loop_syncs_managed_rules_before_starting_a_due_match(monkeypatch):
+    """Ordering, not just presence.
+
+    `fill_and_start_auto_matches` is what actually starts a due auto-match. Once
+    a match has started, its mutual-help rule is what the game was played under
+    and is no longer ours to change — so `sync_managed_match_rules` has to have
+    run already. Swap the two and the 15-minute match plays yesterday's rule
+    with nothing anywhere to say so.
+    """
+    reg = scheduler.SchedulerRegistry()
+    order: list[str] = []
+
+    class _StopLoop(Exception):
+        pass
+
+    async def record(name, fn):
+        # Never runs `fn`, so no subsystem touches the DB. Bails at the step
+        # whose ordering is under test, before the loop's sleep.
+        order.append(name)
+        if name == "fill_and_start_auto_matches":
+            raise _StopLoop
+
+    monkeypatch.setattr(reg, "_run_subsystem", record)
+
+    with pytest.raises(_StopLoop):
+        await reg._poll_due_loop(None)
+
+    # Reached only if the sync ran first — the loop stops the moment fill runs.
+    assert "sync_managed_match_rules" in order
+    assert order.index("sync_managed_match_rules") < order.index(
+        "fill_and_start_auto_matches"
+    )
