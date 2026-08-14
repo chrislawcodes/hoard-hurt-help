@@ -1,134 +1,274 @@
-# Completeness-adversarial review — spec.md (admin engagement dashboard)
+# Completeness-adversarial review — spec.md revision 2
+
+Round-2 lens: trace the values revision 1's fixes introduced through every
+consumer. Round-1 findings listed in "Review outcomes" are not re-reported.
 
 ## Findings
 
-### 1. HIGH — The funnel's step order contradicts the product's own onboarding ladder, and D5's nesting rule turns that into a silent undercount [CODE-CONFIRMED]
+### HIGH
 
-The spec's funnel is `signed up → picked a handle → started AI hookup → AI connected → built an agent → joined a match → …`.
+**H1. The funnel is blind to human players — the platform's *default* new-user path. [CODE-CONFIRMED]**
 
-The app's real gate ladder is the opposite for two of those rungs. `app/routes/nav_context.py:55-69`:
+`AgentKind` has **three** values, not two: `AI = "ai"`, `BOT = "bot"`, and
+`HUMAN = "human"` (`app/models/agent.py:17-24`). The word "human" appears nowhere
+in the spec.
 
-```
-NOT_SIGNED_IN = 0
-NEEDS_HANDLE = 1
-NEEDS_AGENT = 2
-NEEDS_MCP_CONNECTION = 3
-NEEDS_LIVE = 4
-```
-
-and `_first_unmet_gate` (`app/routes/nav_context.py:245-261`) enforces it: handle, **then agent**, then connection. A user is sent to build an agent *before* they are asked to connect an AI.
-
-Combined with D5 ("a user counts at step N only if they cleared steps 1..N-1"), every user who followed the product's actual order — handle, agent built, AI not yet connected — is truncated at "picked a handle". They vanish from "built an agent" even though they built one. The result:
-
-- "built an agent" is systematically understated;
-- the largest drop is manufactured at "started AI hookup" regardless of the truth;
-- the page renders cleanly and the nested-set regression test in AC2 still passes, because the sequence is still non-increasing.
-
-This is the exact failure mode the spec was written to prevent, reproduced in the spec's own step list. Either reorder the funnel to `handle → built an agent → started AI hookup → AI connected`, or state explicitly why the dashboard measures a different order than the product enforces.
-
-### 2. HIGH — "Started AI hookup" reads a table that production garbage-collects every 24 hours [CODE-CONFIRMED]
-
-`app/engine/pending_connection_gc.py:24-36` hard-deletes exactly the rows this step counts:
+A human seat is a real `agents` row with `kind=HUMAN`, no `Connection` and
+`provider=None`, created once per (user, game) by
+`app/engine/human_player.py` — `Player.agent_id` is non-nullable
+(`app/models/player.py:25`), so every human player has one. And this is not an
+edge case: `app/routes/web_join.py:113-121`
 
 ```python
-delete(ConnectionSetup).where(
-    ConnectionSetup.completed_at.is_(None),
-    ConnectionSetup.created_at < cutoff,      # cutoff = now - 24h
-)
+async def _default_human_choice(db: DbSession, user_id: int) -> bool:
+    """Should "Play manually" start ticked? ...
+    A brand-new user (no history) defaults to True — the no-setup path.
 ```
 
-and, right after it, `delete(Connection).where(status == PENDING, first_connected_at.is_(None), created_at < cutoff)`.
+returns **True for every brand-new user**, and `web_join.py:230` comments that a
+"new user with no AI can play as a human in one click."
 
-This is not dormant code. It runs on every visit to the connections page (`app/routes/connections_pages.py:94`) and on every agent creation (`app/routes/agents_create.py:112`), so in prod it fires constantly.
+Consequence, traced through D5/D7:
 
-The rows it deletes are precisely the abandoned hookups — the leak the whole feature exists to surface, and the source of the spec's own headline evidence ("30 of 178 connection setups were started and never completed"). Twenty-four hours after the fact, a started-but-never-completed setup no longer exists, so "started AI hookup" collapses toward "AI connected" and the drop the dashboard was built to show reads as approximately zero, forever.
+| Step | Human player |
+|---|---|
+| 3 — built an agent (`kind='ai'`) | **fails** (their agent is `kind='human'`) |
+| 4 — AI connected | fails (`web_join.py:459`: "no agent, no connection") |
+| 5/6/7 — joined, played, returned | **truncated by strict nesting**, even though the rows exist |
 
-AC3 / D5 ("ever did X — archived and deleted rows still count") is **not achievable** for this step against a GC'd table. The spec must name a surviving signal (a tombstone column instead of a delete, an audit/event row, or `connections.created_at` as the proxy) or state on the page that this step only covers the last 24 hours. Note that the spec's dev-DB measurement of 178 setups was taken from a database where the GC may not have been running, so the prod number is likely much smaller than the design assumed.
+So a user who joins matches and plays real, non-defaulted turns every day renders
+as *stuck at "picked a handle"*. That is the exact defect class the page exists to
+find, inverted. D8's exclusion discussion only ever contrasts `ai` vs `bot`; every
+other read model in the repo uses `Agent.kind != AgentKind.BOT`
+(`app/read_models/matches.py:151,170`; `lobby_recent_views.py:33-37`), so the
+funnel's `kind='ai'` is the outlier, not the convention.
 
-### 3. HIGH — Two admin actions hard-erase the evidence the "ever did X" steps read [CODE-CONFIRMED]
+Fix required in the spec: either add a human-seat branch to the ladder, or define
+steps 3/4 as "has an AI agent **or** has played a human seat", and add a test.
 
-D5 promises step membership survives archiving and deletion. Two existing code paths break that promise by destroying the rows outright, and both are one click away on pages the spec already touches.
+**H2. Strict nesting silently deletes MCP users who connect before building an agent. [CODE-CONFIRMED]**
 
-**`delete_match`** (`app/engine/match_deletion.py:54-82`) issues real `DELETE`s against `TurnSubmission`, `TurnMessage`, `Turn`, `PlayerState` and `Player`. The button is on the admin dashboard the spec's menu change sits beside (`app/templates/admin/dashboard.html:32`, route at `app/routes/admin_web.py:146`). After an admin deletes a match, a user who genuinely joined it and played turns loses every `players` and `turn_submissions` row. They silently fall back to "built an agent" — and, because the stuck list is "each non-returning user with the furthest step they reached", they get **named on the stuck-people list as someone who never played**. Last month's funnel also stops reproducing.
+D5 fixed the funnel's *order*; it never says what happens when a user satisfies
+steps 3 and 4 out of order — and D7's strict nesting makes that invisible rather
+than obvious.
 
-**`reset_handle`** (`app/services/admin_user_actions.py:126-139`) nulls `handle`, `handle_key` *and* `handle_changed_at`. Nothing on the `users` row then records that a handle was ever picked, so the user drops out of "picked a handle" — and strict nesting truncates them to step 1, removing them from every later step too. The only surviving trace is the `AdminAuditLog` row with `action='handle_reset'`, which the spec never mentions reading.
+`app/engine/mcp_connection.py` creates the `Connection` and stamps
+`first_connected_at` (lines 144-145, 173-174, 205-206, 222) from
+`connection_identity._connection_from_token`, which does `sync_google_user` →
+`mcp_connection_for` with **no agent lookup or check anywhere in the path**.
+`PlaySetupStage` in `nav_context.py` is the *UI's suggested* order, not a data
+constraint, and `/me/connections` is directly reachable. So "connected an AI, no
+agent yet" is a reachable, common state (per the connect-screen design, the user
+pastes the setup prompt into their client first).
 
-The spec should either define the ever-did-X predicates against sources that survive these deletes, or state the limitation on the page.
+Such a user has step 4 but not step 3, so D7 counts them at step 2 and drops them
+from steps 4-7. The page then reports a drop at "built an agent" for people who
+are demonstrably connected — inventing a leak, which is the same failure mode D5
+was raised to prevent.
 
-### 4. HIGH — `sync_google_user` has three callers, not one, and the two the spec missed create accounts that get silently labelled "direct" [CODE-CONFIRMED]
+**H3. Summary number 4 cannot mean "24-hour snapshot", and it counts a population no other number on the page counts. [CODE-CONFIRMED]**
 
-Spec §3 modifies `sync_google_user` and names only `app/routes/auth.py`. The real call sites:
+Two independent problems with "Incomplete connection setups **right now** —
+labelled as a 24-hour snapshot (D6)":
 
-| Call site | Creates users rows? | Carries first touch under the spec? |
-|---|---|---|
-| `app/routes/auth.py:106` | yes | yes |
-| `mcp_server/oauth_auth.py:156` (`_sync_signin_user`, driven by `_bootstrap_signin_connection_from_idp` inside the MCP OAuth token exchange) | yes | no |
-| `mcp_server/connection_identity.py:176` | yes | no |
+1. **Nothing collects the rows when the admin looks.** `gc_pending_connections`
+   is called from exactly two places, both *user-facing* pages:
+   `app/routes/agents_create.py:112` (`/me/agents/new`) and
+   `app/routes/connections_pages.py:94` (`/me/connections`). `/admin/engagement`
+   will not call it. The number is therefore "incomplete setups not yet
+   garbage-collected", which on a quiet week includes rows arbitrarily older than
+   24 hours. The query cannot deliver the label unless the spec also specifies an
+   explicit `created_at >= now - 24h` filter — which it does not.
+2. **It structurally excludes the dominant connect path.** D6 itself establishes
+   that `ConnectionSetup` is written in one place (the machine/key path) and that
+   MCP users never create one. Meanwhile funnel step 4 counts `first_connected_at`
+   for *both* paths. So the admin sees, say, "2 incomplete setups" beside a large
+   agent→connected drop and concludes the drop is not a setup problem — when the
+   MCP half of that drop is simply not countable by this number. The spec must
+   label it machine-path-only or drop it.
 
-An account whose first-ever sign-in is the MCP OAuth flow is created with all five source columns NULL. Under D3's precedence (`utm_source` → `referrer_host` → `"direct"`), NULL renders as **"direct"** — so an MCP-originated signup is affirmatively attributed to direct traffic rather than reported as unknown. The middleware cannot rescue it either: §1's skip list explicitly excludes `/mcp`.
+Also unspecified and inconsistent with the spec's own rules: whether this number
+is filtered by `is_internal` (D8: "Every query filters on that one column") and
+whether it is distinct users or raw rows (D9: "Every count is distinct users,
+never rows"). `ConnectionSetup.user_id` exists
+(`app/models/connection_setup.py:19-21`), so one abandoned user can contribute
+several rows.
 
-Two required changes the spec does not state: (a) the new parameter must be keyword-optional and the two MCP call sites named as deliberately not passing it, and (b) the derived label must distinguish "no source recorded" from "direct", or every gap in capture reads as a real direct signup.
+### MEDIUM
 
-### 5. HIGH — The `is_internal` toggle has no render path, and the template gates the toolbar against exactly the accounts D8 flags [CODE-CONFIRMED]
+**M4. Adding a first-touch argument to `sync_google_user` breaks five monkeypatched fakes. [CODE-CONFIRMED]**
 
-Spec §8 lists only `app/routes/admin_web.py`. The button has to live in `app/templates/admin/user_detail.html`, which the spec never names — without that edit AC13 is unreachable, since there is no way to POST to the new route and no way to see the current flag state (the badge row at `user_detail.html:6-12` shows admin / disabled / floor-admin, not internal).
-
-Worse, the entire toolbar is wrapped in `{% if not floor_admin %}` (`user_detail.html:16-42`), falling through to "Floor admin — actions disabled." D8's backfill flags **every user whose role is ADMIN**, which is the group most overlapping with floor admins — so for a floor admin the toggle would be rendered unusable by an existing guard the spec does not mention. The spec must say whether `is_internal` is exempt from the floor-admin lockout (it is a reporting flag, not a privilege change, so it probably should be).
-
-### 6. MEDIUM — `is_internal` is set only by a one-time backfill; two live code paths write `users` rows that never set it [CODE-CONFIRMED]
-
-- `app/engine/bots/seating.py:45-58` — `get_or_create_bots_user()` lazily creates `bots@agentludum.local` (sentinel sub `platform:bots`) the first time an admin seats platform bots.
-- `app/routes/dev_login.py:45-61` — `_ensure_dev_user()` creates `dev@localhost`, a domain **not** in the seed list (`agentludum.local`, `house.local`, `local.test`), so it is never flagged in any environment.
-
-Today's prod rows do match the seed domains, so the backfill covers the current data — this is a forward-looking gap rather than a day-one wrong number, hence MEDIUM. But the flag has no enforcement at any write site, so every future internal row (a re-created bots user in a fresh environment, a new harness account, the dev user in the dev DB the spec's own measurements came from) silently enters the funnel as a real signup and can appear by name in the stuck list. Set the flag where the row is written — the bots user is identifiable by its sentinel `google_sub`, not just its domain.
-
-### 7. MEDIUM — "Played a turn" has two candidate sources in the codebase that disagree, and the spec picks neither [CODE-CONFIRMED]
-
-The spec's Why section names both `connections.turns_played` and `turn_submissions.submitted_at` as available data; §4 and §5 never say which one backs the "played a turn" step or the source table's "went on to play" column.
-
-They diverge under a path already confirmed in finding 3: `delete_match` deletes `turn_submissions` rows, while `connections.turns_played` is a monotonic counter (`app/engine/connection_activity.py:199-209`, incremented at `app/engine/agent_play.py:293`) that no deletion path decrements. After any match deletion the two sources give different answers for the same user. If the funnel uses one and a summary number uses the other, two numbers on the same page contradict each other — the risk the spec's own risk table calls out but only guards for the internal-user filter.
-
-Also note `turns_played` lives on `connections`, and the GC in finding 2 hard-deletes pending connections, so it is not a strictly safe fallback either.
-
-### 8. MEDIUM — Deploy smoke-test matches are not excluded, so the page will disagree with `/admin/reports` and the public views [CODE-CONFIRMED]
-
-`app/match_naming.py` defines `TEST_NAME_PREFIX = "prod smoke"` and documents that "several read models and the public front door need to recognise and exclude these." `load_turn_timing_report` — the very module the spec says to follow — applies it at `app/read_models/admin_reports.py:109`:
+Build item 3 gives `sync_google_user` an optional first-touch argument and has
+both MCP callers pass `"mcp"`. `tests/test_mcp.py` replaces the function at module
+scope five times (`monkeypatch.setattr(connection_identity, "sync_google_user",
+...)` at lines 266, 340, 421, 518, 613) with
 
 ```python
-~Match.name.ilike(f"{TEST_NAME_PREFIX}%")
+async def fake_sync_google_user(db: object, userinfo: object) -> SimpleNamespace:
 ```
 
-The spec's shared filter covers only `users.is_internal` and `agents.kind != 'ai'`. Nothing excludes smoke-test matches from "joined a match", "played a turn", or the source table's played column. The result is an engagement page whose play numbers are higher than `/admin/reports` and the leaderboard for the same window, with no stated reason. Decide explicitly and state it.
+— exactly two positional parameters. Any extra argument at the call site raises
+`TypeError` in all five tests. Neither the build item nor the test plan lists
+`tests/test_mcp.py` among the files to touch.
 
-### 9. MEDIUM — Truncation is specified only "before it reaches the DB", but the session cookie is a consumer too [CODE-CONFIRMED]
+**M5. One `AdminAction` value cannot record a two-way toggle. [CODE-CONFIRMED]**
 
-§1 says "Truncates every stored string to its column length before it reaches the DB." The session is a **signed cookie**, not server-side storage (`app/main.py:240-246`, `SessionMiddleware(..., session_cookie="hhh_session")`), so whatever the middleware puts in `session["first_touch"]` is serialised into that cookie on the very first request.
+D8 adds `mark_internal` only. Every other reversible admin action in the enum is a
+**pair** — `disable`/`enable`, `promote`/`demote`
+(`app/models/admin_audit_log.py:15-20`) — and `AdminAuditLog` has no column that
+records the resulting value: only `actor_user_id`, `target_user_id`, `action`,
+`reason`, `created_at`. `user_detail.html:93` renders
+`{{ entry.log.action.value }}` verbatim, so the audit history would print
+`mark_internal` identically for marking and for unmarking. There is no width
+reason for a single value: the column is `FlexibleEnumType(AdminAction,
+length=16)`, a plain `VARCHAR(16)`, and `unmark_internal` is 15 characters.
 
-An untruncated, attacker-supplied `?utm_source=<8KB>` therefore inflates the cookie past the 4KB browser limit; the browser silently drops `hhh_session`, and the visitor can no longer hold a session at all — including the one that carries `next_after_login` and the OAuth state. Because §1 wraps capture as `# fail-open: advisory only`, nothing logs. Truncate at capture time, before the value enters the session, and state a total byte budget for `first_touch`.
+Consumers checked and clear: no label map or filter switch on the enum
+(`app/models/__init__.py:6`, `admin_user_actions.py`, `user_detail.html`), no
+`CHECK` constraint, and `tests/test_admin_audit_log.py` asserts values
+individually rather than the whole member set — so no test breaks, which is
+precisely why the missing pair would ship unnoticed.
 
-### 10. MEDIUM — The audit-log action enum is closed, length-capped, and rendered raw; §8 does not account for any of it [CODE-CONFIRMED]
+**M6. `state.json`'s constraints field still asserts the superseded no-cookie non-goal. [CODE-CONFIRMED]**
 
-`AdminAction` (`app/models/admin_audit_log.py:15-20`) is `{disable, enable, promote, demote, handle_reset}`, persisted through `FlexibleEnumType(AdminAction, length=16)`. `_coerce_enum` raises `LookupError` on any unknown value (`app/models/enum_types.py:31-43`), so writing an audit row with a name that is not a member fails at the write, not at read.
+D3 states the discovery non-goal "has been updated in `state.json`", and the
+acceptance-criteria section says state.json is authoritative.
+`discovery.non_goals[1]` is indeed marked SUPERSEDED — but
+`discovery.checklist.constraints` still reads:
 
-§8's "written to the existing `AdminAuditLog` like its neighbours" therefore requires: new enum members, names that fit **16 characters** (`mark_internal` and `unmark_internal` fit; anything longer does not), and — since `user_detail.html:93` prints `entry.log.action.value` verbatim — the chosen strings are admin-visible copy. Whether the enum's storage is a plain string column or a Postgres enum also decides whether a migration is needed; the spec's migration section covers only the `users` columns.
+> "No third-party analytics service and **no anonymous visitor cookie, so no
+> cookie-consent banner is introduced.**"
 
-### 11. MEDIUM — Nothing lists which accounts are flagged internal, so the mis-flag D8 exists to fix cannot be found [CODE-CONFIRMED]
+The plan and tasks stages read the checklist. The same file now says opposite
+things about the one decision that was escalated to Chris.
 
-D8 justifies the toggle with "fixing a mis-flagged account means hand-editing production." The toggle alone does not solve that: `admin_users_list` (`app/routes/admin_web.py:160-200`) selects users ordered by `created_at` with an email/handle search only, and `admin/users_list.html` has no internal column and no filter. To find the one wrongly-flagged real user among a page of 50, an admin would open each detail page in turn. Add the flag to the list view (a column plus an "internal only" filter), or the correction path is theoretical.
+**M7. The backfill rule and the creation rule for `is_internal` disagree — in both directions. [CODE-CONFIRMED]**
 
-### 12. LOW — First touch survives sign-out, so a second signup in the same browser inherits the first person's source [CODE-CONFIRMED]
+- **Backfill catches admins; creation does not.** Backfill = seed domains *plus
+  any ADMIN-role user at migration time*. Creation at `auth.py:41` is the
+  *domain rule only* (D8's own table). `promote_user`
+  (`app/services/admin_user_actions.py:96-104`) never touches `is_internal`
+  either. So "admin ⇒ internal" holds only for rows that already existed. A floor
+  admin on a public domain who signs in after the migration — the session
+  environment shows Chris's own address is `@gmail.com` — is created
+  `is_internal=False` and counted as a real user by every number on the page.
+- **Creation catches dev-login; backfill does not.** `dev_login._ensure_dev_user`
+  creates `dev@localhost` (`app/routes/dev_login.py:31,51`), which D8 marks
+  always-internal — but `localhost` is not among the seed domains
+  (`agentludum.local`, `house.local`, `local.test`), so an existing dev-login row
+  is left unflagged.
 
-`clear_session` (`app/auth/session.py:25-26`) pops only `SESSION_USER_KEY`; it does not clear the session. `session["first_touch"]` therefore persists across logout, and §1's "never overwrite an existing value" rule means the next person to sign up in that browser is attributed to the *previous* visitor's UTM tag. Low frequency, but it is a wrong row in the source table with no way to detect it after the fact. Clearing `first_touch` in `clear_session` is a one-line fix; either do it or record the decision.
+The test plan ("Backfill flags seed-domain accounts, leaves a gmail.com user
+alone") exercises neither direction.
+
+**M8. The toggle's build item skips `app/services/admin_user_actions.py`. [CODE-CONFIRMED]**
+
+Build item 8 lists `admin_web.py` + `user_detail.html` + `users_list.html`. Every
+existing admin action's logic lives in `app/services/admin_user_actions.py`, whose
+module docstring spells out the shared four-part contract each helper honours:
+optional row lock (`_load_target`), a no-op guard that returns *without* writing an
+audit row, a floor-admin refusal where applicable, and exactly one `AdminAuditLog`
+row in the same transaction. `admin_web.py`'s handlers are three lines each and
+delegate. Omitting the service module from the file list means the toggle either
+duplicates that contract or quietly skips it — notably the no-op guard, which is
+what stops a double-click writing two audit rows.
+
+**M9. D12's "same filter" does not actually make the two pages agree. [CODE-CONFIRMED]**
+
+`load_turn_timing_report` filters on `Match.state == GameState.COMPLETED` **and**
+windows on `Match.completed_at`, in addition to the name prefix
+(`app/read_models/admin_reports.py:107-113`). The engagement page windows on
+user/player/submission timestamps and must include in-flight matches. Copying only
+`~Match.name.ilike(f"{TEST_NAME_PREFIX}%")` therefore does not achieve D12's stated
+goal ("or the two admin pages report different numbers for the same week") — they
+will differ anyway, for reasons the spec does not name.
+
+Related mismatch on the same pair of pages: `/admin/reports` treats a real turn as
+`submission.was_defaulted or submission.submitted_at is None` → skip
+(`admin_reports.py:182`), while D10 specifies only `was_defaulted = false`.
+`TurnSubmission.submitted_at` is nullable (`app/models/turn.py:73`) and the
+defaulting writer sets it to `None` explicitly
+(`app/games/hoard_hurt_help/scoring.py`, `submitted_at=None`), so the two
+definitions are not interchangeable by construction.
+
+**M10. First touch is thrown away for anyone whose first completed sign-in is the MCP OAuth flow. [CODE-CONFIRMED]**
+
+Build item 3 hardcodes source `"mcp"` for users created via
+`mcp_server/oauth_auth.py:156` and `mcp_server/connection_identity.py:176`, on the
+stated grounds that the MCP callers "have no web session".
+
+`oauth_auth._sync_signin_user` runs inside `_extract_upstream_claims` during a
+**browser-driven** Google OAuth exchange served by our own app — the visitor's
+first-touch session cookie exists on that request; it is just not reachable from
+the FastMCP hook. So a visitor who lands on `/?utm_source=hermesagent`, browses,
+then completes setup through Claude Code's MCP sign-in is attributed to `"mcp"`,
+destroying exactly the answer ("did r/hermesagent work?") the feature was built to
+produce. The spec should either record this as a known attribution ceiling, or
+have the MCP path fall back to `"mcp"` only when no first touch is available.
+
+### LOW
+
+**L11. `users_list.html`'s empty-state `colspan` is a stale consumer of the column count. [CODE-CONFIRMED]**
+`app/templates/admin/users_list.html:41` is `<tr><td colspan="7">No users
+found.</td></tr>`, matching the 7 `<th>` in the header. Build item 8 adds an
+"internal" column and never mentions the colspan, so the empty row will span the
+wrong width.
+
+**L12. The admin dashboard's own toolbar is a second nav surface the spec doesn't update. [CODE-CONFIRMED]**
+Build item 7 adds "Engagement" only to `base.html:95`.
+`app/templates/admin/dashboard.html:6-7,88` carries its own admin toolbar (Users,
+Handles) plus a "Request incidents →" link — and `/admin/handles` and
+`/admin/incidents` are reachable *only* from there. Adding the new page to one
+surface but not the other leaves admin navigation inconsistent.
+
+**L13. D11's timezone fix does not change the default behaviour. [CODE-CONFIRMED]**
+The window controls are copied from `/admin/reports`, whose `_parse_timezone`
+returns `timezone.utc` when `tz` is absent or blank (`admin_web.py:1373-1382` in
+the provided context). So on a plain `/admin/engagement` load, "came back another
+day" still evaluates in UTC — the exact US-evening double-count D11 describes is
+the *default* result. The spec should either state a non-UTC default or say the
+admin must set `tz`.
+
+**L14. D8's creation-site table cites a path that does not exist. [CODE-CONFIRMED]**
+The table lists `bots/seating.py:51`; the real file is
+`app/engine/bots/seating.py:51`. Worth noting alongside it that
+`get_or_create_bots_user` sets no `role`, so only the domain half of the backfill
+rule reaches that account.
 
 ## Residual Risks
 
-- **Middleware ordering (D2) checks out.** `SessionMiddleware` is added at `app/main.py:240` and is the first `add_middleware` call after `FastAPI(...)` at line 225; the "Outermost:" comment on the last-added `CanonicalHostMiddleware` (line 253) confirms the last-added-is-outermost convention the spec relies on. Adding `FirstTouchMiddleware` between lines 238 and 240 gives the required inner position. No finding.
-- **Disabled accounts.** `users.disabled_at` exists and admins use it, but the spec never says whether a disabled user still counts as a signup. Whichever way it goes, it should be stated so the denominator is defensible.
-- **Public-facing counts will not match.** The leaderboard and lobby read models (`app/read_models/leaderboard.py`, `lobby_recent_views.py`) have no notion of `is_internal`. The public site and the dashboard will report different player populations. That is consistent with the "no public-facing changes" non-goal, but it should be an explicit, documented divergence rather than a surprise.
-- **Session lifetime caps the capture window.** `SessionMiddleware` is configured without an explicit `max_age`, so Starlette's 14-day default applies. A visitor who lands with a UTM tag and signs up more than 14 days later records nothing. Almost certainly acceptable; worth one line in the spec so the gap is known rather than discovered.
-- **Admin nav tests.** `tests/test_admin.py` and `tests/test_role_simplification.py` both assert against the platform-admin submenu that §7 changes. Not verified line-by-line here; the implementer should expect to update them, and AC1 does not mention it.
-- **Backfill verification is stated but not specified.** §2 requires reading back the flagged row count after deploy, but gives no expected number. Per the repo's data-critical rule, the spec should carry the actual list of internal accounts in prod so the post-deploy check has something to compare against.
+- **Session-cookie size and the SSE/stream path are untraced.** The skip list
+  (`/static`, `/healthz`, `/api`, `/mcp`, `/openapi.json`) is correct for the
+  routers in `app/main.py`, but the match stream lives at
+  `/games/{game}/matches/{id}/stream` and is not skipped. Capture on a
+  `text/event-stream` request would make `SessionMiddleware` emit `Set-Cookie` on a
+  long-lived streaming response. Almost certainly harmless; not verified.
+  [UNVERIFIED]
+- **`FlexibleEnumType` coercion on an unknown value.** `_coerce_enum` raises
+  `LookupError` for a value not in the enum. If `mark_internal` rows are written and
+  the migration is later rolled back below the code, every `/admin/users/{id}`
+  render that touches the audit log raises rather than degrading. Not a spec defect,
+  but the "additive and reversible" claim in build item 2 covers the columns, not
+  the enum data. [CODE-CONFIRMED, out of lens scope]
+- **D2's middleware-ordering claim re-checked and holds.** `SessionMiddleware` is
+  added first at `app/main.py:240`, then `install_request_logging` (which registers
+  via `@app.middleware("http")`), `OAuthRegistrationCompatMiddleware`, and
+  `CanonicalHostMiddleware` last/outermost. Adding `FirstTouchMiddleware` before the
+  `SessionMiddleware` call does place it inside. No finding. [CODE-REFUTED as a
+  defect]
+- **`clear_session` has exactly one caller** (`app/routes/auth.py:123`), and no
+  other code calls `request.session.clear()`, so build item 1's single-site fix for
+  sign-out is complete. Dev login has no separate logout. No finding.
+  [CODE-REFUTED as a defect]
+- **Whether "played a turn" should count `turn_messages`.** `TurnMessage` carries
+  its own `was_defaulted` / `submitted_at` (`app/models/turn.py:75-92`). A user who
+  only ever talked would not count as having played. That is probably the intent,
+  but the spec never says the talk phase was considered.
+- **Whether the four summary numbers are individually `is_internal`-filtered.** D8
+  says every query filters on the flag; the numbers are named but their filters are
+  not restated per number. Only number 4 is demonstrably ambiguous (H3), but the
+  same silence covers 1-3.
 
 ```json
-{"reviewed": true, "findings": [{"severity": "HIGH", "title": "Funnel step order contradicts the product's real onboarding ladder", "detail": "The app gates handle -> agent -> connection (app/routes/nav_context.py:55-69, 245-261) but the spec's funnel puts 'built an agent' after 'AI connected', so D5's strict nesting truncates every user who followed the product's own order and silently understates the agent step."}, {"severity": "HIGH", "title": "'Started AI hookup' reads a table production garbage-collects after 24 hours", "detail": "app/engine/pending_connection_gc.py:24-36 hard-deletes exactly the incomplete ConnectionSetup rows this step counts, and it runs on every connections-page visit and agent creation, so the drop the dashboard exists to show decays to zero and AC3's 'ever did X' is unachievable for that step."}, {"severity": "HIGH", "title": "delete_match and reset_handle hard-erase the evidence the 'ever did X' steps read", "detail": "app/engine/match_deletion.py:54-82 deletes players and turn_submissions and app/services/admin_user_actions.py:126-139 nulls handle, handle_key and handle_changed_at, so real players silently fall back down the funnel and get named on the stuck-people list."}, {"severity": "HIGH", "title": "sync_google_user has three callers; the two MCP ones create accounts labelled 'direct'", "detail": "mcp_server/oauth_auth.py:156 and mcp_server/connection_identity.py:176 also create users rows, the middleware skips /mcp, and D3 renders a NULL source as 'direct', so MCP-originated signups are affirmatively misattributed to direct traffic."}, {"severity": "HIGH", "title": "The is_internal toggle has no render path and is blocked by the floor-admin guard", "detail": "Spec section 8 names only admin_web.py, but the button must live in app/templates/admin/user_detail.html, whose entire toolbar is wrapped in {% if not floor_admin %} — exactly the ADMIN-role accounts D8's backfill flags."}, {"severity": "MEDIUM", "title": "is_internal is set only by a one-time backfill; two live writers bypass it", "detail": "app/engine/bots/seating.py:45-58 and app/routes/dev_login.py:45-61 create users rows with no flag, and dev@localhost matches no seed domain, so every future internal row silently enters the funnel as a real signup."}, {"severity": "MEDIUM", "title": "'Played a turn' has two sources that disagree and the spec picks neither", "detail": "turn_submissions rows are deleted by delete_match while connections.turns_played is a counter nothing decrements (app/engine/connection_activity.py:199-209), so two numbers on the same page can contradict each other."}, {"severity": "MEDIUM", "title": "Deploy smoke-test matches are not excluded from the play counts", "detail": "app/read_models/admin_reports.py:109 filters TEST_NAME_PREFIX ('prod smoke') and the public views do too, but the spec's shared filter covers only is_internal and agents.kind, so the engagement page will report higher play numbers than /admin/reports for the same window."}, {"severity": "MEDIUM", "title": "Truncation is specified only at the DB write, but the signed session cookie is also a consumer", "detail": "SessionMiddleware stores first_touch in the hhh_session cookie (app/main.py:240-246), so an untruncated attacker-supplied utm_source can push it past the 4KB browser limit and silently break the visitor's session while the fail-open wrapper logs nothing."}, {"severity": "MEDIUM", "title": "AdminAction is a closed 16-char enum rendered raw; section 8 accounts for none of it", "detail": "FlexibleEnumType raises LookupError on an unknown value (app/models/enum_types.py:31-43), the column caps names at 16 characters, and user_detail.html:93 prints action.value verbatim, so new members, their lengths and their wording all need specifying."}, {"severity": "MEDIUM", "title": "No way to find a mis-flagged internal account", "detail": "admin_users_list (app/routes/admin_web.py:160-200) and users_list.html have no is_internal column or filter, so D8's stated goal of fixing a mis-flag without editing production requires opening every user detail page one at a time."}, {"severity": "LOW", "title": "first_touch survives sign-out and leaks to the next signup in that browser", "detail": "clear_session (app/auth/session.py:25-26) pops only user_id, so the never-overwrite rule attributes the next person's signup to the previous visitor's UTM tag."}]}
+{"reviewed": true, "findings": [{"severity": "HIGH", "title": "Funnel is blind to human players, the default new-user path", "detail": "AgentKind has a third value HUMAN and web_join._default_human_choice returns True for every brand-new user, so a human who joins and plays real turns fails step 3 (kind='ai') and step 4 (connection) and is then truncated out of steps 5-7 by strict nesting, rendering as stuck at 'picked a handle'."}, {"severity": "HIGH", "title": "Strict nesting deletes MCP users who connect before building an agent", "detail": "mcp_connection.py stamps first_connected_at with no agent check anywhere in connection_identity._connection_from_token, so a connected-but-agentless user satisfies step 4 without step 3 and D7 drops them from steps 4-7, inventing a drop at 'built an agent'."}, {"severity": "HIGH", "title": "Summary number 4 cannot be a 24-hour snapshot and counts a population nothing else on the page counts", "detail": "gc_pending_connections runs only from /me/agents/new and /me/connections so the admin page never collects stale rows, and ConnectionSetup is machine-path-only (D6), so the number both overstates its recency and structurally excludes the MCP users whose drop it is meant to explain."}, {"severity": "MEDIUM", "title": "First-touch argument breaks five monkeypatched sync_google_user fakes", "detail": "tests/test_mcp.py replaces sync_google_user at lines 266, 340, 421, 518 and 613 with a two-positional-parameter fake, so passing an extra argument from the MCP callers raises TypeError in all five, and the file is not in the spec's touch list."}, {"severity": "MEDIUM", "title": "One AdminAction value cannot record a two-way toggle", "detail": "Every other reversible admin action in the enum is a pair and AdminAuditLog has no column for the resulting value, so mark_internal alone makes marking and unmarking render identically in user_detail.html; unmark_internal is 15 chars and fits the VARCHAR(16)."}, {"severity": "MEDIUM", "title": "state.json constraints still assert the superseded no-cookie non-goal", "detail": "discovery.non_goals[1] is marked SUPERSEDED but discovery.checklist.constraints still says 'no anonymous visitor cookie, so no cookie-consent banner is introduced', and the plan/tasks stages read the checklist."}, {"severity": "MEDIUM", "title": "is_internal backfill rule and creation rule disagree in both directions", "detail": "The backfill flags ADMIN-role users but auth.py:41 applies the domain rule only (and promote_user never sets the flag), while dev_login creates dev@localhost as internal even though 'localhost' is not among the backfill's seed domains."}, {"severity": "MEDIUM", "title": "Toggle build item omits app/services/admin_user_actions.py", "detail": "Every existing admin action's row lock, no-op guard, floor-admin refusal and single audit write live in that service module, so building the toggle in admin_web.py alone duplicates or skips that contract."}, {"severity": "MEDIUM", "title": "D12's shared filter does not make the two admin pages agree", "detail": "load_turn_timing_report also filters Match.state == COMPLETED and windows on Match.completed_at, and treats a real turn as non-defaulted AND submitted_at not null, so copying only the TEST_NAME_PREFIX filter leaves the two pages reporting different numbers anyway."}, {"severity": "MEDIUM", "title": "First touch is discarded when the first completed sign-in is the MCP OAuth flow", "detail": "oauth_auth._sync_signin_user runs inside a browser-driven OAuth exchange where the first-touch cookie exists but is unreachable, so a hermesagent visitor who sets up via Claude Code is attributed to 'mcp' — losing the exact answer the feature exists to produce."}, {"severity": "LOW", "title": "users_list.html empty-state colspan is stale after adding the internal column", "detail": "app/templates/admin/users_list.html:41 hardcodes colspan=\"7\" to match the current 7 headers, and build item 8 adds an eighth column without mentioning it."}, {"severity": "LOW", "title": "Admin dashboard toolbar is a second nav surface the spec does not update", "detail": "Build item 7 only touches base.html:95, but admin/dashboard.html carries its own admin toolbar and is the sole entry point for /admin/handles and /admin/incidents."}, {"severity": "LOW", "title": "D11's timezone fix leaves UTC as the default", "detail": "The copied _parse_timezone returns timezone.utc when tz is absent or blank, so on a plain page load 'came back another day' still evaluates in UTC — the exact US-evening double-count D11 describes."}, {"severity": "LOW", "title": "D8's creation-site table cites a nonexistent path", "detail": "The table lists bots/seating.py:51 when the real file is app/engine/bots/seating.py:51, and get_or_create_bots_user sets no role so only the domain half of the backfill rule reaches that account."}]}
 ```

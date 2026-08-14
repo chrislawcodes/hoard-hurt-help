@@ -14,8 +14,7 @@
         "app/models/user.py",
         "tests/test_migrations.py",
         "app/routes/auth.py",
-        "app/routes/admin_web.py",
-        "docs/workflow/feature-runs/admin-engagement-dashboard/state.json"
+        "app/routes/admin_web.py"
       ],
       "model": "claude-opus-4-8"
     },
@@ -28,8 +27,7 @@
         "app/models/user.py",
         "tests/test_migrations.py",
         "app/routes/auth.py",
-        "app/routes/admin_web.py",
-        "docs/workflow/feature-runs/admin-engagement-dashboard/state.json"
+        "app/routes/admin_web.py"
       ],
       "model": "claude-opus-4-8"
     },
@@ -42,8 +40,7 @@
         "app/models/user.py",
         "tests/test_migrations.py",
         "app/routes/auth.py",
-        "app/routes/admin_web.py",
-        "docs/workflow/feature-runs/admin-engagement-dashboard/state.json"
+        "app/routes/admin_web.py"
       ],
       "model": "claude-opus-4-8"
     }

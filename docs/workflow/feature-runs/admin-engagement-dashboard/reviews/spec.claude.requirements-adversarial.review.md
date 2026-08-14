@@ -3,14 +3,14 @@ reviewer: "claude"
 lens: "requirements-adversarial"
 stage: "spec"
 artifact_path: "docs/workflow/feature-runs/admin-engagement-dashboard/spec.md"
-artifact_sha256: "dc6a588aa10055bdc51aceba37457ef383aadca7a1008975c62a2c3bbc122bc0"
+artifact_sha256: "8ec540f28d7639fd27b25fa4fd98b4a52f51ba38ac7c70da38d8bc10137ff8ca"
 repo_root: "."
-git_head_sha: "e690920f0740d72d7667fffd85e00cbd482fcb2e"
+git_head_sha: "fae2fbf27abb626dc08c38f8bb1fe5ee7eea94a7"
 git_base_ref: "origin/main"
 git_base_sha: "0a38ccf04bbb00ad4e47446f20ebd95638a0d4a1"
 generation_method: "claude-subagent"
 resolution_status: "accepted"
-resolution_note: "16 findings (5 HIGH). All 5 HIGH verified against real code by the orchestrator before acceptance. Fixed in spec revision 2: funnel step order corrected to the nav_context gate ladder (D5); started-AI-hookup step dropped because MCP users never create a ConnectionSetup row and the rows are GC'd after 24h (D6); played-a-turn now excludes was_defaulted rows, measured at 4614/20276 in dev (D10); anonymous-visitor cookie escalated to Chris, who chose full attribution (D3). MEDIUM/LOW also fixed: summary numbers named, previous-period defined, timezone consistency (D11), smoke-test exclusion (D12), NULL-vs-direct (D4), corrected skip-path list, signed-cookie wording, stuck-list label and cap, AC drift synced to state.json."
+resolution_note: "Round 2. 14 findings (5 HIGH), all verified before acceptance. Decisive: gc_pending_connections has no scheduler (only two page routes call it) so revision 2's 24-hour-snapshot tile was meaningless - tile dropped in D12. SessionMiddleware sets no max_age so the cookie is a persistent 14-day cookie, and the site has no privacy policy anywhere - now recorded as D8's OPEN OBLIGATION. No timestamp was named for played-a-turn; resolved by recording the milestone at write time (D5) and matching admin_reports' NULL-submitted_at guard. One reviewer claim was overstated and is recorded as such: revision 2 said anonymous visitors get no cookie at all, but google_login already writes a session - corrected in D8."
 raw_output_path: "docs/workflow/feature-runs/admin-engagement-dashboard/reviews/spec.claude.requirements-adversarial.review.md.raw.txt"
 narrowed_artifact_path: ""
 narrowed_artifact_sha256: ""
@@ -22,124 +22,309 @@ coverage_note: ""
 
 ## Findings
 
-### HIGH 1 — The funnel's step order contradicts the product's own gate ladder, so the strict-nesting rule (D5) hides the very leak this feature exists to find. [CODE-CONFIRMED]
+Round-2 scope: the 30 round-1 findings listed in "Review outcomes" are treated as
+settled and are not re-reported. Everything below is either something a round-1
+fix introduced, something a round-1 fix left half-done, or something no round-1
+finding touched.
 
-Spec §4 orders the steps `… picked a handle → started AI hookup → AI connected → built an agent → joined a match …`. The product enforces the opposite order for the last two. `app/routes/nav_context.py` defines the ladder as `NEEDS_HANDLE = 1`, `NEEDS_AGENT = 2`, `NEEDS_MCP_CONNECTION = 3`, and `_first_unmet_gate` returns `NEEDS_AGENT` **before** it ever looks at connections. Agent creation is additionally gated on a handle (`require_user_with_handle` at `app/routes/agents_create.py:106` and `:143`).
+### HIGH 1 — Summary number 4 is defined three ways at once, and its "24-hour snapshot" label is factually wrong [CODE-CONFIRMED]
 
-Consequence, under D5's "step N counts only if steps 1..N-1 cleared": the cohort the product actually produces — *built an agent, never connected an AI* — is counted at neither "AI connected" nor "built an agent". "Built an agent" is redefined as "connected **and** built", so it shows near-zero incremental drop. The page will report that the agent step is fine and blame the connection step for everything, which is the wrong instruction to Chris. This is the identical failure mode to the archived-agent bug D5 was written to fix, reintroduced by step ordering rather than by filtering.
+Build item 6 defines number 4 as "Incomplete connection setups **right now** —
+labelled as a 24-hour snapshot (D6)", and then says "**Each** shows a comparison
+against the immediately preceding window of equal length." All three parts fail
+against the code.
 
-Related gap in the same list: there is no step for *connection went live*. The product distinguishes `ProviderReadiness.CONNECTED_NOT_LIVE` / `SEEN_NOT_POLLING` from `LIVE` (`app/engine/connection_health.py`, consumed by `_READINESS_TO_FIRST_UNMET`), and per the spec's own "Why" the known sticking point is the CLI restart — i.e. connected-but-never-polling. The spec jumps from "AI connected" straight to "joined a match", so that cohort has nowhere to land.
+1. **It is not a 24-hour snapshot.** `gc_pending_connections`
+   (`app/engine/pending_connection_gc.py`) is the only thing that deletes
+   incomplete `ConnectionSetup` rows, and it is called from exactly two places:
+   `app/routes/agents_create.py:112` and `app/routes/connections_pages.py:94`.
+   No scheduler job runs it (`app/engine/scheduler.py` has no reference). So a
+   row older than 24 hours survives until some *other* user happens to load the
+   agent-create page or the connections page. On a 10–20 user alpha that can be
+   days or weeks. The real meaning is "every incomplete setup since whoever last
+   loaded one of two pages" — unbounded in age, and not something the admin can
+   see or reason about. `/admin/engagement` itself does not call the GC, so
+   loading the dashboard does not even normalise the number it prints.
+2. **The previous-period comparison is impossible for it.** The rows are
+   *hard-deleted* (`delete(ConnectionSetup)`), not soft-deleted. Nothing records
+   how many incomplete setups existed during the previous window, so "each shows
+   a comparison" cannot be satisfied for number 4. An implementer will either
+   invent something or silently skip it, and the spec gives no rule.
+3. **It ignores the window control while sitting next to three numbers that
+   obey it.** Mixing one live number with three windowed numbers in one row is a
+   requirements defect on its own: change the date range and three tiles move
+   while the fourth does not. The one-word label "snapshot" is doing all the work
+   of explaining that, and per point 1 the label is wrong anyway.
 
-**Fix:** state the step ladder as `handle → agent → connection → live → joined → played`, matching `PlaySetupStage`, and make the mapping from step to table/column an acceptance criterion.
+**Fix:** either drop number 4, or define it as a windowed count over a durable
+column and state that the GC prevents that; and state explicitly, in the AC, that
+number 4 has no comparison and does not respond to the window.
 
-### HIGH 2 — "Started AI hookup" does not exist for MCP sign-in users, so step 3 and (by strict nesting) every step below it collapses. [CODE-CONFIRMED]
+### HIGH 2 — "Played a turn", "came back another day" and summary 3 never name a timestamp, and the obvious column is nullable [CODE-CONFIRMED]
 
-The spec's "Why" names `connection_setups.completed_at` as the data behind "started AI hookup". `connection_setups` rows are created **only** by the machine/paste-in setup flow (`app/routes/connections_machine_setup.py:106`) and consumed by the header-key auth path (`app/deps.py:161-176`). The MCP sign-in path creates the `Connection` directly with `mcp_connected_at` and `first_connected_at` set and **no `ConnectionSetup` row at all** (`app/engine/mcp_connection.py:214-224`).
+D5 step 6 is "a `turn_submissions` row with `was_defaulted = false`"; step 7 is
+"played on 2+ distinct days"; summary 3 is "Turns played in the window
+(non-defaulted)". None of the three says which timestamp decides the day or the
+window.
 
-MCP sign-in is the primary connect path. So a normal user reads as: cleared "picked a handle", failed "started AI hookup", and therefore — by D5's strict subset rule — is excluded from "AI connected", "built an agent", "joined a match" and "played a turn", even though the DB shows all of them. The funnel dies at step 3 with a ~100% drop. The likely "fix" an implementer reaches for is to loosen the nesting rule, which reintroduces the funnel-goes-up bug.
+`TurnSubmission.submitted_at` is `Mapped[datetime | None]` — nullable
+(`app/models/turn.py:73`). The repo's existing admin read model does not trust it:
+`app/read_models/admin_reports.py:182` skips a row when
+`submission.was_defaulted or submission.submitted_at is None`, i.e. it already
+treats a non-defaulted row with a NULL timestamp as real and unusable.
+`app/engine/agent_play.py:127` and `:219` defend the same way
+(`existing.submitted_at or datetime.now(...)`).
 
-**Fix:** define "started AI hookup" as a union over both paths (a `connection_setups` row **or** any `connections` row for the user), or drop the step; and add a test seeding an MCP-only user that asserts they appear at every later step.
+So an implementer has at least three defensible choices — use `submitted_at` and
+drop NULLs, fall back to `turns.opened_at`, or join through `turns` for the day —
+and they give different numbers for the same data. Every step-6, step-7 and
+summary-3 figure inherits that choice. Rows predating the column
+(`0001_initial` / `0013_two_phase_turns`) make this a live data question, not a
+theoretical one.
 
-### HIGH 3 — The abandoned-setup population is hard-deleted after 24 hours, so the number the feature is built to surface erases itself. [CODE-CONFIRMED]
+**Fix:** name the column, and say what happens to a non-defaulted row with a NULL
+timestamp (count it via `turns.opened_at`, or exclude it and say so).
 
-`app/engine/pending_connection_gc.py` runs `delete(ConnectionSetup).where(completed_at IS NULL, created_at < now - 24h)` and `delete(Connection).where(status == PENDING, first_connected_at IS NULL, created_at < now - 24h)` — hard deletes, not soft. It is triggered on ordinary page loads: `app/routes/connections_pages.py:94` and `app/routes/agents_create.py:112`.
+### HIGH 3 — The `is_internal` rule at the Google sign-in site is never written down, and it cannot match the backfill [CODE-CONFIRMED]
 
-The spec's headline motivation is "30 of 178 connection setups were started and never completed". In production that count is a rolling ≤24-hour remnant, not history, and it shrinks every time any user opens `/me/connections`. Worse under D5: a user who started a hookup, got GC'd, and later connected fails "started AI hookup" and is therefore dropped from every subsequent step.
+D8's table says the rule at `auth.py:41` is "domain rule" and nothing else. The
+backfill rule is stated in full: seed domains `agentludum.local`, `house.local`,
+`local.test`, **plus any `ADMIN`-role user at migration time**.
 
-**Fix:** either measure started-hookup from a durable signal (a `users`-level or event-level marker written at first hookup attempt), or state explicitly that this step is a 24-hour snapshot and cannot be trended — and revise the motivation, because the dev-DB number does not reproduce in prod.
+Those two rules cannot agree, because admin-ness is not a domain and is not fixed
+at migration time:
 
-### HIGH 4 — "Played a turn" is undefined, and the obvious reading counts engine-generated no-shows as engagement. [CODE-CONFIRMED]
+- `sync_google_user` sets `role = ADMIN` when the email is in
+  `settings.platform_admin_emails_set` (`app/routes/auth.py`). Chris's own address
+  is a gmail.com one — no seed domain matches it. So a *second* platform admin,
+  or Chris re-created after the migration, is flagged internal by the backfill but
+  **not** by the creation-site rule as written.
+- `promote_user` / `demote_user` (`app/routes/admin_web.py:1634`, `:1647`) change
+  role at any time afterwards. D8 says the flag is "set at creation, never
+  recomputed", so a user promoted to admin next month keeps `is_internal = False`
+  and keeps counting as a real user in every number on the page — and a
+  migration-time admin who is later demoted stays excluded forever.
 
-`app/engine/resolver.py:49` inserts a `TurnSubmission` with `submitted_at=None` for a player who never answered — the engine writes the row on the user's behalf. `TurnSubmission.submitted_at` is nullable (`app/models/turn.py:73`), and the existing report explicitly skips these rows: `if submission.was_defaulted or submission.submitted_at is None: continue` (`app/read_models/admin_reports.py:182`).
+This is exactly the failure D8 was written to prevent (a user drifting in and out
+of the excluded group), moved from email-drift to role-drift. The manual toggle is
+the only backstop, and nothing tells an admin when to use it.
 
-So "played a turn" = "a `turn_submissions` row exists" marks a user whose AI never responded at all as fully converted — the exact inverse of the truth, on the page whose job is to find where people fail. "Played a turn" = "`submitted_at IS NOT NULL`" is the correct reading, but the spec never says which, and the same ambiguity poisons "came back another day" (defined over turns) and the source table's "went on to play a turn" column.
+**Fix:** write the creation-site rule out in full, say whether ADMIN role implies
+internal at creation and after a later promotion, and if it does not, drop the
+ADMIN clause from the backfill so the two rules match.
 
-**Fix:** define "played a turn" as a submission with `submitted_at IS NOT NULL` and `was_defaulted` false, name it in the acceptance criteria, and add a test seeding a defaulted-only player who must **not** count.
+### HIGH 4 — D3 never states the cookie's lifetime; the default makes it a persistent 14-day cookie, which both caps the attribution and changes the legal picture [CODE-CONFIRMED]
 
-### HIGH 5 — The capture middleware gives every anonymous visitor a cookie, which is the thing the recorded non-goal exists to avoid, and it refutes D6's stated reasoning. [CODE-CONFIRMED]
+`app/main.py:240–246` adds `SessionMiddleware` with `secret_key`, `same_site`,
+`https_only` and `session_cookie` — and **no `max_age`**. Starlette's default is
+`max_age = 1209600` (14 days), confirmed against the installed package.
 
-`app/main.py:240` mounts Starlette's `SessionMiddleware` — a **signed client-side cookie** (`session_cookie="hhh_session"`), not server-side storage. Starlette emits `Set-Cookie` whenever the session dict is non-empty. Today the session is written only on sign-in-ish paths: `next_after_login` (`app/routes/auth.py:85`), the user id (`app/auth/session.py:22`), fresh connection keys, `agent_connected`. A plain anonymous page view sets **no** cookie today.
+Two consequences the spec does not mention:
 
-§1 writes `session["first_touch"]` on the first request of *any* session. Every anonymous visitor — and every crawler — now receives a cookie carrying `utm_source/medium/campaign`, referrer host and landing path. That is functionally a first-touch attribution cookie set without consent, and the recorded non-goal in `state.json` is: *"No anonymous visitor-ID cookie … would likely require a cookie-consent banner in the EU."* D6's justification ("capture only writes to a `users` row, so crawlers never appear") is refuted by the design in §1 — capture writes to the cookie on every request, crawlers included.
+- **The feature's stated value is capped at 14 days.** D3 justifies the cookie
+  with "full attribution — the source surviving any amount of browsing before
+  signup — is the point of the feature." It survives 14 days, not any amount. A
+  Reddit reader who bookmarks the site and signs up three weeks later is recorded
+  as `"direct"` — silently, and in exactly the population the feature exists to
+  measure.
+- **It is a persistent cookie, not a session cookie.** That is the fact that
+  matters for the consent question D3 raises. D3 calls it "an analytics cookie on
+  an anonymous visitor" and stops there. Persistent-vs-session is the distinction
+  a reader needs to judge the exposure, and it is absent.
 
-**Fix:** either get an explicit decision from Chris that a first-party attribution cookie for anonymous visitors is acceptable (and update the non-goal), or restrict the write to sessions that already exist / to the sign-in entry points, and rewrite D6.
+**Fix:** state the lifetime as a requirement (and pick one deliberately — a short
+explicit `max_age` for first touch, or accept 14 days and say so), and record the
+attribution horizon it implies.
 
-### MEDIUM 6 — D5's "deleted rows still count" is false for matches and turns: they are hard-deleted, from an admin button. [CODE-CONFIRMED]
+### HIGH 5 — Nothing in the delivery verifies or discloses the one public-facing change, and there is no disclosure surface to build on [CODE-CONFIRMED]
 
-`app/engine/match_deletion.py::delete_match` issues `delete(TurnSubmission)`, `delete(TurnMessage)`, `delete(Turn)`, `delete(PlayerState)`, `delete(Player)`, `delete(Match)` — real deletes with no tombstone — and it is wired to `POST /admin/matches/{match_id}/delete` in `app/routes/admin_web.py`, one click from the admin dashboard. `Player.left_at` is a soft leave, but the delete path bypasses it entirely.
+Non-goal 5 says "No public-facing changes **beyond the cookie now being set**".
+That cookie is the feature's only public-facing effect, and:
 
-So "ever joined a match" and "ever played a turn" are destructible, and last month's funnel silently changes whenever an admin tidies up matches. That directly undercuts the reproducibility argument used to justify D8. The spec asserts an invariant the schema does not provide, and AC 3 would have an implementer write a test asserting a false property.
+- **No acceptance criterion mentions it.** All 19 ACs are about the admin page,
+  the flag, the migration and capture correctness. None says "an anonymous
+  visitor's first page view sets the session cookie" or bounds what goes in it.
+- **No test-plan item covers it.** The capture tests all assert the *value* is
+  recorded; none asserts the cookie behaviour itself.
+- **There is nothing on the site to disclose it in.** There is no privacy policy,
+  no cookie notice, and no `privacy` route anywhere in `app/`. `app/templates/`
+  has `contact.html` and no legal page; the footer in
+  `app/templates/base.html:149–156` links only Contact.
 
-**Fix:** narrow D5 to "soft-deleted/archived rows still count; hard-deleted matches are gone", and note that funnel numbers are not reproducible across a match deletion.
+D3 says "a consent banner is not part of this feature and remains an open item".
+That is honest about the banner but understates the position: the feature starts
+setting a persistent cookie on a site with *zero* cookie disclosure of any kind,
+and the spec never says that. "Open item for Chris" names one missing artifact
+when three are missing (notice, policy text, banner) and does not say whether
+shipping before them is acceptable, who owns it, or by when.
 
-### MEDIUM 7 — Nothing sets `is_internal` at account creation, and the code paths that mint internal accounts will keep producing unflagged rows. [CODE-CONFIRMED]
-
-D8 says the flag is "set once at account creation and never recomputed", but §2 only specifies the column (`default False`) and §3 only adds a first-touch argument. No creation-time rule is stated anywhere. Meanwhile `app/engine/bots/seating.py:51` (`get_or_create_bots_user`) creates the internal `bots@agentludum.local` house user at runtime on demand — after the migration, in any environment where that row does not already exist, it lands with `is_internal = False` and counts as a real signup. `app/routes/dev_login.py:51` is a third creation site.
-
-The migration backfill is a one-time snapshot of a population that regenerates. The admin toggle (D8) makes this repairable, not prevented.
-
-**Fix:** specify the creation-time rule (same seed-domain/role test as the backfill, applied in a single shared helper used by every `User(...)` construction site), and name `app/engine/bots/seating.py` in the file list.
-
-### MEDIUM 8 — `sync_google_user` has three callers; the spec touches one, so MCP-first signups record NULL source. [CODE-CONFIRMED]
-
-`sync_google_user` is called from `app/routes/auth.py:106` (web OAuth), `mcp_server/oauth_auth.py:156`, and `mcp_server/connection_identity.py:176`. A user whose first-ever sign-in happens through an MCP client's OAuth has their `users` row created on one of the MCP paths — which have no browser session to read first touch from, and which the spec never mentions. Their source is silently NULL. §3's file list ("`app/routes/auth.py`") is incomplete for a change to that function's signature, against the repo's spec rule that a spec names exactly which files change.
-
-**Fix:** list the two `mcp_server/` callers, state what they pass (`None`), and say explicitly that MCP-first signups have no source — so the read model can label them honestly rather than as "direct" (see MEDIUM 10).
-
-### MEDIUM 9 — The "four summary numbers" are never named, and "previous-period comparison" is undefined for the page's own default window. [UNVERIFIED — artifact-internal]
-
-§6 block 1 says "Four summary numbers with a previous-period comparison". Nowhere does the spec say which four. Yet AC 4 and the test plan both depend on them ("Internal users excluded from all four summary numbers"), so the test is unwritable as specified. Separately, the page "follows the existing `/admin/reports` shape", and that route accepts `start_date`/`end_date` as `None` meaning all-time (`app/routes/admin_web.py::admin_reports`). "Previous period" has no meaning for an unbounded window, and the spec sets no default window.
-
-**Fix:** name the four numbers, define the default window (e.g. last 30 days), and define the previous period as the equal-length window immediately before it — or state that the comparison is suppressed when the window is unbounded.
-
-### MEDIUM 10 — "Direct" will absorb every uncaptured signup, making the source table's largest row meaningless. [CODE-CONFIRMED]
-
-D3's precedence is `utm_source → referrer_host → "direct"`. `users` has no source columns today (`app/models/user.py`), and §2 requires existing rows to stay NULL. Every pre-feature account, every MCP-path signup (MEDIUM 8), and every signup where the advisory capture failed open therefore derives as **"direct"**. At 10–20 users that bucket dominates the table and reads as "most signups come direct" when it means "we did not capture this". The feature's second question — which source produced the people who played — is answered wrongly on day one, silently.
-
-**Fix:** require the read model to distinguish NULL (never captured) from captured-with-no-source, with distinct labels such as "unknown (pre-capture)" vs "direct", and add it to the test plan.
-
-### MEDIUM 11 — Retention is defined in UTC days while the page's window controls are timezone-aware; for a US reader one evening session counts as "came back". [CODE-CONFIRMED]
-
-§4 defines "came back another day" as "played turns on 2 or more distinct **UTC** calendar days". The sibling page it is modelled on does the opposite: `admin_reports` takes a `tz` parameter and converts local day boundaries to UTC before filtering (`app/routes/admin_web.py`, `_parse_timezone` / `datetime.combine(...).astimezone(timezone.utc)`).
-
-00:00 UTC is 17:00 PDT. A single continuous evening play session from a US user crosses UTC midnight and scores as two distinct days — i.e. as retention. The final funnel step, the one that says whether anyone actually came back, is systematically inflated for the timezone most alpha users are in.
-
-**Fix:** bucket days in the same timezone the window controls use, and add a test with two submissions 30 minutes apart spanning UTC midnight that must **not** count as returning.
-
-### MEDIUM 12 — The acceptance criteria drifted from the authoritative list. [CODE-CONFIRMED]
-
-The spec says "Authoritative list is the discovery checklist (11 items) in `state.json`", then prints thirteen items in the order 1,2,3,4,**12,13**,5,6,7,8,9,10,11. The two inserted items — D9 distinct-user counting and the D8 `is_internal` toggle — do **not** appear in `state.json`'s `acceptance_criteria` array. If the implement stage follows the artifact the spec calls authoritative, the two decisions added by the previous review round are unenforced. `state.json` AC 4 also still describes the rejected email-based exclusion ("platform admins plus test accounts are excluded behind a single shared filter"), not the stored flag D8 replaced it with.
-
-**Fix:** update `state.json`'s `acceptance_criteria` to the 13 items and renumber the spec list, or drop the "authoritative" claim and make the spec the single source.
-
-### LOW 13 — The middleware skip list names a path that does not exist and misses the real streaming route. [CODE-CONFIRMED]
-
-§1 skips `/static`, `/healthz`, `/api`, `/mcp`, `/sse`. There is no `/sse` route: the SSE endpoints are `GET /games/{game}/matches/{match_id}/stream` and `GET /games/{match_id}/stream` (`app/routes/sse.py:40,47`). The list should be checked against the real router prefixes registered in `app/main.py`.
-
-### LOW 14 — D1 describes the session as server-side; it is a signed client cookie, and the spec's own risk table says so. [CODE-CONFIRMED]
-
-D1: "the value rides in the existing **server-side** session". `app/main.py:240` mounts Starlette `SessionMiddleware`, which is a signed cookie. The Risks table then correctly says "Session is a signed cookie". A decision record that is wrong about its own mechanism will mislead whoever sizes the payload or reasons about tampering (a visitor can set their own attribution by editing the URL — acceptable, but it should be stated, not implied by a wrong premise).
-
-### LOW 15 — The stuck-people list has no defined label, and the stuckest users are exactly the ones with no handle. [CODE-CONFIRMED]
-
-`User.handle` is NULL until the user picks one, and "picked a handle" is funnel step 2 — so users stuck at step 1 have no handle by definition. The spec says the list "names each user" without saying what the name is. `base.html` already uses the `@handle` else `email` pattern for this. The list also has no cap, unlike every other admin list in the codebase (users 50/page, incidents 200, audit 50).
-
-### LOW 16 — The module the spec says to follow excludes smoke-test matches; the spec has no equivalent. [CODE-CONFIRMED]
-
-`app/read_models/admin_reports.py:109` filters `~Match.name.ilike(f"{TEST_NAME_PREFIX}%")` (`TEST_NAME_PREFIX = "prod smoke"`). The engagement spec claims to follow that module's pattern but has no match-level exclusion, so a real user seated in a prod-smoke match counts as having joined a match and played a turn — and the two admin pages will disagree about the same matches.
+**Fix:** add an AC for the cookie's observable behaviour, and state the shipping
+decision plainly — either "ships before any disclosure exists, accepted risk,
+owner Chris" or a gate.
 
 ## Residual Risks
 
-- **Migration downgrade discards admin corrections.** §2 calls the downgrade clean because it drops `is_internal`. A downgrade/re-upgrade cycle also re-runs the seed-domain guess, silently discarding every manual toggle made via the D8 action. Worth one sentence in the migration section.
-- **Seed-domain suffix matching is loose.** "Match on the domain suffix only" against `local.test` also matches `notlocal.test`. Anchor on `@` + domain.
-- **Users promoted to platform admin after the migration stay `is_internal = False`.** `sync_google_user` re-applies the ADMIN role on every login from `PLATFORM_ADMIN_EMAILS` (`app/routes/auth.py:1240-1241` in the provided context), but the backfill only flags admins *at migration time*. Repairable via the toggle; not stated.
-- **Disabled accounts are not addressed.** `users.disabled_at` exists and disabled users still sit in every cohort. Probably correct (they did sign up), but it should be a stated decision, not an accident.
-- **Session cookie growth is capped but not budgeted.** Five fields at 120/120/120/255/255 plus JSON and base64 overhead is roughly 1.2 KB of a ~4 KB cookie, sharing space with `next_after_login`, per-connection fresh-key entries, and authlib's OAuth state. Worth an explicit byte budget rather than "five short strings only".
-- **`base.html` placement detail.** AC 1 says the link sits "alongside Match Admin, Reporting and Users", but `Users` is outside the `Platform admin` submenu in the current template; only Match Admin and Reporting are inside it.
-- **D2's middleware ordering claim is correct** — verified, not a finding. `add_middleware` inserts at index 0, `SessionMiddleware` is added first at `app/main.py:240` and is therefore innermost; adding `FirstTouchMiddleware` before that call leaves it inside the session. The stated risk is real and the stated remedy works.
+*(MEDIUM and LOW findings, ordered by severity.)*
+
+### MEDIUM 1 — No acceptance criterion covers the four summary numbers at all [UNVERIFIED — spec-internal]
+
+Round 1's finding "Unnamed summary numbers and undefined previous period" is
+recorded in "Review outcomes" as accepted and fixed. The fix landed **only** in
+build item 6. None of the 19 ACs mentions the summary numbers, their definitions,
+or the previous-period rule; the only test-plan line touching them is "internal
+users excluded from summary numbers". So the round-1 fix is unverifiable — the
+build can ship with the numbers defined any way at all and every AC still passes.
+This is the same class of gap as HIGH 1 and is the reason HIGH 1 survived into
+revision 2.
+
+### MEDIUM 2 — Eight of the nineteen ACs have no matching test-plan item, including the one D9 calls the risky one [UNVERIFIED — spec-internal]
+
+Mapping every AC to the test plan:
+
+| AC | Covered? |
+|---|---|
+| 1 (page exists, in menu, 403s) | **No item.** (The 403 claim itself is correct — `require_platform_admin` raises 403 in `app/deps.py:71–80`.) |
+| 4 ("ever did X") | **Half.** The archived-agent case is tested; D7 also promises deleted connections still count, and nothing tests that. |
+| 5 (excluded *everywhere*) | **Half.** Tested for summary numbers and funnel only — not the source table, not the stuck list. |
+| 6 (flag at all three creation sites) | **Two of three.** Bots-user and dev-login are tested. The Google sign-in site is not (and see HIGH 3 — its rule is undefined). |
+| 14 (source table, NULL → "unknown") | **No item at all.** |
+| 15 (stuck list: handle-less label, 50-row cap) | **No item.** |
+| 16 (starts at 100%, no visitor count, note) | **No item.** |
+| 18 (toggle + audit + users-list column) | **Partial.** Toggle and floor-admin render are tested; the "internal" column on `/admin/users` is not. |
+
+AC 2, 3, 7, 8, 9, 10, 11, 12, 13, 17, 19 all map cleanly.
+
+The sharpest gap is AC 14. D9 says the funnel is "safe by construction" and names
+the **source table** as "the exposed risk" where a naive join reports one busy
+user as dozens. The only distinct-user test in the plan is filed under "Funnel
+correctness". The one place the spec says the bug will happen has no test.
+
+### MEDIUM 3 — Summary 2 and funnel step 6 look like the same number and are not [UNVERIFIED — spec-internal]
+
+Summary 2 is "Users who played a turn **in the window**". Funnel step 6 is users
+who **signed up in the window** and have **ever** played a non-defaulted turn
+(step 1 is windowed, D7 makes steps 2–7 "ever"). Different populations, adjacent
+on one page, both readable as "people who played". They will disagree, sometimes
+badly — a long-time player who played this week is in summary 2 and in no funnel
+step. Nothing on the page or in the spec says why. An admin comparing them will
+conclude one of them is broken.
+
+**Fix:** label them so the difference is visible ("signed up this window" vs
+"active this window"), and say in the AC which population each counts.
+
+### MEDIUM 4 — "Came back another day" is still not defined to exactly one implementation, and the definition contradicts its own stated intent [UNVERIFIED — spec-internal]
+
+D5 step 7 says "played on 2+ distinct days". Three things are unresolved:
+
+- **Within the window, or ever?** Step 1 is windowed and D7 says steps are "ever",
+  so "ever" is the likely reading — but step 7 is the one step where "ever" makes
+  the number drift upward every day the page is loaded, and the spec never says it.
+- **Do both days need a non-defaulted turn?** Step 6 defines "played" as
+  non-defaulted. Step 7 says "played" without repeating it. A user who really
+  played on Monday and no-showed on Tuesday is a return visit under one reading
+  and not under the other.
+- **It does not deliver what D11 says it is for.** D11 justifies the timezone rule
+  with "a US evening session spans two UTC days and would read as a return visit
+  that never happened." Switching to local time moves the midnight boundary; it
+  does not remove it. A single session from 11:55pm to 12:05am **local** still
+  counts as two distinct local days and still reads as a return visit that never
+  happened. The test plan tests only the UTC-vs-local case, so this passes review
+  and ships.
+
+Related, and unstated: the timezone comes from the `tz` query parameter (copied
+from `/admin/reports`, per D11). So step 7's count changes when the admin changes
+the dropdown. D11 secures consistency *within* one page load and never says the
+number is not stable *across* them.
+
+**Fix:** define step 7 as a gap rule (e.g. two non-defaulted turns at least N
+hours apart) or keep calendar days and change the step's name so it does not
+promise more than it measures.
+
+### MEDIUM 5 — D3's 4KB mitigation is stated as a guarantee it cannot provide [CODE-CONFIRMED]
+
+D3 says: "Every captured field is length-capped (D4) so first touch cannot push a
+session over the limit and silently drop it."
+
+Capping bounds first touch's own contribution (~870 characters across the five
+fields). It cannot bound the session, because the session already grows without
+limit elsewhere: `app/routes/connections_machine_setup.py:115` and `:125` write a
+plaintext key under `fresh_connection_key_setup_{setup.id}`, and that entry is
+only ever **read** (`.get` at `:174`) — never popped. `clear_session`
+(`app/auth/session.py:25`) pops only the user key, so signing out does not clear
+them either. (The sibling at `connections_pages.py:273` does pop; the setup one
+does not.)
+
+So a user who starts many machine setups — precisely the struggling user this
+dashboard exists to find — accumulates cookie entries forever, and first touch can
+still be the straw that tips the cookie past ~4KB, at which point the browser
+drops it and the user is silently signed out. The mitigation is real but partial,
+and the spec states it as absolute.
+
+**Fix:** soften the claim to what it is, or add a size check on the session as
+part of capture.
+
+### MEDIUM 6 — The sample-size objection is applied to one feature and ignored for three [UNVERIFIED — spec-internal]
+
+Non-goal 4 rejects a cohort retention grid because it is "noise at 10–20 users".
+The same 10–20 users then get: a seven-step funnel with a percentage drop at each
+step, a retention step (step 7), a source table with a "played" percentage, and
+period-over-period comparisons on all four summary numbers. At n=12, one user
+leaving is an 8-point move. No AC, design decision or test says how percentages
+render on tiny denominators, whether small counts are suppressed, or how the
+comparison reads when the previous window had 2 signups. The test plan covers only
+"Empty window renders without divide-by-zero" — the zero case, not the tiny case.
+
+### LOW 1 — D9's heading overstates its own rule [UNVERIFIED — spec-internal]
+
+D9 is titled "Every count is distinct users, never rows", but summary number 3 is
+"Turns played in the window", which is deliberately a row count. AC 11 states the
+rule correctly ("Every **people-count** is distinct users"). The heading should
+match the AC, or an implementer reading D9 alone will convert number 3 to a user
+count.
+
+### LOW 2 — `"mcp"` as a source has no defined home and can collide [UNVERIFIED — spec-internal]
+
+AC 9 and build item 3 say MCP-created users record source `"mcp"`. D4's precedence
+chain is `utm_source` → `first_referrer_host` → `"direct"`, with no slot for a
+synthetic label. Presumably `first_utm_source = "mcp"`, but the spec never says,
+never says what the other four columns hold for an MCP user, and a real inbound
+link carrying `?utm_source=mcp` would be indistinguishable from a genuine MCP
+signup. Naming the column and reserving the label would close it.
+
+### LOW 3 — D3's "no cookie at all" is slightly overstated [CODE-CONFIRMED]
+
+D3 says "Today an anonymous visitor gets **no cookie at all**: nothing writes to
+`request.session` until sign-in." `google_login` writes
+`request.session["next_after_login"] = next` (`app/routes/auth.py:85`) before the
+user has signed in, so a visitor who clicks Sign in already receives a cookie
+today. The substance of D3 survives — a visitor who only browses gets none — but
+the sentence as written is wrong and is load-bearing for the decision it records.
+
+### Not findings — checked and confirmed correct
+
+- AC 1's "403s for a non-admin" matches the code: `require_platform_admin` raises
+  `HTTP_403_FORBIDDEN` (`app/deps.py:71–80`). The gap is the missing test, not the
+  claim.
+- D6's claim that the GC "runs on ordinary page loads" is accurate — it is what
+  makes HIGH 1 worse, not a defect in D6 itself.
+- D10's `was_defaulted` premise holds: defaulted rows are written with
+  `submitted_at=None` (`app/games/hoard_hurt_help/scoring.py:197`,
+  `app/engine/resolver.py:49`).
+
+### Risks accepted without a finding
+
+- The funnel's step 2 (`handle_key IS NOT NULL`) can be undone by
+  `reset_handle`, which would drop a real player out of steps 3–7 under strict
+  nesting. D7 discloses this class of problem as an accepted limit, so it is not a
+  new finding — but the note on the page should mention that a handle reset
+  removes a user from the funnel entirely, not just that past funnels are
+  non-reproducible.
+- First-touch data has no stated retention limit and no requirement to clear it
+  when an account is disabled or deleted. Small today; grows with the privacy gap
+  in HIGH 5.
 
 ```json
-{"reviewed": true, "findings": [{"severity": "HIGH", "title": "Funnel step order contradicts the product's gate ladder", "detail": "The spec puts 'built an agent' after 'AI connected' while nav_context.PlaySetupStage forces agent (2) before connection (3), so under strict nesting the built-an-agent-never-connected cohort vanishes and the drop is blamed on the wrong step."}, {"severity": "HIGH", "title": "'Started AI hookup' does not exist for MCP sign-in users", "detail": "app/engine/mcp_connection.py:214 creates the Connection with no ConnectionSetup row, so MCP users fail step 3 and strict nesting drops them from every later step even though the DB shows they played."}, {"severity": "HIGH", "title": "Abandoned setups are hard-deleted after 24 hours", "detail": "gc_pending_connections deletes incomplete ConnectionSetup and pending Connection rows older than 24h on ordinary page loads, so the started-but-never-finished number the feature exists to surface erases itself in prod."}, {"severity": "HIGH", "title": "'Played a turn' is undefined and counts engine-generated no-shows", "detail": "resolver.py:49 writes a TurnSubmission with submitted_at=None for a player who never answered, so a row-exists reading marks a user whose AI never responded as fully converted."}, {"severity": "HIGH", "title": "Capture cookies every anonymous visitor, against the recorded non-goal", "detail": "Starlette SessionMiddleware is a client cookie set only on sign-in paths today; writing first_touch on the first request of any session gives every visitor and crawler an attribution cookie, which is what the no-visitor-cookie non-goal exists to avoid and refutes D6's reasoning."}, {"severity": "MEDIUM", "title": "D5's 'deleted rows still count' is false for matches and turns", "detail": "delete_match hard-deletes Player, Turn and TurnSubmission rows from an admin button, so 'ever joined'/'ever played' is destructible and past funnels do not reproduce."}, {"severity": "MEDIUM", "title": "No rule sets is_internal at account creation", "detail": "The column defaults to False and get_or_create_bots_user (seating.py:51) mints the internal house user at runtime, so internal accounts created after the migration silently count as real signups."}, {"severity": "MEDIUM", "title": "sync_google_user has three callers; the spec touches one", "detail": "mcp_server/oauth_auth.py:156 and mcp_server/connection_identity.py:176 also create users, so an MCP-first signup records a NULL source and the spec's file list is incomplete."}, {"severity": "MEDIUM", "title": "The four summary numbers and the previous period are undefined", "detail": "AC 4 and the test plan reference 'all four summary numbers' that the spec never names, and 'previous-period comparison' has no meaning for the unbounded default window the /admin/reports shape allows."}, {"severity": "MEDIUM", "title": "NULL source is conflated with 'direct'", "detail": "Pre-existing users, MCP-path signups and fail-open captures all derive to 'direct' under D3, so the source table's biggest row means 'not captured' while reading as a real answer."}, {"severity": "MEDIUM", "title": "Retention uses UTC days while the window controls are timezone-aware", "detail": "00:00 UTC is 17:00 PDT, so one continuous evening session spans two UTC days and inflates 'came back another day' for exactly the users being measured."}, {"severity": "MEDIUM", "title": "Acceptance criteria drifted from the authoritative list", "detail": "The spec calls state.json's 11-item list authoritative then prints 13 items, and the two added by the last review round (D9 distinct counting, D8 toggle) are absent from state.json."}, {"severity": "LOW", "title": "Middleware skip list names a nonexistent /sse path", "detail": "The real streaming routes are /games/{game}/matches/{match_id}/stream and /games/{match_id}/stream in app/routes/sse.py, so the skip list should be rebuilt from the registered router prefixes."}, {"severity": "LOW", "title": "D1 calls the session server-side; it is a signed cookie", "detail": "app/main.py:240 mounts Starlette SessionMiddleware, and the spec's own risk table contradicts D1 on this point."}, {"severity": "LOW", "title": "Stuck-people list has no defined label and no cap", "detail": "Users stuck before the handle step have handle=NULL by definition, and every other admin list in the codebase is paginated or limited."}, {"severity": "LOW", "title": "No smoke-test match exclusion", "detail": "admin_reports.py:109 excludes matches named with TEST_NAME_PREFIX ('prod smoke'); the engagement spec claims to follow that module but omits any equivalent, so the two admin pages will disagree."}]}
+{"reviewed": true, "findings": [{"severity": "HIGH", "title": "Summary number 4 is defined three ways and its \"24-hour snapshot\" label is wrong", "detail": "gc_pending_connections runs only from agents_create.py:112 and connections_pages.py:94 with no scheduler, so incomplete setups persist far past 24 hours; the rows are hard-deleted so the promised previous-period comparison is impossible; and the number ignores the window control that the three tiles beside it obey."}, {"severity": "HIGH", "title": "Steps 6 and 7 and summary 3 never name a timestamp, and the obvious column is nullable", "detail": "TurnSubmission.submitted_at is nullable (app/models/turn.py:73) and admin_reports.py:182 already discards non-defaulted rows whose timestamp is NULL, so \"played a turn\", \"came back another day\" and \"turns in the window\" each have several defensible implementations that give different numbers."}, {"severity": "HIGH", "title": "The is_internal rule at the Google sign-in site is undefined and cannot match the backfill", "detail": "D8 says only \"domain rule\" for auth.py:41 while the backfill also flags every ADMIN-role user at migration time, but role comes from platform_admin_emails_set at sign-in and can change later via promote_user/demote_user (admin_web.py:1634/:1647), so the flag drifts by role exactly the way D8 was written to stop it drifting by email."}, {"severity": "HIGH", "title": "Cookie lifetime is unspecified; the default makes it a persistent 14-day cookie", "detail": "app/main.py:240-246 passes no max_age so Starlette's 1209600-second default applies, which caps the \"survives any amount of browsing\" attribution D3 promises at 14 days and makes this a persistent rather than session cookie — the distinction that matters for the consent question D3 raises."}, {"severity": "HIGH", "title": "Nothing verifies or discloses the cookie, and the site has no disclosure surface at all", "detail": "The cookie is the feature's only public-facing change per non-goal 5, yet no acceptance criterion and no test-plan item covers it, and there is no privacy policy, cookie notice or privacy route anywhere in app/ (footer at base.html:149-156 links only Contact), so \"a consent banner is an open item\" names one missing artifact when three are missing."}, {"severity": "MEDIUM", "title": "No acceptance criterion covers the four summary numbers at all", "detail": "Round 1's \"unnamed summary numbers and undefined previous period\" fix landed only in build item 6, so none of the 19 ACs and only one test-plan clause touch the summary numbers — the fix is unverifiable and is why HIGH 1 survived into revision 2."}, {"severity": "MEDIUM", "title": "Eight of nineteen acceptance criteria have no matching test-plan item", "detail": "ACs 1, 14, 15 and 16 have no test at all and ACs 4, 5, 6 and 18 are only half covered; the worst gap is AC 14, since D9 names the source table as the one place a naive join misreports users and the plan's only distinct-user test is a funnel test."}, {"severity": "MEDIUM", "title": "Summary 2 and funnel step 6 count different populations but read as the same number", "detail": "Summary 2 is users active in the window regardless of signup date while step 6 is window signups who ever played, so the two adjacent numbers will disagree with nothing on the page or in the spec explaining why."}, {"severity": "MEDIUM", "title": "\"Came back another day\" still admits several implementations and contradicts D11's intent", "detail": "The spec never says whether the two days are within the window or ever, nor whether both must be non-defaulted, and \"2+ distinct local days\" still counts an 11:55pm-to-12:05am local session as a return visit — the exact false positive D11 says the timezone rule exists to prevent."}, {"severity": "MEDIUM", "title": "D3's 4KB mitigation is stated as a guarantee it cannot provide", "detail": "Length-capping bounds first touch's own size but not the session: connections_machine_setup.py:115/:125 write fresh_connection_key_setup_{id} entries that are only ever read, never popped, and clear_session (auth/session.py:25) removes only the user key, so the cookie still grows without limit and first touch can tip it past 4KB."}, {"severity": "MEDIUM", "title": "The small-sample objection is applied to one feature and ignored for three", "detail": "Non-goal 4 rejects a retention grid as noise at 10-20 users, yet the page ships per-step drop percentages, a retention step, source-table percentages and four period-over-period comparisons on the same denominators with no rule for small-n display and only a divide-by-zero test."}, {"severity": "LOW", "title": "D9's heading overstates its own rule", "detail": "\"Every count is distinct users, never rows\" contradicts summary number 3, which is deliberately a row count; AC 11's narrower \"every people-count\" is the correct wording."}, {"severity": "LOW", "title": "The \"mcp\" source label has no defined column and can collide", "detail": "AC 9 requires MCP users to record source \"mcp\" but D4's precedence chain has no slot for a synthetic label, the spec never says which column holds it or what the other four hold, and a real ?utm_source=mcp link would be indistinguishable."}, {"severity": "LOW", "title": "D3's \"no cookie at all\" premise is overstated", "detail": "google_login writes request.session[\"next_after_login\"] at app/routes/auth.py:85 before sign-in, so a visitor who clicks Sign in already gets a cookie today; D3's substance holds for browse-only visitors but the sentence is wrong and is load-bearing for the decision it records."}]}
 ```
 
 ## Runner Stats
@@ -149,4 +334,4 @@ D1: "the value rides in the existing **server-side** session". `app/main.py:240`
 
 ## Resolution
 - status: accepted
-- note: 16 findings (5 HIGH). All 5 HIGH verified against real code by the orchestrator before acceptance. Fixed in spec revision 2: funnel step order corrected to the nav_context gate ladder (D5); started-AI-hookup step dropped because MCP users never create a ConnectionSetup row and the rows are GC'd after 24h (D6); played-a-turn now excludes was_defaulted rows, measured at 4614/20276 in dev (D10); anonymous-visitor cookie escalated to Chris, who chose full attribution (D3). MEDIUM/LOW also fixed: summary numbers named, previous-period defined, timezone consistency (D11), smoke-test exclusion (D12), NULL-vs-direct (D4), corrected skip-path list, signed-cookie wording, stuck-list label and cap, AC drift synced to state.json.
+- note: Round 2. 14 findings (5 HIGH), all verified before acceptance. Decisive: gc_pending_connections has no scheduler (only two page routes call it) so revision 2's 24-hour-snapshot tile was meaningless - tile dropped in D12. SessionMiddleware sets no max_age so the cookie is a persistent 14-day cookie, and the site has no privacy policy anywhere - now recorded as D8's OPEN OBLIGATION. No timestamp was named for played-a-turn; resolved by recording the milestone at write time (D5) and matching admin_reports' NULL-submitted_at guard. One reviewer claim was overstated and is recorded as such: revision 2 said anonymous visitors get no cookie at all, but google_login already writes a session - corrected in D8.

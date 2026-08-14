@@ -1,445 +1,437 @@
 # Admin Engagement Dashboard + Signup-Source Capture: Spec
 
-**Revision 2** — rewritten after the spec checkpoint. Three reviewers (Codex
-feasibility, Claude requirements, Claude completeness) returned 30 findings, 12 of
-them HIGH. Every HIGH was verified against the real code before being accepted;
-the verification notes are in "Review outcomes" at the end.
+**Revision 3** — redesigned. Two review rounds, three reviewers each, produced 57
+findings (24 HIGH). Revision 2 patched them one at a time; revision 3 accepts that
+the patching was treating symptoms and changes the design.
 
-**Feature:** one admin-only page (`/admin/engagement`) answering two questions
-Chris cannot answer today — *where do new users fall out on the way to actually
-playing?* and *which traffic source produced the people who played?* — plus the
-first-touch capture that makes the second question answerable at all.
+**Feature:** an admin-only page (`/admin/engagement`) answering *where do new users
+fall out on the way to playing?* and *which traffic source produced the people who
+played?*, plus the durable records that make both answerable at all.
 
 **Delivery path:** full Feature Factory. `silent-risk=yes`, `design-settled=no`,
-`completeness-risk=yes`. Adds a DB migration, a model change, and new middleware.
+`completeness-risk=yes`.
 
 ---
 
-## Why (the problem)
+## Why revision 3 exists — the root cause
 
-1. **Acquisition is unmeasurable.** Chris recruits alpha users from Reddit.
-   Nothing in the app records where a signup came from, so "did r/hermesagent
-   work?" is unanswerable.
+Revisions 1 and 2 modelled engagement as a **strict funnel**: one ordered path,
+where a user counts at step N only if they cleared steps 1..N-1. Every review round
+broke it, and the breakages had one shared cause.
 
-2. **Engagement data exists but is never read.** `users.created_at`,
-   `connections.first_connected_at`, `players.joined_at`,
-   `turn_submissions.submitted_at` already describe the whole journey. No page
-   reads them together.
+**1. There is no single path. There are at least four.**
 
-3. **The suspected leak is invisible.** Connecting an AI needs two steps the AI
-   cannot do for itself (click through Google sign-in, restart the CLI). Nothing
-   surfaces how many people stall there.
+| Path | Shape |
+|---|---|
+| AI agent, web setup | handle → agent → connection → join → play |
+| AI agent, MCP first | connection stamped with **no agent and no handle** |
+| **Human manual play** | agent `kind='human'`, **no connection, ever** |
+| Bots | house-owned, no real user journey |
+
+Human play is not an edge case — it is **the default for every brand-new user**.
+`_default_human_choice` ([web_join.py:113](../../../app/routes/web_join.py)) returns
+`True` when a user has no history, and its own comment calls this "the no-setup
+path". Under strict nesting, a person who signs up, plays manually every day, and
+loves the game renders as *stuck at picked a handle*.
+
+Strict nesting converts every unmodelled path into a fake drop. Round 1 found two
+unmodelled paths; round 2 found three more. That is a design failing, not a
+detail gap.
+
+**2. The app deletes the evidence a drop-off report needs.** Four confirmed sites:
+
+| What is deleted | Where | Cohort erased |
+|---|---|---|
+| Incomplete connection setups | `pending_connection_gc.py` (runs on ordinary page loads, not scheduled) | "started hookup, gave up" |
+| Held seats, ~15 min | `seat_hold.py:87`, `:119` | "joined, AI never came online" |
+| Agents with no game history | `agents_lifecycle.py:158` — archives only if `Player` rows exist | "built an agent, never played" |
+| Matches, players, turns | admin `delete_match` | any past funnel |
+
+Those are precisely the abandonment cohorts the feature exists to surface.
+
+**Chris's decision, 2026-08-13:** record milestones durably as they happen, and
+present them as independent counts rather than a strict waterfall.
 
 ---
 
 ## Design decisions
 
-### D1 — First touch is captured in middleware, on the first page view
+### D1 — Durable milestone records replace derived funnel steps
 
-A visitor lands on `/?utm_source=hermesagent`, reads the page, clicks around, and
-*then* signs in. By the time the request reaches `/auth/google/login`
-([auth.py:84](../../../app/routes/auth.py)) the UTM parameter is gone. Capturing at
-the login route records nothing for anyone who did not sign in on their first
-click.
+New append-only table `user_milestones`: one row the **first** time a user reaches
+a milestone. `UNIQUE(user_id, milestone)` makes recording idempotent — a second
+attempt is a no-op, not an error.
 
-A small middleware records first touch on the **first request of a session** and
-never overwrites it. The value rides in the session, so it survives later
-navigation and the Google OAuth round trip.
+| Milestone | Recorded when |
+|---|---|
+| `signed_up` | a `User` row is created |
+| `picked_handle` | `handle_key` first set |
+| `set_up_a_way_to_play` | first `Agent` of kind `ai` **or** `human` |
+| `ai_connected` | `first_connected_at` first stamped on a connection |
+| `joined_match` | first `Player` row |
+| `played_turn` | first genuine submission (D5) |
+| `returned` | a genuine submission on a second distinct local day |
 
-### D2 — Middleware ordering: added BEFORE `SessionMiddleware`
+Why this fixes both root causes:
+- **Deletion-proof.** The milestone row survives the connection setup being cleaned
+  up, the seat being released, the agent being hard-deleted, the match being
+  deleted. Nothing downstream removes it.
+- **Path-agnostic.** No ordering is assumed. An MCP user who connects before
+  building an agent records both, in whatever order they happen. A human player
+  records `set_up_a_way_to_play` and never records `ai_connected` — and that is
+  correct, not a drop.
 
-Starlette's `add_middleware` **inserts at position 0**, so the *last* middleware
-added is the *outermost* — `app/main.py:259` documents this on the last-added
-`CanonicalHostMiddleware`.
+### D2 — Independent counts, not strict nesting
 
-`FirstTouchMiddleware` must run **inside** `SessionMiddleware` so `request.session`
-is populated. Its `add_middleware` call must therefore appear **before** the
-`SessionMiddleware` call at [main.py:240](../../../app/main.py).
+Each milestone shows: how many users **in the signup cohort** ever reached it.
+No truncation, no "must have cleared the step above".
 
-Placed after, capture records nothing, every signup shows as "direct", and
-nothing raises. Two independent reviewers checked this claim and confirmed it.
+The page presents them in the usual order with counts and the difference between
+neighbours, but the difference is labelled **"fewer than the step above"**, not
+"lost here" — because with multiple paths those are different claims.
 
-### D3 — This sets a cookie for anonymous visitors. That is a deliberate choice.
+`ai_connected` is additionally reported **as a share of users who chose an AI
+agent**, not of all signups, so the human-play default does not read as an AI
+setup failure.
 
-**Chris's decision, 2026-08-13, overriding the non-goal recorded in discovery.**
+### D3 — One recorder module, called from the event sites
 
-Today an anonymous visitor gets **no cookie at all**: nothing writes to
-`request.session` until sign-in, and Starlette only emits `Set-Cookie` when the
-session is modified. Writing first touch on the first page view means every
-visitor now receives a session cookie.
+`app/identity/milestones.py` exposes `record_milestone(db, user_id, milestone)`.
+Every site calls that one function; no site writes the table directly.
 
-Chris chose this over the cookie-free alternatives because full attribution — the
-source surviving any amount of browsing before signup — is the point of the
-feature.
+Call sites: user creation (3 places, D8), handle set, agent create, connection
+first-connect (web **and** MCP), player create, submission write.
 
-Consequences, stated plainly rather than buried:
-- This is an analytics cookie on an anonymous visitor. In the EU that generally
-  needs consent; it is not "strictly necessary". **A consent banner is not part of
-  this feature** and remains an open item for Chris.
-- The discovery non-goal "no anonymous visitor-ID cookie" is superseded and has
-  been updated in `state.json`.
-- The session is a **signed cookie, not server-side storage**, with a hard ~4KB
-  browser limit. Every captured field is length-capped (D4) so first touch cannot
-  push a session over the limit and silently drop it.
+**Advisory, never blocking.** A milestone write must never break the request that
+triggered it — it is reporting, not game state. Wrapped and commented
+`# fail-open: advisory only`, the one exception the repo's fail-loud rule allows.
 
-### D4 — Source is derived, stored raw, length-capped
+### D4 — Backfill is partial, and says so
+
+The migration backfills milestones from what today's tables can still prove.
+It cannot recover deleted rows, so historical numbers are **floors, not totals**.
+
+The page carries a dated line: *"Milestones before <deploy date> are
+reconstructed from surviving records and undercount abandonment."* Without it the
+first weeks would silently read as unusually healthy.
+
+### D5 — "Played a turn" means a genuine human-or-agent move
+
+Three kinds of row must not count:
+
+1. **Missed deadlines.** A missed turn still writes a submission marked
+   `was_defaulted=True` ([scoring.py:196](../../../app/games/hoard_hurt_help/scoring.py)) —
+   4,614 of 20,276 rows in the dev DB.
+2. **Null timestamps.** `/admin/reports` already treats a NULL `submitted_at` as
+   defaulted ([admin_reports.py:182](../../../app/read_models/admin_reports.py)). Matching
+   it keeps the two admin pages from reporting different numbers for one week.
+3. **Autopilot.** `bots/service.py` auto-plays for a player who left, and those
+   rows are not marked defaulted. An abandoner must not clear "played a turn".
+
+Because the milestone is recorded at write time (D3), the recorder simply is not
+called on those paths — no read-time filter to get wrong.
+
+`connections.turns_played` is not used: it is per-connection, not per-user.
+
+### D6 — First touch is captured in middleware, on the first page view
+
+A visitor lands on `/?utm_source=hermesagent`, browses, then signs in. By then the
+parameter is gone from the URL, so capture must happen on the **first request of a
+session** and ride in the session through the OAuth round trip.
+
+`FirstTouchMiddleware` records `{utm_source, utm_medium, utm_campaign,
+referrer_host, landing_path, at}` once and never overwrites.
+
+### D7 — Middleware ordering: added BEFORE `SessionMiddleware`
+
+`add_middleware` **inserts at position 0**, so the last-added middleware is the
+outermost — `main.py:259` documents this on `CanonicalHostMiddleware`.
+`FirstTouchMiddleware` must therefore be added **before** the `SessionMiddleware`
+call at [main.py:240](../../../app/main.py) so `request.session` exists when it runs.
+
+Placed after, capture silently records nothing forever. Confirmed correct by three
+independent reviewers.
+
+Skip prefixes, verified against the real routes: `/static`, `/healthz`, `/api`,
+`/mcp`, `/openapi.json`, `/.well-known`, `/auth`. (Revision 1's `/sse` does not
+exist; `/.well-known` and the OAuth surface are reachable through the catch-all
+root mount at `main.py:314`.)
+
+### D8 — This sets a cookie for anonymous visitors, and that has an open obligation
+
+**Chris's decision, 2026-08-13**, superseding the discovery non-goal.
+
+Today a visitor who only browses gets no cookie; one who clicks sign in already
+does, because `google_login` writes to the session ([auth.py:85](../../../app/routes/auth.py)).
+The change is that **everyone** gets one.
+
+Facts that matter, all confirmed:
+- `SessionMiddleware` sets **no `max_age`** ([main.py:240](../../../app/main.py)), so
+  Starlette's default applies: a **persistent 14-day cookie**, not a session
+  cookie. Attribution therefore cannot survive longer than 14 days, and
+  persistent-vs-session is the distinction consent rules turn on.
+- The session is a **signed cookie**, not server storage, with a ~4KB browser
+  limit. Existing `fresh_connection_key_setup_{id}` entries are written and never
+  popped, so the budget is already leaking; first touch must be length-capped **at
+  capture time**, before it enters the cookie.
+- **The site has no privacy policy and no cookie notice.** Nothing in `app/`.
+
+> **OPEN OBLIGATION — must be resolved before this reaches production.** This
+> feature adds a persistent tracking cookie to a site with no disclosure surface.
+> Building it is fine; shipping it to real users without a privacy note is a
+> decision Chris has to make deliberately. Raised again at the PR.
+
+### D9 — Source is derived, stored raw, length-capped
 
 Stored on `users`: `first_utm_source`, `first_utm_medium`, `first_utm_campaign`,
 `first_referrer_host`, `first_landing_path`.
 
-Derived label precedence: `utm_source` → else `first_referrer_host` → else
-`"direct"`.
+Label precedence: `utm_source` → `first_referrer_host` → `"direct"`.
 
-- Only the referrer **host**, never the full URL — a full URL can carry personal
-  data in its query string.
-- Every value truncated **at capture time**, before it enters the session cookie,
-  not merely at the DB write. The cookie is a consumer too.
-- **NULL is not "direct".** A row with no capture at all renders as
-  `"unknown"`, kept separate from a genuine direct visit. Otherwise the biggest
-  row in the source table would silently mean "we failed to capture this".
+- Referrer **host** only, never the full URL (query strings carry personal data).
+- **NULL renders `"unknown"`, never `"direct"`** — otherwise the largest row in the
+  source table silently means "we failed to capture this".
+- MCP-created users record `"mcp"` in a **dedicated `first_source_channel` column**,
+  not in `first_utm_source`, so a real `?utm_source=mcp` cannot collide with it.
+- Known limit, stated on the page: a visitor who arrives from Reddit and whose
+  *first completed sign-in* is the MCP OAuth flow is attributed to `mcp`, losing
+  the campaign. Fixing it needs first-touch plumbed through MCP OAuth and is out
+  of scope.
 
-### D5 — Funnel step order follows the product's real gate ladder
+### D10 — Internal users are marked by a stored flag
 
-**Corrected after review (both Claude lenses, HIGH, code-confirmed).** Revision 1
-ordered the funnel connection-before-agent. The product's own ladder in
-[nav_context.py](../../../app/routes/nav_context.py) is the opposite:
+Excluding by email is unstable: `sync_google_user` **rewrites `users.email`** on
+later logins. Excluding by role is equally unstable: `promote_user` / `demote_user`
+change it after the fact.
 
-```
-NEEDS_HANDLE = 1  →  NEEDS_AGENT = 2  →  NEEDS_MCP_CONNECTION = 3
-```
+So: a stored `users.is_internal` boolean, set at creation, **never recomputed** —
+not from email, not from role.
 
-Because each step counts only people who cleared the step above (D7), the wrong
-order would truncate every user who followed the real path — inventing a drop at
-the connection step and understating the agent step. Exactly the bug class this
-spec exists to prevent.
-
-**Final steps:**
-
-| # | Step | Source of truth |
-|---|---|---|
-| 1 | Signed up | `users.created_at` in window |
-| 2 | Picked a handle | `users.handle_key IS NOT NULL` |
-| 3 | Built an agent | any `agents` row, `kind='ai'`, ever |
-| 4 | AI connected | any `connections.first_connected_at IS NOT NULL`, ever |
-| 5 | Joined a match | any `players` row, ever |
-| 6 | Played a turn | a `turn_submissions` row with `was_defaulted = false` |
-| 7 | Came back another day | played on 2+ distinct days |
-
-### D6 — "Started AI hookup" is dropped as a step
-
-Revision 1 made it step 3. It is broken two independent ways, both code-confirmed:
-
-1. **The rows are garbage collected.** `gc_pending_connections`
-   ([pending_connection_gc.py:15](../../../app/engine/pending_connection_gc.py))
-   hard-deletes incomplete `ConnectionSetup` rows after 24 hours, and it runs on
-   ordinary page loads. A historical "started and abandoned" count erases itself.
-2. **MCP users never create one.** `ConnectionSetup` is written in exactly one
-   place — `connections_machine_setup.py:106`. The MCP path builds a `Connection`
-   directly ([mcp_connection.py](../../../app/engine/mcp_connection.py)). Every MCP
-   user would fail this step and, under strict nesting, vanish from every step
-   after it.
-
-The leak it was meant to show survives as the drop between **built an agent** and
-**AI connected**, both of which read durable rows.
-
-A separate live counter — *incomplete setups right now* — is shown as a summary
-number, explicitly labelled as a 24-hour snapshot, not a historical total.
-
-### D7 — Strict nesting, and "ever did X"
-
-A user counts at step N only if they cleared steps 1..N-1.
-
-Step membership is **ever did X**: archived agents and deleted connections still
-count. Filtering on `archived_at IS NULL` is what made the funnel go *up* in the
-middle during design (11 users had connected an AI, 13 had joined a match).
-
-**Known limit, accepted:** `delete_match` and `reset_handle` are real deletes, so
-a past funnel is not perfectly reproducible after an admin destroys data. Fixing
-that needs an append-only event log, which is out of scope. The page carries a
-one-line note saying so.
-
-### D8 — Internal users are marked by a stored flag, set at creation
-
-Keying the exclusion off email is unstable: `sync_google_user` **rewrites
-`users.email`** on later logins ([auth.py:52–79](../../../app/routes/auth.py)), so a
-user could drift in and out of the excluded group between page loads.
-
-**A stored `users.is_internal` boolean**, set at account creation, never
-recomputed. Every query filters on that one column.
-
-**Set at creation in all three places a user row is born** — not only the
-backfill:
+Set at every site a user row is born:
 
 | Site | Rule |
 |---|---|
-| `auth.py:41` (Google sign-in) | domain rule |
-| `bots/seating.py:51` (house bots user) | always `True` |
-| `dev_login.py:51` (dev login) | always `True` |
+| `auth.py:41` (Google sign-in) | configured internal-domain list |
+| `app/engine/bots/seating.py:51` | always `True` |
+| `app/routes/dev_login.py:51` | always `True` |
 
-**Why the flag carries the weight.** Filtering bots by `agents.kind != 'ai'` is
-necessary but nowhere near sufficient. Measured in the dev DB:
+**Why the flag carries the weight.** `agents.kind != 'ai'` is nowhere near
+sufficient — measured in the dev DB, `ludumlabs@house.local` (264 player rows),
+two sibling ludumlabs accounts (120 each), `sims@agentludum.local` (40) and
+`harness-A/B/C@local.test` all run agents marked **real AI**. Only
+`bots@agentludum.local` is marked a bot. Over 500 of 646 player rows are internal.
 
-| Account | Agent kind | Player rows |
-|---|---|---|
-| `ludumlabs@house.local` | **ai** | 264 |
-| `ludumlabs_flat_6@house.local` | **ai** | 120 |
-| `ludumlabs_no_repeats@house.local` | **ai** | 120 |
-| `bots@agentludum.local` | bot | 45 |
-| `sims@agentludum.local` | **ai** | 40 |
-| `harness-A/B/C@local.test` | **ai** | 8 each |
+Backfill seed domains: `agentludum.local`, `house.local`, `local.test`,
+`dev@localhost`. **The backfill and the creation rule must use one shared
+predicate** so they cannot disagree.
 
-Only one is marked a bot. The house, sim and harness accounts run agents marked
-real AI and are over 500 of 646 player rows. Without the flag the dashboard
-measures Chris, not his users.
+Those `.local` accounts cannot have come through Google sign-in (Google issues no
+token for a `.local` address), so a fourth creation path exists outside the app —
+almost certainly `scripts/`. The backfill is therefore the only thing that will
+ever flag them, which is why it must be verified after deploy by reading back the
+flagged row count against the known internal accounts.
 
-Backfill seed domains: `agentludum.local`, `house.local`, `local.test`; plus any
-`ADMIN`-role user at migration time.
+**Correctable and findable:** a two-way toggle on `/admin/users/{id}` rendered
+**outside** the `{% if not floor_admin %}` gate ([user_detail.html:16](../../../app/templates/admin/user_detail.html))
+— floor admins are exactly the accounts the backfill flags. Plus an `internal`
+column on `/admin/users`. `AdminAction` gains **two** values, `mark_internal` and
+`unmark_internal` (both under the 16-char limit), matching how every other
+reversible admin action is paired.
 
-**Correctable, and findable.** The backfill is a guess about today's domains.
-So:
-- `/admin/users/{id}` gets a toggle. It must render **outside** the
-  `{% if not floor_admin %}` block at
-  [user_detail.html:16](../../../app/templates/admin/user_detail.html) — floor admins
-  are precisely the accounts the backfill flags, and that gate would hide the fix
-  button on exactly the rows that need it.
-- `/admin/users` gains an "internal" column so a mis-flagged account can be found
-  at all.
-- `AdminAction` is a closed enum ([admin_audit_log.py:15](../../../app/models/admin_audit_log.py))
-  with five values; the toggle adds `mark_internal` (13 chars, fits the 16-char
-  column) so the action can be audit-logged like its neighbours.
+### D11 — Distinct users, one timezone, smoke tests excluded
 
-### D9 — Every count is distinct users, never rows
+- Every people-count is `COUNT(DISTINCT users.id)`.
+- "Second distinct day" uses **the page window's timezone**, and the window
+  control **defaults to the browser's timezone, not UTC** — a US evening session
+  spans two UTC days and would otherwise read as a return that never happened.
+  A session crossing local midnight is still a known false positive, accepted and
+  noted on the page.
+- Smoke-test matches (`TEST_NAME_PREFIX`) excluded, matching
+  [admin_reports.py:109](../../../app/read_models/admin_reports.py).
 
-One user owns several agents and many player rows. Any "how many people" number is
-`COUNT(DISTINCT users.id)`. The funnel is safe by construction (D7 uses sets); the
-exposed risk is the **source table**, where a naive join would report one busy user
-as dozens.
+### D12 — No visitor count, no live "incomplete setups" tile
 
-### D10 — "Played a turn" excludes no-shows
+Anonymous visitor counts need a third-party analytics tool — Chris's separate
+decision. The milestone list starts at `signed_up`.
 
-When a player misses a deadline the game **writes a submission row for them**
-marked `was_defaulted=True` ([scoring.py:196](../../../app/games/hoard_hurt_help/scoring.py)).
-In the dev DB that is 4,614 of 20,276 rows — 23%.
-
-"Played a turn" means `was_defaulted = false`. `connections.turns_played` is
-**not** used: it is a per-connection counter, not per-user, and the two would
-disagree.
-
-### D11 — One timezone for the whole page
-
-The window controls are timezone-aware (copied from `/admin/reports`), so
-"came back another day" must use **the same timezone**, not UTC. A US evening
-session spans two UTC days and would read as a return visit that never happened.
-
-### D12 — Smoke-test matches excluded
-
-`/admin/reports` already filters matches named with `TEST_NAME_PREFIX`
-([admin_reports.py:109](../../../app/read_models/admin_reports.py)). This page uses the
-same filter, or the two admin pages report different numbers for the same week.
-
-### D13 — Crawlers need no special handling
-
-Capture only reaches a `users` row on completed Google sign-in. Crawlers never get
-that far.
-
-### D14 — No visitor count on this page
-
-Counting anonymous visitors needs a third-party analytics tool — a paid external
-service and Chris's decision, not this feature's. The funnel starts at **signed
-up = 100%**, with a one-line note saying visitor numbers arrive when analytics is
-added.
+Revision 2's "incomplete setups right now" tile is **dropped**: its cleanup job is
+not scheduled (it runs only when someone loads `/me/connections` or
+`/me/agents/new`), so the number means "however many have accumulated since
+someone last visited those pages" — not a snapshot of anything. It also cannot
+have a period-over-period comparison, since the rows are hard-deleted.
 
 ---
 
 ## What we are building
 
-### 1. `app/identity/first_touch.py` — capture
+1. `app/models/user_milestone.py` — the append-only table.
+2. `app/identity/milestones.py` — `record_milestone`, the single writer (D3).
+3. `app/identity/first_touch.py` — `FirstTouchMiddleware` (D6, D7), plus clearing
+   `first_touch` in `clear_session` so a second user in the same browser does not
+   inherit the first user's source.
+4. `app/identity/internal_accounts.py` — the one shared internal predicate used by
+   both the creation rule and the migration backfill (D10).
+5. `app/models/user.py` + migration — source columns, `first_source_channel`,
+   `is_internal`, the new table, and the two backfills (milestones D4,
+   internal flag D10). Additive, reversible, `op.batch_alter_table` for constraint
+   operations (SQLite dev DB).
+6. Recorder calls at the event sites: `auth.py` (+ the two MCP callers in
+   `mcp_server/`), `handle_web.py`, `agents_create.py`, `mcp_connection.py`,
+   `web_join.py`, and the submission path.
+7. `app/read_models/engagement_milestones.py` — counts per milestone over a signup
+   cohort, plus the stuck list (users and their furthest milestone; handle-less
+   users shown by email; capped at 50 with a remainder count).
+8. `app/read_models/signup_sources.py` — source → signups → played, distinct users.
+9. `app/routes/admin_engagement.py` + `app/templates/admin/engagement.html`.
+10. `app/services/admin_user_actions.py` — the internal toggle, following the
+    existing lock / no-op-guard / audit contract that every other admin action
+    uses.
+11. Nav and admin surfaces: `base.html` (Platform admin submenu),
+    `admin/dashboard.html` (the second admin nav surface), `users_list.html`
+    (new column — its hardcoded `colspan="7"` becomes 8), `user_detail.html`.
+12. `tests/test_mcp.py` — five monkeypatched two-parameter `sync_google_user`
+    fakes break when the signature gains an argument.
 
-- `FirstTouchMiddleware`: if `session["first_touch"]` is absent, record
-  `{utm_source, utm_medium, utm_campaign, referrer_host, landing_path, at}` from
-  the query string and `Referer`. Never overwrite.
-- Skips non-page requests. **Real prefixes**, verified: `/static`, `/healthz`,
-  `/api`, `/mcp`, `/openapi.json`. (Revision 1 listed `/sse`, which does not
-  exist — streams live at `/games/{game}/matches/{id}/stream`.)
-- Ignores a `Referer` on our own host — internal navigation is not a source.
-- Truncates every field at capture time (D3, D4).
-- **Advisory only**: wrapped so a failure logs and continues, commented
-  `# fail-open: advisory only` per the repo's fail-loud rule.
-- `clear_session` ([auth/session.py:25](../../../app/auth/session.py)) currently pops
-  only the user key, so first touch would survive a sign-out and be inherited by
-  the next signup in a shared browser. It must clear `first_touch` too.
-
-### 2. `app/models/user.py` + migration — storage
-
-Five nullable `String` columns: `first_utm_source(120)`,
-`first_utm_medium(120)`, `first_utm_campaign(120)`, `first_referrer_host(255)`,
-`first_landing_path(255)`.
-
-Plus `is_internal: bool`, non-null, default `False`, server default `false`.
-
-Additive and reversible. `op.batch_alter_table` for any constraint operation —
-SQLite dev DB (see `tests/test_migrations.py`).
-
-**The `is_internal` backfill is the data-critical step.** It must run as an
-explicit `UPDATE`, match domain suffixes case-insensitively, and be verified after
-deploy by reading back the flagged row count against the known internal accounts
-*before* any number on the page is trusted.
-
-### 3. `app/routes/auth.py` + the two MCP callers — write at account creation
-
-`sync_google_user` has **three** callers, not one: `auth.py:106`,
-`mcp_server/oauth_auth.py:156`, `mcp_server/connection_identity.py:176`. The MCP
-callers create accounts too, and have no web session.
-
-- Signature gains an optional first-touch argument, written **only** on the
-  new-user branch (auth.py:41). A returning user's source is never overwritten.
-- MCP-created users record source `"mcp"` — a real, distinct label, so an MCP
-  signup is never silently counted as direct web traffic.
-
-### 4. `app/read_models/engagement_funnel.py`
-
-Ordered steps per D5, strict nested sets, distinct users, with the drop from the
-previous step. Plus the stuck list: each non-returning user with their furthest
-step.
-
-Stuck-list display: users with no handle show `email` (admin-only page, so this is
-already visible at `/admin/users`); the list is capped at 50 rows with a count of
-any remainder.
-
-### 5. `app/read_models/signup_sources.py`
-
-Per derived label: signups, how many played (D10), percentage. Distinct users
-(D9). Sorted by signups descending.
-
-### 6. `app/routes/admin_engagement.py` + template
-
-`GET /admin/engagement`, behind `require_platform_admin`, with the same
-date-window controls as `/admin/reports`.
-
-**The four summary numbers, named** (revision 1 referenced them without ever
-saying what they were):
-
-1. New signups in the window
-2. Users who played a turn in the window
-3. Turns played in the window (non-defaulted)
-4. Incomplete connection setups **right now** — labelled as a 24-hour snapshot (D6)
-
-Each shows a comparison against the immediately preceding window of equal length.
-When the window is unbounded (the default), no comparison is shown — "previous
+**The three summary numbers** (revision 2's fourth is dropped, D12): new signups in
+the window; users who played a genuine turn in the window; genuine turns in the
+window. Each shows a comparison with the preceding window of equal length; when
+the window is unbounded (the default) no comparison is shown, because "previous
 period" is undefined there.
-
-Then: the funnel, the source table, the stuck list.
-
-### 7. `app/templates/base.html`
-
-"Engagement" in the Platform admin submenu next to Match Admin and Reporting
-([base.html:95](../../../app/templates/base.html)).
-
-### 8. `app/routes/admin_web.py` + `user_detail.html` + `users_list.html`
-
-The `is_internal` toggle (outside the `floor_admin` gate), the new `AdminAction`
-enum value, and an "internal" column on the users list. See D8.
 
 ---
 
 ## Acceptance criteria
 
-The authoritative list is the discovery checklist in `state.json`, updated in
-lockstep with this revision. Summarised:
+Authoritative list lives in `state.json`, kept in lockstep with this revision.
+Every criterion has a matching test in the plan below.
 
-1. `/admin/engagement` exists, is in the admin menu, 403s for a non-admin.
-2. Funnel strictly nested; a test asserts it never increases, including the
-   archived-agent case.
-3. Steps in gate-ladder order (D5); a test asserts a user who built an agent but
-   never connected is counted at "built an agent".
-4. Step membership is "ever did X".
-5. Bots and internal users excluded everywhere via the stored flag (D8).
-6. `is_internal` set at all three user-creation sites, not only the backfill.
-7. First touch survives navigation and the OAuth round trip; end-to-end test.
-8. First touch cleared on sign-out.
-9. MCP-created users record source `"mcp"`, never `"direct"`.
-10. "Played a turn" excludes `was_defaulted` rows (D10); test with a no-show.
-11. Every people-count is distinct users (D9); test with a multi-agent user.
-12. Retention uses the window's timezone, not UTC (D11).
-13. Smoke-test matches excluded (D12).
-14. Source table: source → signups → played. NULL renders `"unknown"`, not
-    `"direct"`.
-15. Stuck list labels handle-less users and caps at 50.
-16. Funnel starts at signed up = 100%; no visitor count; note explaining why.
-17. Migration additive, reversible, batch-mode, existing users NULL source.
-18. `/admin/users/{id}` toggles `is_internal`, renders for floor admins, and is
-    audit-logged; `/admin/users` shows the flag.
-19. Capture is advisory and never breaks a request.
+1. `/admin/engagement` exists, is in the Platform admin submenu, 403s for a
+   non-admin.
+2. A milestone row is written exactly once per user per milestone; a second
+   attempt is a silent no-op.
+3. A milestone survives deletion of the row that caused it — setup GC, seat
+   release, agent hard-delete, match delete.
+4. **A human player (agent kind `human`, no connection) is counted at
+   `set_up_a_way_to_play`, `joined_match`, `played_turn` and `returned`.**
+5. **An MCP user who connects before building an agent is counted at both, in
+   either order, with no invented drop.**
+6. Milestone counts are independent — no count is suppressed because an earlier
+   milestone is missing.
+7. `ai_connected` is also reported as a share of AI-agent users, not of all
+   signups.
+8. `played_turn` is not recorded for a defaulted submission, a NULL-timestamp
+   submission, or an autopilot submission.
+9. Bots and internal users excluded everywhere, via the stored flag.
+10. `is_internal` set at all three in-app creation sites; backfill and creation
+    rule share one predicate.
+11. `is_internal` survives an email rewrite **and** a role promote/demote.
+12. First touch survives navigation and the OAuth round trip; cleared on sign-out.
+13. MCP-created users record channel `"mcp"` in its own column; a real
+    `?utm_source=mcp` does not collide.
+14. Uncaptured source renders `"unknown"`, never `"direct"`.
+15. Every people-count is distinct users.
+16. Return detection uses the window timezone, defaulting to the browser's.
+17. Smoke-test matches excluded.
+18. Stuck list labels handle-less users, caps at 50, shows a remainder count.
+19. The page carries the reconstructed-history note (D4) and the MCP-attribution
+    limit (D9).
+20. Migration additive and reversible; `alembic upgrade head` then `downgrade`
+    clean on SQLite.
+21. `/admin/users/{id}` toggles `is_internal` both ways, renders for floor-admin
+    targets, and audit-logs via the two new `AdminAction` values;
+    `/admin/users` shows the column.
+22. Milestone recording and first-touch capture are advisory: a failure logs and
+    never breaks the request that triggered it.
 
 ## Non-goals
 
 1. No third-party analytics service.
-2. No consent banner — an open item for Chris, created by D3, not solved here.
-3. No append-only event log to make deleted data reproducible (D7 limit).
-4. No cohort retention grid — noise at 10–20 users.
-5. No public-facing changes beyond the cookie now being set.
+2. No privacy policy or cookie notice — **but see D8's open obligation**; this is
+   deferred, not dismissed.
+3. No first-touch plumbing through the MCP OAuth flow (D9's stated limit).
+4. No recovery of already-deleted history — backfill is a floor (D4).
+5. No cohort retention grid.
 6. No changes to `/admin/reports`.
 
 ---
 
 ## Test plan
 
-**Funnel correctness**
-- Nested-set invariant: every step count ≤ the one above, on generated data.
-- The archived-agent regression case.
-- **Gate-ladder order:** a user with an agent and no connection counts at "built
-  an agent" and stops there.
-- A user who joined a match without connecting does not appear at "AI connected".
-- Bots excluded; internal users excluded from summary numbers *and* funnel.
+**Milestones**
+- Idempotent: recording twice writes one row.
+- Survives each of the four deletions in the root-cause table.
+- **Human player reaches play and return milestones** (AC4).
+- **MCP user connects before agent; both recorded; no invented drop** (AC5).
+- Counts are independent: a user missing `picked_handle` still counts at
+  `played_turn`.
+- Not recorded for defaulted, NULL-timestamp, or autopilot submissions.
+- Recorder raising does not fail the triggering request.
+
+**Exclusion**
+- Internal user excluded from every number on the page.
+- Flag survives `sync_google_user` rewriting the email.
+- Flag survives promote then demote.
+- Backfill and creation rule agree on the same fixture set.
+- Bots-user and dev-login users created internal.
+- Toggle moves a user in and out, writes an audit row, renders for a floor admin.
+
+**Capture**
+- Land with UTM, navigate, sign in → recorded.
+- External referrer stored as host; internal referrer treated as direct.
+- No overwrite on a second visit or a returning user.
+- Over-long values capped at capture, before the cookie.
+- Sign out, sign in as someone else → no inheritance.
+- MCP sign-in records channel `mcp`, and `?utm_source=mcp` stays distinct.
+- Capture raising does not fail the page.
+
+**Page**
+- 403 non-admin, 200 admin.
+- Empty database renders with no divide-by-zero.
 - Distinct users: one user, three agents, twelve player rows → counts once.
-- No-shows excluded: a defaulted-only player is not "played a turn".
-- Retention across a US evening spanning two UTC days is **not** a return visit.
+- US evening session spanning two UTC days is not a return.
 - Smoke-test matches contribute nothing.
-- Empty window renders without divide-by-zero.
+- Both explanatory notes render.
 
-**Capture correctness**
-- Land with `?utm_source=x&utm_medium=y`, navigate, sign in → source recorded.
-- External `Referer`, no UTM → host stored.
-- Internal `Referer` → treated as direct.
-- Second visit does not overwrite; returning user does not overwrite.
-- Over-long values truncated at capture, before the cookie.
-- Sign out, sign in as someone else → second user does not inherit the first
-  user's source.
-- MCP sign-in path records `"mcp"`.
-- Capture raising does not fail the page request.
-
-**Flag and migration**
-- `is_internal` stays put after `sync_google_user` rewrites the email.
-- Backfill flags seed-domain accounts, leaves a gmail.com user alone.
-- Bots-user and dev-login users are created internal.
-- `alembic upgrade head` then `downgrade` clean on SQLite.
-- Toggle moves a user in/out of the funnel and writes an `AdminAuditLog` row.
-- Toggle renders for a floor-admin target.
+**Migration**
+- `upgrade` then `downgrade` clean on SQLite.
+- Milestone backfill produces floors consistent with surviving rows.
 
 ---
 
 ## Review outcomes
 
-30 findings across three reviewers. Every HIGH was checked against the code before
-being accepted — the reviewers' claims were not taken on trust.
+57 findings across two rounds and three reviewers (24 HIGH). Every HIGH was
+verified against the real code by the orchestrator before being accepted — several
+reviewer claims were checked and one was found overstated (revision 2's "anonymous
+visitors get no cookie at all"; `google_login` already writes a session).
 
-**Accepted and fixed:** mutable-email exclusion (Codex) → D8. Row-vs-user counting
-(Codex) → D9. Funnel order vs gate ladder (both Claude lenses) → D5. Setup-table
-GC and the MCP path having no setup row → D6. Three `sync_google_user` callers →
-build item 3. No-show submissions → D10. Toggle hidden by `floor_admin` → D8.
-`is_internal` bypassed at two creation sites → D8. Session-cookie truncation → D3.
-`AdminAction` closed enum → D8. Finding a mis-flagged account → D8. First touch
-leaking across sign-out → build item 1. UTC-vs-window timezone → D11. Smoke-test
-matches → D12. NULL-vs-direct → D4. Nonexistent `/sse` skip path → build item 1.
-"Server-side session" wording → D3. Unnamed summary numbers and undefined previous
-period → build item 6. Stuck-list label and cap → build item 4.
+**Round 1 (30 findings)** produced revision 2: stable internal flag, distinct-user
+counting, gate-ladder ordering, dropped setup step, three `sync_google_user`
+callers, no-show filtering, timezone and smoke-test consistency.
 
-**Accepted as a documented limit, not fixed:** admin deletes make past funnels
-non-reproducible (D7) — an event log is out of scope.
+**Round 2 (27 findings)** showed revision 2's patches were symptom-level, and
+produced this redesign. Decisive findings: `AgentKind.HUMAN` is the **default**
+new-user path and was invisible to the funnel; held seats and history-less agents
+are hard-deleted; the cleanup job is unscheduled so the "24-hour snapshot" tile was
+meaningless; the session cookie is persistent for 14 days; the site has no privacy
+disclosure at all.
 
-**Escalated to Chris and decided by him:** the anonymous-visitor cookie. He chose
-full attribution over the cookie-free options; recorded in D3 with its
-consequences, and the superseded non-goal updated in `state.json`.
+**Escalated to Chris and decided by him:** (1) the anonymous-visitor cookie — full
+attribution chosen, D8; (2) the funnel shape — durable milestones with independent
+counts chosen over patching strict nesting, D1/D2.
 
-**Verified as correct, not a finding:** D2's middleware-ordering claim, confirmed
-independently by both Claude reviewers against `app/main.py:225–263`.
+**Verified correct across all three reviewers, not findings:** D7's middleware
+ordering; `was_defaulted` being NOT NULL with a `false` server default;
+`AdminAction` having room for the new values; the `floor_admin` template gate.
+
+**Record-keeping note.** The round-2 requirements review's machine-readable JSON
+block was truncated by one closing brace, so assembly rejected it. The orchestrator
+repaired that single character rather than re-running a 130k-token review; the
+repaired block parses to 14 findings, matching the count the reviewer reported in
+prose. No finding text was added, removed, or altered.
+
+**Reviewer independence caveat.** Round 1 had a cross-vendor lens (Codex) plus two
+Claude lenses. Round 2 was three Claude lenses reviewing a Claude-authored spec,
+because the Gemini CLI is dead on this machine (`IneligibleTierError` — Google
+ended the individual tier). Round 2's agreement is therefore weaker evidence than
+round 1's. Codex re-enters at the plan checkpoint.
