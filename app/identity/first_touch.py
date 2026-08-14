@@ -178,8 +178,13 @@ def pop_first_touch(request: Request) -> dict[str, Any] | None:
 
     It really does pop, and the name was a lie before. Left in place, one
     signup's arrival was reused for the NEXT account created in the same browser
-    within the cookie's 14 days — two different people credited to one link.
+    within the cookie's lifetime — two different people credited to one link.
     A first touch belongs to one signup.
+
+    That lifetime is ``app.main.SESSION_MAX_AGE_SECONDS``, now 90 days rather
+    than the 14 Starlette defaults to. The window this pop guards against is
+    therefore six times wider than when the bug was found — one more reason it
+    has to keep actually popping.
     """
     session = request.scope.get("session")
     if not isinstance(session, dict):
