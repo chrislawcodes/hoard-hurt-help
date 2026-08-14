@@ -3,14 +3,14 @@ reviewer: "claude"
 lens: "testability-adversarial"
 stage: "plan"
 artifact_path: "docs/workflow/feature-runs/admin-engagement-dashboard/plan.md"
-artifact_sha256: "92e652d2a16a9f14388d71b8b9e0804b88eb18af7a7f733295eb61f3c8d61d15"
+artifact_sha256: "a84bb8248bc0f8aacf720f66a50f03b8a4d80f6b09dcdb4e5a2cdf2e22ed66dc"
 repo_root: "."
-git_head_sha: "92d75f04fcf9d26cc10261576f4658cb187b56c3"
+git_head_sha: "3c0d43fb6ad25504dd127140636d28ddf4d2e50f"
 git_base_ref: "origin/main"
 git_base_sha: "0a38ccf04bbb00ad4e47446f20ebd95638a0d4a1"
 generation_method: "claude-subagent"
 resolution_status: "accepted"
-resolution_note: "13 findings (5 HIGH). Also executed rather than argued. Independently confirmed the after_commit breakage and, decisively, that slice 2's own must-prove list would have PASSED against the broken shape - the checkpoint would have gone green while recording nothing, and slices 3-8 would have built on it. Slice 2's proof list now requires assertions from a fresh session after commit. Also accepted: seven ACs had no test anywhere (AC1a/6/7/9/14/18/19) and are now assigned to owning slices, with a note that the three summary numbers have lost their tests in three consecutive rounds - a drafting blind spot, not bad luck; listeners registered at app startup are unreachable under the test client's ASGITransport (no lifespan); the flag must be read per-request because create_app() runs at import; no test in the repo drives the OAuth callback, so that harness is new work in slice 5; connector-fallback rows are byte-identical to missed deadlines, so the fixture sketch's 'four cases' are two distinguishable shapes. Credit recorded: the savepoint recorder's safety test genuinely discriminates, and except IntegrityError: pass does not trip ruff S110."
+resolution_note: "Round 2. 15 findings (4 HIGH), two verified by execution. Decisive and independently corroborated by the implementation lens: revision 2's 'assert from a fresh session after commit' CANNOT FAIL, because app/db.py's in-memory engine uses StaticPool so every fresh session is the same DBAPI connection - correct and broken implementations return identical answers, and CI has no Postgres service. Worse than no mitigation because it manufactures confidence. Replaced with three graded options. Also accepted: coverage re-verified from scratch and still false for a DIFFERENT seven ACs - four partials from round 1 untouched plus three newly exposed (AC4's returned half, AC10's three-creation-sites, AC20's reversibility for the slice 4/5/6 migrations); this is the fourth consecutive round the coverage claim has been false and is recorded as a drafting blind spot. AC14 was unwritable as specified - no column distinguished captured-and-direct from never-captured, and D9's precedence rule PRODUCES the bug AC14 forbids; fixed by making first_source_channel three-valued. Credit recorded: six of the eight mapping rows do discriminate, and after_flush_postexec verified working independently."
 raw_output_path: "docs/workflow/feature-runs/admin-engagement-dashboard/reviews/plan.claude.testability-adversarial.review.md.raw.txt"
 narrowed_artifact_path: ""
 narrowed_artifact_sha256: ""
@@ -22,328 +22,387 @@ coverage_note: ""
 
 ## Findings
 
-*Lens: testability. Every claim below was checked against the real repo; where I could
-run the mechanism I ran it (SQLAlchemy 2.0.50 + aiosqlite, the same combination
+*Lens: testability. Round-1 findings are not repeated. Where a claim could be run, I ran it
+against this worktree's stack (SQLAlchemy 2.0.50 + aiosqlite, the same combination
 `tests/conftest.py` builds). Findings are marked [CODE-CONFIRMED], [CODE-REFUTED] or
 [UNVERIFIED].*
 
 ---
 
-### HIGH 1 — Seven acceptance criteria have no test anywhere in the plan [CODE-CONFIRMED]
+### HIGH 1 — "Assertions read from a fresh session after commit" does not catch the divergence it was added for, and no SQLite-only test can [CODE-CONFIRMED, executed]
 
-The spec says (line 411): *"Every criterion has a matching test in the plan below."*
-That is not true of this plan. Mapping all 25 criteria (0, 1, 1a, 1b, 2–22) against both
-the slice "must prove" column **and** the seven highest-value tests:
+This is the round-1 fix the plan leans on hardest. It does not work.
 
-| AC | Covered? | Where |
+Two facts, both measured:
+
+**(a) A "fresh session" in this suite is not a fresh connection.** `app/db.py:make_engine`
+passes no `poolclass`, so SQLAlchemy's aiosqlite dialect picks the default for an in-memory
+URL. I printed it:
+
+```
+pool class: StaticPool
+```
+
+StaticPool holds exactly one DBAPI connection for the engine's lifetime. Every session the
+`db` / `reset_db` / `session_factory` fixtures hand out is the *same* connection. There is no
+isolation boundary for the assertion to cross.
+
+**(b) With the plan's exact recorder shape, the correct and the broken implementation return
+the same answer.** I built the plan's mechanism verbatim — `after_insert` collects into
+`session.info`, `after_flush_postexec` does `conn = session.connection()` then
+`with conn.begin_nested(): conn.execute(insert(Milestone), row)` — and ran both paths:
+
+```
+pool class: StaticPool
+A (caller commits)   -> fresh session sees: 1   (want 1)
+B (no commit)        -> fresh session sees: 1   rows: [1]
+C parents visible    -> 1
+```
+
+Case B is the production-losing bug: the caller flushed and closed without committing. The
+*parent* row was correctly rolled back (line C shows only case A's parent survives) — and the
+milestone row survived anyway. So the slice-2 assertion reads "row present" whether the
+implementation commits or not. Its discriminating power against a missing commit is zero.
+
+To be fair to the plan: the assertion is not worthless. It *does* catch a different break —
+a write that lands in the writing session's identity map and never reaches the database at
+all. That is a real failure and worth asserting. It is simply not the failure the plan's own
+"dev/prod divergence that must be tested for" section names, and the plan states the opposite:
+*"otherwise the checkpoint passes against a broken implementation."* It still does.
+
+**Can any test catch it?** Not as the suite is built. `.github/workflows/ci.yml` runs
+`uv run pytest -q` and nothing else — no `services:` block, no Postgres anywhere in the
+workflow, and no test in `tests/` opens a Postgres connection. Inverting the assertion does
+not help either: on SQLite the row survives a rollback, so "assert the milestone is gone after
+a rollback" fails for the *correct* implementation too.
+
+What would actually work, cheapest first:
+
+1. **Make the commit structural, not behavioural.** For each explicit call site, assert
+   ordering rather than durability: that `record_milestone` runs *before* the commit the
+   caller already performs (`connection_activity.mark_seen:127` does
+   `await db.execute(update(...))` then `await db.commit()`). A spy session that records the
+   statement/commit sequence answers this on SQLite, deterministically, in a fast-lane unit
+   test. This is the one I would take.
+2. **A parity guard in the repo's own idiom.** `app/sqlite_parity.py` already exists to
+   "make SQLite reject the same writes Postgres rejects", installed at import from `app/db.py`.
+   Add a test-only session hook that fails if `user_milestones` rows were written in a
+   transaction that closes without committing. Same pattern, same file neighbourhood, and it
+   turns an invisible divergence into a red test.
+3. **A Postgres-backed test.** Correct but not free: a CI service container, a second engine
+   fixture, and a schema build path that is not `Base.metadata.create_all` against SQLite. If
+   this is the answer, it is a slice of its own, not a line in slice 2.
+
+Whatever is chosen, slice 2's must-prove should stop claiming the fresh-session read closes
+this hole.
+
+---
+
+### HIGH 2 — The Risks table still prescribes the `after_commit` shape the plan itself refutes [CODE-CONFIRMED, executed]
+
+Plan line 266, first row of "Risks carried into implementation":
+
+> `after_insert` cannot do async work | **Collect in the listener, write in `after_commit`**;
+> slice 2 exists to prove this shape before anything depends on it
+
+The mechanism section 130 lines above says this shape persists zero rows and calls it
+refuted. Revision 2 rewrote the mechanism and left the mitigation column pointing at the
+broken shape. I re-ran it to be sure it is still broken:
+
+```
+=== Risks-table shape: collect in after_insert, WRITE IN after_commit ===
+   after_commit hook RAISED (swallowed as advisory): InvalidRequestError
+       This session is in 'committed' state; no further SQL can be emitted...
+   caller commit reported: OK
+   milestones visible in a NEW session: 0   (want 1)
+```
+
+Why this is a testability finding and not a typo: the mitigation column is the part a task
+generator or an implementer scans for "what do I do about this risk". It also says *"slice 2
+exists to prove this shape"* — so the one slice whose whole job is to settle the mechanism is
+pointed at the shape that fails silently. Delete the row or rewrite it to
+`after_flush_postexec`.
+
+---
+
+### HIGH 3 — Re-verified from scratch: the AC-to-test coverage claim is still false, for a different seven criteria [CODE-CONFIRMED]
+
+The spec still says (line 411) *"Every criterion has a matching test in the plan below."*
+I mapped all 25 criteria (0, 1, 1a, 1b, 2–22) against the slice must-prove column, the seven
+highest-value tests, and the new assignment table. Revision 2 closed the seven criteria that
+had *no* test at all. It did not touch the four **partials** round 1 listed, and three more
+gaps are newly visible now that the design has changed.
+
+| AC | Half that has a named test | Half that does not |
 |---|---|---|
-| 0, 1, 2, 3, 4, 5, 8, 10, 11, 15, 17, 20, 21 | yes | slices 1–8 / tests 1–7 |
-| **1a** summary numbers state window, population, internal-exclusion | **no test** | absent from every slice |
-| **6** counts are independent, no suppression | **no test** | absent |
-| **7** `ai_connected` as a share of AI-agent users | **no test** | `agent_kind` column exists "for AC7", nothing proves the ratio |
-| **9** bots and internal users excluded from every number | **no test** | slice 7's must-prove has no exclusion item at all |
-| **14** uncaptured source renders `"unknown"`, never `"direct"` | **no test** | absent |
-| **18** stuck list: handle-less label, cap at 50, remainder count | **no test** | the stuck list is never mentioned in the plan |
-| **19** both explanatory notes render | **no test** | absent |
-| 12, 13, 16, 22 | partial | see below |
+| **1** | 401 / 403 | "and is in the Platform admin submenu" — slice 8 lists the nav files as *build* items, no assertion |
+| **4** | `set_up_*`, `joined_match`, `played_turn` (slice 3) | **`returned`** — AC4 names it explicitly; `returned` is now read-time derived (slice 7), and slice 7 only proves "return detection in the window timezone" (that is AC16). The decisive human path is still half-unproven |
+| **10** | shared predicate; backfill/creation agreement | **"set at all three in-app creation sites"** — slice 4 proves stability and agreement, never that `auth.py`, `bots/seating.py:51` and `dev_login.py:51` each set the flag. The spec's own test plan lists "Bots-user and dev-login users created internal"; the plan dropped it |
+| **13** | "MCP records channel" | "a real `?utm_source=mcp` does not collide" |
+| **16** | "return detection in the window timezone" | "defaults to the browser's timezone, not UTC" |
+| **20** | slice 1's schema migration round-trips | Slices 4, 5 and 6 each add a migration (is_internal backfill, source columns, milestone backfill). Only slice 1's is proved `upgrade`/`downgrade` clean. AC20 says *additive **and reversible*** — a backfill's `downgrade` is exactly where that is non-obvious |
+| **22** | "a failing milestone write leaves the caller's transaction usable" | first-touch capture's half — AC22 covers both writers; slice 5's must-prove has no advisory-failure item |
 
-Partials: AC12 loses the OAuth half (finding 9); AC13 keeps "records mcp" and drops "a real
-`?utm_source=mcp` does not collide"; AC16 keeps "window timezone" and drops "defaults to the
-browser's"; AC22 covers milestone recording and drops first-touch capture ("capture raising
-does not fail the page" is in the spec's test plan, not the plan's).
-
-Two of these are repeats, not new gaps. **AC1a exists only because rounds 2 and 3 both found
-the summary numbers had no criterion** — its own text says so — and the plan drops their tests
-again. **AC9 is the entire point of D10**: the stored `is_internal` flag exists so the page can
-exclude internal accounts (over 500 of 646 player rows, per D10). Slice 4 proves the flag is
-*stable*; nothing proves the page *uses* it. This is the feature's silent-risk case — a page
-that quietly counts ludumlabs and the harness accounts renders perfectly.
-
-**Fix:** add the seven to the slice that owns them (1a/19 → slice 8; 6/7/9/14/18 → slice 7)
-before tasks are generated.
+AC4 is the one to fix first. Round 2 of the spec review called the human path the decisive
+finding, and the plan's own highest-value test #1 is about it — and the `returned` half of that
+same criterion still has no owner.
 
 ---
 
-### HIGH 2 — The authoritative criteria list is stale, so the deploy gate has no machine-readable home [CODE-CONFIRMED]
+### HIGH 4 — Two of the eight new assignments name a test that cannot be written from this plan [CODE-CONFIRMED]
 
-The spec says the authoritative list "lives in `state.json`, kept in lockstep with this
-revision". It is not in lockstep. `state.json` `/discovery/acceptance_criteria` holds **22
-items in the revision-3 shape**:
+The mapping table is real in the sense that every row points at a slice. Two rows point at
+work the plan gives no way to do.
 
-- no **AC0** (`FIRST_TOUCH_CAPTURE_ENABLED=false` ⇒ no cookie, nothing stored) — the privacy
-  deploy gate, and the plan's #5 highest-value test;
-- no **AC1a**, no **AC1b**;
-- item 0 still reads *"403 for a non-admin"*, without the 401-anonymous split round 3 corrected.
+**AC14 — `"unknown"` vs `"direct"`.** The assigned test is *"a user with no capture and a user
+with a genuine direct visit render differently"*. Nothing in the plan or the spec says which
+column distinguishes those two users. The data model lists `first_utm_source`,
+`first_utm_medium`, `first_utm_campaign`, `first_referrer_host`, `first_landing_path`,
+`first_source_channel` — all nullable, none designated as the "we captured this visitor"
+sentinel. For a genuine direct visit, `utm_source` and `referrer_host` are both NULL, which is
+byte-identical to never having captured anything. D9's precedence rule
+(`utm_source` → `first_referrer_host` → `"direct"`) *produces the bug it forbids*: run it on a
+never-captured user and you get `"direct"`. The only viable sentinel is `first_landing_path`
+(the one field a direct visit always sets), and the plan never says so. As written the test is
+unwritable, and the implementation it is meant to discriminate against is the one the
+precedence rule literally describes.
 
-Whatever downstream stage consumes `state.json` will therefore never require the one test that
-stands between merging and tracking real visitors on an auto-deploying `main`. Either
-regenerate the list from spec revision 4 or delete the "authoritative" claim — right now two
-lists disagree and the machine-readable one is wrong.
+**AC19 — both explanatory notes.** Spec D4 requires a **dated** line: *"Milestones before
+&lt;deploy date&gt; are reconstructed..."*. The plan's complete config-key list is
+`FIRST_TOUCH_CAPTURE_ENABLED` and `INTERNAL_EMAIL_DOMAINS`. There is no deploy-date key, no
+migration-stamp read, no other source. So the assigned test can only assert a substring that
+does not include the date, and the implementer has nowhere to get the date from.
 
----
-
-### HIGH 3 — The plan's listener write shape (`after_commit`) silently writes nothing [CODE-CONFIRMED, executed]
-
-The Risks table commits to it explicitly: *"Collect in the listener, write in `after_commit`"*.
-I ran that shape:
-
-```
-=== B: after_insert collects -> after_commit writes (the plan's listener shape) ===
-      after_commit FAILED: InvalidRequestError: This session is in 'committed' state;
-                           no further SQL can be emitted within this transaction.
-  outer commit: OK
-  milestones VISIBLE IN A NEW SESSION = 0 (want 1)
-```
-
-The insert raises inside the hook, the recorder swallows it as "advisory", **the caller's
-commit still reports success**, and no milestone is ever written. The failure mode is total and
-invisible. The sibling shape the plan mentions in the same breath does work:
-
-```
-=== C: after_insert collects -> after_flush_postexec writes ===
-  visible after FLUSH ONLY (no commit) = 1
-  visible in a new session after commit = 1
-```
-
-The testability problem is the must-prove wording. Slice 2 must prove *"listeners fire for all
-three models"* — a listener that fires and writes nothing passes that assertion verbatim. Three
-of the six milestones (`signed_up`, `set_up_a_way_to_play`, `joined_match`) ride this path, so
-slice 2 can go green with half the feature dead.
-
-**Fix:** change slice 2's must-prove to *"after a `User`/`Agent`/`Player` insert commits, a
-**new session** reads the milestone row back"*, and pick `after_flush_postexec` in the plan
-rather than offering `after_commit` as an equal option.
+Both fixes are one line each in the plan: name the sentinel column; name where the deploy date
+comes from (a config key, or the `reached_at` of the oldest backfilled row).
 
 ---
 
-### HIGH 4 — The advisory-safety test covers one writer and cannot fail for the other [CODE-CONFIRMED, executed]
+### MEDIUM 5 — AC1b's n=19 / n=21 pair steps over the boundary the rule turns on [CODE-CONFIRMED]
 
-Plan test #4 ("a failing milestone write leaves the caller's transaction usable") is real and
-earns its keep **for the explicit-call path**. I confirmed it discriminates:
+Spec AC1b: shares are *"suppressed below 20 users"*. So n=19 suppressed, **n=20 shown**,
+n=21 shown. The assigned test renders at 19 and 21 — it never touches 20.
 
-```
-add-only (spec says broken)      : caller commit FAILED IntegrityError      <-- test FAILS
-add+flush in try (spec: broken)  : caller commit FAILED PendingRollbackError <-- test FAILS
-begin_nested savepoint           : caller commit OK, parents=2, milestones=1 <-- test PASSES
-```
-
-But `record_milestone` is `async def` and opens `db.begin_nested()`. A sync `after_insert` /
-`after_flush_postexec` hook cannot `await` it, so the listener path **cannot use the single
-writer** — it will emit its own Core insert inside the caller's flush. And that path is
-untestable on SQLite:
-
-```
-=== E: duplicate insert raised from inside a flush hook ===
-      caught IntegrityError in hook
-  caller flush+commit: OK
-  parents persisted = 1 (want 1)
-```
-
-SQLite tolerates a failed statement mid-transaction; PostgreSQL aborts the transaction and every
-later statement fails ([UNVERIFIED] here — no prod DB in this review — but it is standard
-Postgres behaviour and is exactly the divergence D3a was written about). So the guarantee AC22
-makes for the *majority* of milestones is green on the only database the suite runs and unproven
-on the one that matters.
-
-**Fix:** state in the plan that there are two writers, and give the listener path its own
-savepoint (the sync hook can call `session.begin_nested()`), or defer listener writes to a
-point where the async recorder can be awaited. Then say plainly that no SQLite test can prove
-it, and make the savepoint's presence the assertion instead.
+The most likely implementation bug here is the off-by-one: `if n <= 20: suppress`. That
+implementation passes both assigned cases (19 suppressed ✓, 21 shown ✓) and is wrong at
+exactly the value the criterion names. A test that cannot fail against the most probable
+defect is the false-confidence case this review round is looking for. Change the pair to
+**n=19 and n=20**.
 
 ---
 
-### HIGH 5 — "Listeners registered once at app startup" is unreachable from the repo's HTTP tests [CODE-CONFIRMED]
+### MEDIUM 6 — AC1a's assignment is ambiguous between two different tests, and its literal text is the one less likely to be built [CODE-CONFIRMED]
 
-`tests/conftest.py:174-181` builds the test client as `ASGITransport(app=app)` with no lifespan
-manager, so **the app's startup never runs in tests**. If listener registration lives in the
-lifespan (which "registered once at app startup" reads as), every route-level test — the whole
-of slices 3, 5, 7 and 8 — runs with no listeners at all. The alternative, registering them by
-hand in a fixture, proves the listeners work and never proves the production wiring exists.
+Spec AC1a: *"Each of the three summary numbers **states** its window, its population, and that
+it excludes internal users."* That is a **labelling** requirement about rendered text.
 
-Note also that a bare `db`-fixture test does not import `app.main`, so an import-time
-registration in `app/identity/milestone_listeners.py` only takes effect if something imports
-that module.
+The assignment reads: *"one test per number asserting window, population, internal filtering"*
+— which reads much more naturally as a **computation** requirement (the number is computed
+over the right window, the right population, with internal users filtered out).
 
-**Fix:** register at import of `app/models/__init__.py` (or another module the `db` fixture
-already pulls in), and add a test that asserts registration happened *without* the test doing
-the registering — e.g. `event.contains(...)` after importing only `app.models`.
+Whichever the implementer picks, the other half goes untested:
 
----
+- Build the label check and a page that shows a wrong number under a correct caption passes.
+- Build the computation check and a page whose captions never mention the window or the
+  exclusion passes — which is the literal criterion.
 
-### MEDIUM 6 — Plan test #6 asserts a parity the design deliberately breaks [CODE-CONFIRMED]
-
-Test #6: *"Autopilot rows excluded in **both** live recording and backfill, so no step change at
-the deploy date."*
-
-`players.autopilot_at` is a **seat-level** column (`app/models/player.py:71`) and is stamped
-mid-match when a human walks away (`app/routes/web_play.py:371-372`: *"in-match: seat auto-Hoards
-to the end"*). So a user who genuinely played four turns and then left has:
-
-- live recording → `played_turn` recorded at turn 1 (correct);
-- backfill → the whole seat excluded, no `played_turn`.
-
-Spec D4 accepts exactly this over-exclusion ("genuine turns played *before* a player went on
-autopilot are dropped"). The two therefore *cannot* agree, and there *is* a step change at the
-deploy date for that cohort. The test can only pass by picking a fixture where the player never
-played before going on autopilot — a fixture chosen to dodge the assertion. Reword to what is
-true: "autopilot-only seats are excluded by both; a seat that played and then left is counted
-live and dropped by the backfill (D4's accepted over-exclusion)".
+Second problem: the numbers are computed in slice 7 (read models) and the criterion is
+assigned to slice 8 (page). A computation assertion is far cheaper and sharper at the read
+model. Split it: computation in 7, caption text in 8, and say which is which.
 
 ---
 
-### MEDIUM 7 — The fixture sketch's four submission cases are at most two distinguishable row shapes [CODE-CONFIRMED]
+### MEDIUM 7 — AC9 is a quantifier over four surfaces and is assigned as one bullet [CODE-CONFIRMED]
 
-The plan asks for "a match factory that can produce genuine, defaulted, autopilot, and
-connector-fallback submissions — the four cases D5 distinguishes". At the data level they are
-not four:
+Spec AC9: *"Bots and internal users excluded **everywhere**, via the stored flag."* Slice 7's
+must-prove carries it as a single item, *"internal users excluded (AC9)"*, in a list that
+covers three different read models.
 
-- `app/games/hoard_hurt_help/game.py:216-218` — *"Connector fallbacks reuse the existing
-  `was_defaulted` column so they are identifiable in the DB without a migration."* A
-  connector-fallback row is **byte-identical** to a missed deadline.
-- autopilot is byte-identical to genuine; the difference lives on the *player* row.
-- a NULL `submitted_at` row is only ever written by the resolver, never by a request.
+Slice 7 alone builds milestone counts, `signup_sources` **and** the stuck list; slice 8 adds
+the three summary numbers. One test that seeds an internal user and checks the milestone
+counts passes while `signup_sources` and the stuck list happily list them. That is not a
+hypothetical: D10 measured over 500 of 646 player rows as internal, and the stuck list — users
+who have not progressed — is precisely where the harness accounts will surface.
 
-Consequences for slice 3's must-prove ("autopilot, defaulted, connector-fallback and
-null-timestamp rows record nothing"):
-
-1. Connector-fallback can only be exercised by calling the live path with
-   `is_connector_fallback=True` (`app/engine/player_move.py:30`, `app/engine/agent_play.py:104`)
-   — a request-level harness, not a fixture.
-2. The null-timestamp case is **vacuous** at the live hook: nothing ever calls the recorder
-   there, so the test asserts a property of code that does not exist. Its real home is the
-   slice-6 backfill, where the filter is actually written.
-
-`tests/factories.py` gives you `add_submission(..., was_defaulted, submitted_at)` but nothing
-for `autopilot_at` (no `seat_player` parameter for it) and nothing for connector-fallback. That
-is the hidden work: a player-level autopilot knob, plus a live-path harness for the fallback
-case.
+Make it one assertion per surface, or restate the item as "each of the three read models plus
+the three summary numbers excludes internal users".
 
 ---
 
-### MEDIUM 8 — "Backfill and creation rule agree on one fixture set" cannot be one test [CODE-CONFIRMED]
+### MEDIUM 8 — Revision 2's corrections landed in the prose sections but not in the must-prove table, which is what the checkpoint gates on [CODE-CONFIRMED]
 
-The two live in different processes. `tests/test_migrations.py:33-46` runs Alembic in a
-**subprocess** against a throwaway SQLite file, configured only through environment variables
-(`test_0028_adds_user_roles_and_match_owner_column` uses
-`monkeypatch.setenv("PLATFORM_ADMIN_EMAILS", ...)` for exactly this reason). The creation rule
-runs in-process and is configured with `monkeypatch.setattr(settings, ...)`. Seeding is raw SQL
-on one side and `tests/factories.py` on the other. There is no way to point both at one fixture
-set; you get two fixture sets, which is the drift the requirement exists to prevent.
+The plan now contradicts itself in two places, and in both the stale half is the operative one.
 
-Good news: migrations **can** import app code (`migrations/versions/0028_user_roles.py:15`
-imports `app.config.settings`), so the shared predicate is achievable. The honest test shape is:
-unit-test `internal_accounts.is_internal_email` directly over a table of cases, and separately
-assert the migration imports and calls it — not "run both against one fixture set".
+| Prose section (corrected) | Must-prove table (unchanged) |
+|---|---|
+| Fixtures: connector-fallback rows are *"byte-identical"* to missed deadlines; *"a test claiming to tell them apart would be vacuous"* | Slice 3: *"autopilot, defaulted, **connector-fallback** and null-timestamp rows record nothing"* |
+| Two test-harness gaps: *"'backfill and creation rule agree' **cannot be a single test**"*; slice 4 asserts the predicate, slice 6 asserts the migration | Slice 4: *"backfill and creation rule **agree on one fixture set**"* |
+
+The must-prove column is what a checkpoint reads and what task generation expands. Leaving the
+refuted wording there means slice 3 ships a vacuous test and slice 4 ships an impossible one,
+each with a correction sitting 60 lines away that nothing points to.
 
 ---
 
-### MEDIUM 9 — AC12's "survives the OAuth round trip" has no harness in this repo [CODE-CONFIRMED]
+### MEDIUM 9 — The bot-seat exclusion is built in slice 2 and proved in slice 3 [CODE-CONFIRMED]
 
-No test drives `/auth/google/callback`. `tests/test_auth.py` says it "mocks the Google OAuth
-dance" and then just inserts `User` rows directly; every signed-in test in the suite forges the
-cookie with `tests/conftest.py:signed_in_cookies`. The real callback calls
-`oauth.google.authorize_access_token(request)` (`app/routes/auth.py:92`), which needs OAuth state
-in the session.
+Slice 2 is "Recorder + listeners". The house-bots-user exclusion lives on the `Player`
+listener — the Mapping table puts it there. But the proof, *"bot seats record no
+`joined_match`"*, is assigned to slice 3, "Explicit recorders (handle, connect, play)", which
+has nothing to do with listeners.
 
-So slice 5's must-prove "flag on ⇒ survives navigation + OAuth" needs new machinery
-(monkeypatching the Authlib client on the app-global `oauth.google`, then driving
-`GET /?utm_source=…` and `GET /auth/google/callback` on one cookie-carrying client). It is
-writable, but it is a first for this repo and the plan budgets nothing for it. The nearby
-shortcut — `/dev/login` — is the wrong path: `dev_login_available()` gates it behind
-`DEV_LOGIN_ENABLED and not cookie_secure`, it needs `create_app()` to re-mount, and the plan has
-dev-login users always flagged internal.
+So slice 2's checkpoint goes green with a Player listener that records `joined_match` for
+every bot seat. Slice 2's must-prove is satisfied by exactly that implementation: *"listeners
+fire for all three models"* is true, loudly. And `app/engine/bots/seating.py:151` seats bots in
+a loop with `db.add(player); await db.flush()` per seat, so the pollution is per-bot,
+per-match, immediately. Move the assertion to slice 2, where the code is.
 
 ---
 
-### MEDIUM 10 — Slice 5 breaks five existing test fakes and the plan never assigns that work [CODE-CONFIRMED]
+### MEDIUM 10 — AC1b's suppression rule silently sets a floor of 20 distinct users on every share-bearing test [CODE-CONFIRMED]
 
-`grep -c "async def fake_sync_google_user" tests/test_mcp.py` → **5**, each a two-parameter
-`(db, userinfo)` fake monkeypatched over `mcp_server.connection_identity.sync_google_user`. A
-third argument carrying first touch makes all five raise `TypeError` at call time. There are two
-real callers to update as well (`mcp_server/connection_identity.py:176`,
-`mcp_server/oauth_auth.py:156`) and ~12 direct positional call sites in
-`tests/test_auth_user_sync.py` / `tests/test_account_disabled.py` (safe only if the new
-parameter is keyword-with-default).
+AC1b suppresses *every* share below 20 users. AC7's assigned test asserts a share
+(`ai_connected` over `set_up_ai_agent` holders). AC1a's numbers carry period-over-period
+comparisons, also suppressed under 20.
 
-The spec lists this as build item 12. The plan's build order and slice-5 must-prove do not
-mention it, while the gate is "each slice ends green (`ruff`, `mypy`, `pytest`)".
-
----
-
-### MEDIUM 11 — The flag must be read per-request, or the flag-ON tests cannot run at all [CODE-CONFIRMED]
-
-`app = create_app()` executes at import (`app/main.py`), and `create_app` adds every middleware
-there. Monkeypatching `settings.first_touch_capture_enabled` in a test cannot undo an add-time
-decision, and Starlette will not let you add middleware to a running app. The plan's prose
-implies a per-request check ("the middleware returns immediately"), but never states it as a
-constraint — and slice 5's only *named* flag test is the OFF case, which passes trivially under
-the broken implementation too.
-
-**Fix:** make "the flag is read inside `dispatch`, never at `add_middleware` time" an explicit
-slice-5 requirement, and pair the OFF test with an ON test that flips the setting with
-`monkeypatch.setattr` on the already-built app.
+So any AC7 or AC1a test written against the **rendered page** must seed ≥20 distinct users or
+it will assert a percentage that correctly is not there — and the test will be "fixed" by
+lowering the threshold or by asserting the suppressed form, which quietly guts AC7. Nothing in
+the fixtures section budgets a 20+ user fixture; `make_user(internal=False)` and a match
+factory are all it names. Either state that AC7 is asserted at the read model (below the
+suppression layer) or budget the fixture size explicitly.
 
 ---
 
-### LOW 12 — Slice 1's must-prove is wrong for one of its own columns [CODE-CONFIRMED]
+### MEDIUM 11 — The OAuth harness is buildable but its stated proof is not what it will prove, and it has one concrete time sink [CODE-CONFIRMED]
 
-"existing users read NULL" contradicts the plan's own data model, where `is_internal` is
-`Boolean, nullable=False, server_default=false`. A test written to that sentence fails. The
-correct assertion is the one `test_0047_adds_mutual_help_decay_default_on` already models:
-insert a row *before* the migration, then assert the server default backfilled it to `false`.
+Sizing it honestly:
+
+- `app/auth/google.py` registers the client with
+  `server_metadata_url="https://accounts.google.com/.well-known/openid-configuration"`. Any
+  real call to `authorize_access_token` fetches that document over the network. The harness
+  must therefore stub at the `oauth.google` object, not at the transport — and that is the
+  half-day nobody has budgeted, because it is the first time in this repo.
+- Once stubbed, the rest of `google_callback` (`app/routes/auth.py:88-115`) runs for real:
+  `sync_google_user`, `await db.commit()`, `set_session_user`. That genuinely exercises the
+  feature's wiring, so the harness *is* worth building.
+
+But slice 5's must-prove says *"survives navigation + OAuth"*. With `authorize_access_token`
+stubbed, Authlib's state round trip is gone, and what remains is "a dict placed in
+`request.session` on request 1 is still there on request 2" — a property of Starlette's
+`SessionMiddleware`, not of this feature. Reword the must-prove to what the harness can
+actually prove: *"first touch captured on the landing request is read by `sync_google_user`
+and written to the new user's row."* That is the real risk, it is testable, and it is not what
+the current wording asks for.
 
 ---
 
-### LOW 13 — The migration tests are in the fast lane, not the slow one [CODE-CONFIRMED]
+### MEDIUM 12 — Slice 6's merge gate is a manual, un-tooled step against a database no test ever touches [CODE-CONFIRMED]
 
-`pytest tests/test_migrations.py -m "not integration" --collect-only` collects **all 28** tests:
-the auto-tagger in `tests/conftest.py:52-68` keys off DB/HTTP fixtures, and these use `tmp_path`
-+ subprocess instead. Measured cost of one two-step migration test: **~1.5 s**. Slices 1, 4 and 6
-each add at least one, and slice 6's needs three chained upgrades over a large seed. "The fast
-lane must stay green throughout" will still hold; "fast" will not — plan for the fast lane to
-roughly double.
+Slice 6's must-prove ends with *"dry-run readback against a production copy before merge"*.
+Everything about that is unowned:
+
+- No script. `scripts/` has `offline_db.py` and nothing for pulling or restoring a prod copy.
+- No command, no expected row counts, no artifact to attach to the PR.
+- Production is Postgres. Every one of the 28 tests in `tests/test_migrations.py` runs
+  `_run_alembic` in a subprocess against a throwaway **SQLite** file, and CI has no Postgres
+  at all. So the backfill's SQL is authored and tested on one dialect and gated on a manual
+  run against the other.
+- The chain is 50 migrations deep, and the dev DB alone has 1,648 matches / 20,276 submissions.
+
+This is the highest-consequence step in the plan — the plan says both backfills are
+irreversible in practice and ship on merge — and it is the only one with no mechanised proof.
+At minimum: name the command, name the readback query, and state the numbers that make it a
+pass. Better: assert the backfill's SQL against Postgres semantics in a test, even if the run
+is SQLite (e.g. no dialect-specific syntax, batched UPDATE, deterministic ordering).
+
+---
+
+### MEDIUM 13 — The mapping table's AC labels have no counterpart in the machine-readable list [CODE-CONFIRMED]
+
+*(The staleness itself was round 1's HIGH 2, accepted; the consequence for the new mapping
+table is new, which is why it is here.)*
+
+`state.json` `/discovery/acceptance_criteria` still holds **22** items in the revision-3
+shape. Item 0 still reads *"403 for a non-admin"*. There is no AC0, no AC1a, no AC1b. Index N
+corresponds to spec AC N+1, so the whole list is offset from the numbering the mapping table
+uses.
+
+Effect on revision 2's fix specifically: of the eight rows in the new table, **AC1a and AC1b
+have no entry at all** in the authoritative list, and the other six point at the wrong index.
+Whatever downstream stage expands `state.json` into tasks will not generate the two tests the
+mapping table was written to add. The table reads as a fix and is inert where it matters most
+— the three summary numbers, which the plan itself notes have lost their tests three rounds
+running.
+
+---
+
+### LOW 14 — Revision 2's `ValueError` catch is unreachable on the path it was added for, and untestable on SQLite [CODE-CONFIRMED]
+
+The recorder now catches `ValueError` because *"`StringLengthExceeded` is a `ValueError`"*.
+But `StringLengthExceeded` is raised by `app/sqlite_parity.py`'s `before_flush` guard, and that
+module documents its own limit:
+
+> Limitation: this only sees ORM inserts/updates. Core `insert()`/`update()` statements bypass
+> the flush and are not checked here.
+
+The plan's write mechanism is a **Core** `conn.execute(insert(UserMilestone), row)`. The guard
+never fires for it. So on SQLite an over-long `milestone` / `source_match_id` is stored
+happily, and on Postgres it raises `DataError`. The added catch is dead code for the listener
+path, and no test in this suite can produce the condition it guards. Harmless with today's
+values (`ai`, `human`, `M_…`), but it should not be recorded as a covered hazard.
+
+---
+
+### LOW 15 — AC18's assigned test names a fixture size but not the predicate under test [CODE-CONFIRMED]
+
+The assignment is *"handle-less user labelled; 51 stuck users → 50 rows + remainder"*. The cap
+half is sharp and will discriminate. The other two halves are not writable as stated:
+
+- **"51 stuck users"** — the plan never defines *stuck*. Is a user who reached `played_turn`
+  stuck? A user with `signed_up` only? The stuck list is described once, in the spec's build
+  list, as "users and their furthest milestone". A test built against whatever predicate the
+  implementer invents is tautological.
+- **"handle-less user labelled"** — `tests/factories.py:make_user` always sets both `handle`
+  and `handle_key` (`resolved_handle = handle or f"agent{i}"`). The fixture needs an explicit
+  way to produce a handle-less user; the plan's fixture note only adds `internal=False`.
 
 ---
 
 ## Residual Risks
 
-- **Slice-by-slice provability is otherwise sound.** Slices 1, 4, 7 and 8 are writable with
-  existing patterns: `tests/test_migrations.py` for the migration round trip,
-  `tests/test_admin_ui.py` (`client` + `reset_db` + `signed_in_cookies`) for the page and the
-  toggle, and `app/deps.py:38-44` really does raise 401 for anonymous, so AC1's 401/403 split is
-  testable as written. All five deletion sites in test #3 are callable async functions
-  (`gc_pending_connections`, `release_held_seats`, `agents_lifecycle`, `match_deletion.delete_match`,
-  `admin_user_actions.reset_handle`), so that test is writable. "No cookie was set" is a clean
-  assertion: `grep -rn "set_cookie" app/` returns nothing, so `SessionMiddleware` is the only
-  Set-Cookie source and it stays silent on an unmodified session.
-- **`except IntegrityError: pass` will not trip the Preflight Gate.** I ran ruff with
-  `--extend-select S110,S112` over the plan's exact recorder body: clean. Ruff's
-  `check-typed-exception` defaults to false, so only bare/`Exception` catches are flagged. The
-  plan's fail-open comment satisfies the constitution's carve-out. Not a finding — recorded so
-  nobody "fixes" it later.
-- **Blast radius on the existing suite is unmeasured.** With `after_flush_postexec`, an
-  `after_insert` on `User`/`Agent`/`Player` fires inside `tests/factories.py` (`make_user`,
-  `make_agent`, `seat_player` all flush), so **every** existing integration test starts writing
-  `user_milestones` rows. Nothing in the plan estimates that. Query-count assertions are probably
-  safe (`tests/test_read_models.py::_count_selects` counts SELECTs only, and the recorder issues
-  an INSERT), but this should be checked at the end of slice 2 rather than discovered in slice 7.
-- **`app/sqlite_parity.py` raises `StringLengthExceeded(ValueError)` in `before_flush`, which the
-  recorder's `except (IntegrityError, SQLAlchemyError)` does not catch.** An over-long
-  `agent_kind`/`source_match_id`/`milestone` would break the caller in tests while prod's
-  `DataError` (a `SQLAlchemyError`) would be swallowed — the divergence runs the wrong way. Low
-  probability with today's values (`ai`, `human`, `M_…`), but it is a hole in the fail-open
-  contract that no planned test touches.
-- **Milestones whose `source_match_id` points at a deleted match are unspecified for AC17.** The
-  column has no FK, so the row survives a match delete; whether the smoke-test exclusion is an
-  inner join (drops the milestone) or a left join (keeps it) changes the headline counts. Neither
-  slice 7 nor any named test pins it.
-- **Reviewer independence.** This is a Claude lens reviewing a Claude-authored plan, the same
-  caveat the spec records for round 2. The findings above that were *executed* against the repo
-  (3, 4, and the ruff/marker checks) do not depend on that judgement; the rest are reasoning over
-  read code.
+- **The eight-row mapping table is a real improvement.** Six of the eight rows name a test
+  that would fail against the obvious broken implementation: AC6 (a strict-nesting reader
+  returns 0 where an independent reader returns 1), AC7 (the two denominators give different
+  ratios), AC9 (an internal user changes the count), AC18's cap (50 rows + remainder = 1 at
+  n=51), AC1a's computation half, AC19's presence check. That is a genuine gain over
+  revision 1, and the finding above about the other two rows should not be read as dismissing it.
+- **`after_flush_postexec` was verified working here**, independent of round 1: with the
+  plan's exact shape a milestone is visible in a new session after the caller's commit
+  (probe case A = 1). The mechanism section is right; only the Risks table is stale.
+- **The re-entrancy hazard the plan states has no assigned test.** *"Postexec writes must be
+  guarded against re-entrancy or they hit `FlushError` after 100 flushes."* Slice 2's
+  must-prove has no re-entrancy item. In practice a Core insert on the connection does not
+  dirty the session, so the hazard may be moot — but the plan asserts it and then proves
+  nothing about it, which is the worst of both.
+- **The `StaticPool` fact from HIGH 1 has a second consequence nobody has costed.** Because
+  listeners are registered on the `Session` class at import, and `tests/factories.py`'s
+  `make_user` / `make_agent` / `seat_player` all flush, every existing integration test starts
+  writing `user_milestones` rows into a shared connection. Round 1 flagged the blast radius;
+  what is new is that with one connection per engine, a milestone write that escapes its
+  transaction (case B above) is visible to everything else in that test. Fixture-ordering
+  surprises are more likely than the plan's "checked at the end of slice 2" implies.
+- **Fast-lane cost.** All of the milestone recorder tests will request `db` or `reset_db` and
+  land in the `integration` lane, so the fast lane is not affected by them — but the migration
+  tests still are (they use `tmp_path` + subprocess, which the auto-tagger in
+  `tests/conftest.py:52-68` does not catch), and slices 1, 4 and 6 each add at least one.
+- **Reviewer independence.** This is a Claude lens on a Claude-authored plan, the same caveat
+  the spec records. The findings that were *executed* (HIGH 1, HIGH 2) and the ones read
+  directly out of files (HIGH 3, HIGH 4, MEDIUM 8, MEDIUM 13, LOW 14, LOW 15) do not depend on
+  that judgement; the rest is reasoning over read code.
 
 ```json
-{"reviewed": true, "findings": [{"severity": "HIGH", "title": "Seven acceptance criteria have no test anywhere in the plan", "detail": "AC1a, AC6, AC7, AC9, AC14, AC18 and AC19 appear in no slice must-prove and in none of the seven highest-value tests, so the spec's claim that every criterion has a matching test is false — and AC1a (summary numbers) and AC9 (internal-user exclusion on the page) are repeats of gaps rounds 2 and 3 already found."}, {"severity": "HIGH", "title": "The authoritative criteria list in state.json is stale", "detail": "state.json holds 22 revision-3 criteria with no AC0, AC1a or AC1b and still says '403 for a non-admin', so the plan's own deploy-gate test (flag off => no cookie) maps to no machine-readable criterion."}, {"severity": "HIGH", "title": "The planned after_commit listener write silently persists nothing", "detail": "Executed against this repo's SQLAlchemy 2.0.50 + aiosqlite: writing in after_commit raises InvalidRequestError inside the hook, the caller's commit still returns OK and no row is written, and slice 2's must-prove wording ('listeners fire') passes against exactly that broken shape — only after_flush_postexec persists."}, {"severity": "HIGH", "title": "The advisory-safety test covers only one of the two writers", "detail": "record_milestone is async and savepoint-wrapped so plan test #4 discriminates for explicit calls (verified: add-only fails with IntegrityError, add+flush with PendingRollbackError), but a sync flush-hook listener cannot await it, and a failed insert inside a flush hook leaves the SQLite caller healthy — so AC22 is unprovable for the three listener-driven milestones on the only database the suite runs."}, {"severity": "HIGH", "title": "'Listeners registered at app startup' is unreachable from the HTTP test harness", "detail": "tests/conftest.py builds the client as ASGITransport(app=app) with no lifespan manager, so app startup never runs in tests; lifespan registration would leave every route-level milestone test listener-less, and manual registration in a fixture never proves the production wiring."}, {"severity": "MEDIUM", "title": "Plan test #6 asserts an autopilot parity the design deliberately breaks", "detail": "players.autopilot_at is seat-level (app/models/player.py:71) and is stamped mid-match when a human leaves (app/routes/web_play.py:372), so a player who genuinely played and then walked away is recorded live but excluded by the backfill — the step change D4 explicitly accepts, which the test claims cannot happen."}, {"severity": "MEDIUM", "title": "The fixture sketch's four submission cases are only two distinguishable row shapes", "detail": "app/games/hoard_hurt_help/game.py reuses was_defaulted for connector fallbacks so they are byte-identical to missed deadlines, autopilot differs only on the player row, and a NULL submitted_at row is never produced by a request — so connector-fallback needs a live-path harness and the null-timestamp assertion is vacuous at the live hook."}, {"severity": "MEDIUM", "title": "'Backfill and creation rule agree on one fixture set' cannot be one test", "detail": "The backfill runs in an Alembic subprocess against a separate SQLite file configured only through env vars (tests/test_migrations.py:33-46), while the creation rule runs in-process with monkeypatch.setattr(settings, ...), so the achievable shape is a shared-predicate unit test plus an assertion that the migration calls it."}, {"severity": "MEDIUM", "title": "AC12's OAuth round trip has no harness in this repo", "detail": "No test drives /auth/google/callback — test_auth.py inserts User rows directly and every signed-in test forges the cookie via conftest.signed_in_cookies — so slice 5's 'survives OAuth' must-prove requires new Authlib monkeypatch machinery the plan does not budget."}, {"severity": "MEDIUM", "title": "Slice 5 breaks five existing sync_google_user fakes with no work assigned", "detail": "tests/test_mcp.py defines five two-parameter fake_sync_google_user fakes that will TypeError once the signature gains a first-touch argument, plus two real MCP callers; the spec lists this as build item 12 but the plan's build order and slice-5 must-prove never mention it, while every slice must end green."}, {"severity": "MEDIUM", "title": "The capture flag must be read per-request or the flag-ON tests cannot run", "detail": "app = create_app() runs at import and adds every middleware there, so monkeypatching settings cannot undo an add-time gate; the plan implies a per-request check but never states it, and its only named flag test is the OFF case, which also passes under the broken implementation."}, {"severity": "LOW", "title": "Slice 1's 'existing users read NULL' contradicts its own is_internal column", "detail": "is_internal is Boolean NOT NULL with server_default=false, so the correct assertion is the pre-existing-row backfill check that test_0047_adds_mutual_help_decay_default_on already models, not a NULL read."}, {"severity": "LOW", "title": "Migration tests run in the fast lane, so 'fast' roughly doubles", "detail": "All 28 tests in tests/test_migrations.py collect under -m 'not integration' because the auto-tagger keys off DB/HTTP fixtures and these use tmp_path plus subprocesses; one two-step migration test measured ~1.5s, and slices 1, 4 and 6 each add at least one."}]}
+{"reviewed": true, "findings": [{"severity": "HIGH", "title": "The fresh-session-after-commit assertion cannot catch a missing commit, and no SQLite-only test can", "detail": "Measured: app/db.py's in-memory engine uses StaticPool so every 'fresh session' is the same DBAPI connection, and running the plan's exact recorder shape shows a caller that never commits still leaves the milestone visible (1 row) while its own parent row rolls back — so the correct and broken implementations return the identical answer, and CI has no Postgres service to tell them apart."}, {"severity": "HIGH", "title": "The Risks table still prescribes the refuted after_commit shape", "detail": "Plan line 266 says 'Collect in the listener, write in after_commit; slice 2 exists to prove this shape', which the mechanism section 130 lines above refutes — re-executed here: the hook raises InvalidRequestError, the caller's commit reports OK, and zero rows persist."}, {"severity": "HIGH", "title": "Re-verified from scratch: the AC coverage claim is still false for a different seven criteria", "detail": "Revision 2 closed the seven ACs with no test at all but left round 1's four partials (AC13 collision half, AC16 browser-default half, AC22 capture half, AC1 submenu membership) and exposed three more — AC4's 'returned' half, AC10's 'set at all three creation sites', and AC20's reversibility for the three migrations added in slices 4, 5 and 6."}, {"severity": "HIGH", "title": "Two of the eight new assignments name a test that cannot be written from this plan", "detail": "AC14 needs a column that distinguishes 'captured, direct' from 'never captured' and the plan names none — D9's precedence rule actually produces 'direct' for an uncaptured user, the exact bug AC14 forbids; AC19 needs the dated reconstructed-history line but the plan's config keys are only FIRST_TOUCH_CAPTURE_ENABLED and INTERNAL_EMAIL_DOMAINS, with no source for the deploy date."}, {"severity": "MEDIUM", "title": "AC1b's n=19/n=21 pair steps over the boundary the rule turns on", "detail": "The spec suppresses shares 'below 20 users', so the likely off-by-one implementation (suppress when n<=20) passes both assigned cases and is wrong at exactly n=20; the pair should be 19 and 20."}, {"severity": "MEDIUM", "title": "AC1a's assignment is ambiguous between a label check and a computation check", "detail": "AC1a literally requires each summary number to STATE its window, population and internal exclusion, but the assignment reads as a computation assertion — whichever the implementer builds, the other half passes untested, and the numbers are computed in slice 7 while the criterion is assigned to slice 8."}, {"severity": "MEDIUM", "title": "AC9 is a quantifier over four surfaces and is assigned as one bullet", "detail": "'Excluded everywhere' is carried as a single slice-7 item, so one test on the milestone counts passes while signup_sources, the stuck list and slice 8's three summary numbers still include internal accounts — which D10 measured at over 500 of 646 player rows."}, {"severity": "MEDIUM", "title": "Revision 2's corrections landed in prose but not in the must-prove table the checkpoint reads", "detail": "Slice 3 still demands a connector-fallback test the Fixtures note calls vacuous, and slice 4 still demands 'backfill and creation rule agree on one fixture set' that the harness-gaps note says cannot be a single test."}, {"severity": "MEDIUM", "title": "The bot-seat exclusion is built in slice 2 but proved in slice 3", "detail": "The house-bots-user exclusion is Player-listener code delivered in slice 2, yet 'bot seats record no joined_match' is assigned to slice 3, so slice 2's checkpoint goes green against an implementation that records a joined_match for every seat bots/seating.py:151 creates."}, {"severity": "MEDIUM", "title": "AC1b's suppression rule sets an unbudgeted floor of 20 users on every share-bearing test", "detail": "AC7's share and AC1a's period comparisons are suppressed below 20 users, so any page-level test of them needs a 20+ distinct-user fixture that the fixtures section does not budget, and the cheap 'fix' when it fails is to weaken the threshold or assert the suppressed form."}, {"severity": "MEDIUM", "title": "The OAuth harness proves something narrower than slice 5 claims, and has one concrete time sink", "detail": "app/auth/google.py registers the client with a live server_metadata_url so the harness must stub oauth.google itself (a first for this repo), after which 'survives the OAuth round trip' reduces to 'a session dict survives two requests' — a SessionMiddleware property, not a feature property; the real testable claim is that sync_google_user reads first touch and writes it to the new user's row."}, {"severity": "MEDIUM", "title": "Slice 6's merge gate is manual, un-tooled, and aimed at a dialect no test touches", "detail": "'Dry-run readback against a production copy before merge' names no script, command, query or pass threshold, while all 28 tests in tests/test_migrations.py run Alembic against a throwaway SQLite file and CI has no Postgres — so the most irreversible step in the plan is the only one with no mechanised proof."}, {"severity": "MEDIUM", "title": "The mapping table's AC labels have no counterpart in the machine-readable list", "detail": "state.json still holds 22 revision-3 criteria (item 0 reads '403 for a non-admin'), so AC1a and AC1b — the two rows covering the three summary numbers that have lost their tests three rounds running — have no entry at all, and the other six rows are offset by one from the list that drives task generation."}, {"severity": "LOW", "title": "The ValueError catch added in revision 2 is unreachable on the Core-insert path", "detail": "StringLengthExceeded comes from app/sqlite_parity.py's before_flush guard, which documents that it never sees Core insert()/update() — the plan's write mechanism — so the catch is dead code for listeners and the condition cannot be produced by any SQLite test."}, {"severity": "LOW", "title": "AC18's assigned test names a fixture size but not the predicate under test", "detail": "The plan never defines what makes a user 'stuck', so '51 stuck users' is built against whatever predicate the implementer invents, and tests/factories.py:make_user always sets handle and handle_key, so the handle-less label case needs a factory change the fixtures note does not mention."}]}
 ```
 
 ## Runner Stats
@@ -353,4 +412,4 @@ roughly double.
 
 ## Resolution
 - status: accepted
-- note: 13 findings (5 HIGH). Also executed rather than argued. Independently confirmed the after_commit breakage and, decisively, that slice 2's own must-prove list would have PASSED against the broken shape - the checkpoint would have gone green while recording nothing, and slices 3-8 would have built on it. Slice 2's proof list now requires assertions from a fresh session after commit. Also accepted: seven ACs had no test anywhere (AC1a/6/7/9/14/18/19) and are now assigned to owning slices, with a note that the three summary numbers have lost their tests in three consecutive rounds - a drafting blind spot, not bad luck; listeners registered at app startup are unreachable under the test client's ASGITransport (no lifespan); the flag must be read per-request because create_app() runs at import; no test in the repo drives the OAuth callback, so that harness is new work in slice 5; connector-fallback rows are byte-identical to missed deadlines, so the fixture sketch's 'four cases' are two distinguishable shapes. Credit recorded: the savepoint recorder's safety test genuinely discriminates, and except IntegrityError: pass does not trip ruff S110.
+- note: Round 2. 15 findings (4 HIGH), two verified by execution. Decisive and independently corroborated by the implementation lens: revision 2's 'assert from a fresh session after commit' CANNOT FAIL, because app/db.py's in-memory engine uses StaticPool so every fresh session is the same DBAPI connection - correct and broken implementations return identical answers, and CI has no Postgres service. Worse than no mitigation because it manufactures confidence. Replaced with three graded options. Also accepted: coverage re-verified from scratch and still false for a DIFFERENT seven ACs - four partials from round 1 untouched plus three newly exposed (AC4's returned half, AC10's three-creation-sites, AC20's reversibility for the slice 4/5/6 migrations); this is the fourth consecutive round the coverage claim has been false and is recorded as a drafting blind spot. AC14 was unwritable as specified - no column distinguished captured-and-direct from never-captured, and D9's precedence rule PRODUCES the bug AC14 forbids; fixed by making first_source_channel three-valued. Credit recorded: six of the eight mapping rows do discriminate, and after_flush_postexec verified working independently.

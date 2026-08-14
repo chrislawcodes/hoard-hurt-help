@@ -3,14 +3,14 @@ reviewer: "claude"
 lens: "implementation-adversarial"
 stage: "plan"
 artifact_path: "docs/workflow/feature-runs/admin-engagement-dashboard/plan.md"
-artifact_sha256: "92e652d2a16a9f14388d71b8b9e0804b88eb18af7a7f733295eb61f3c8d61d15"
+artifact_sha256: "a84bb8248bc0f8aacf720f66a50f03b8a4d80f6b09dcdb4e5a2cdf2e22ed66dc"
 repo_root: "."
-git_head_sha: "92d75f04fcf9d26cc10261576f4658cb187b56c3"
+git_head_sha: "3c0d43fb6ad25504dd127140636d28ddf4d2e50f"
 git_base_ref: "origin/main"
 git_base_sha: "0a38ccf04bbb00ad4e47446f20ebd95638a0d4a1"
 generation_method: "claude-subagent"
 resolution_status: "accepted"
-resolution_note: "12 findings (2 CRITICAL, 3 HIGH). The reviewer RAN the proposed mechanism against the repo's SQLAlchemy 2.0.50 + aiosqlite stack rather than reasoning about it, and both load-bearing shapes were broken AND failed silently. CRITICAL 1: after_commit cannot emit SQL (InvalidRequestError, 0 rows persisted, swallowed by the plan's own fail-open handler) - after_flush_postexec is the working point. CRITICAL 2: db.begin_nested() is a no-op inside a flush because _prepare_impl skips its flush loop when session._flushing, so the savepoint protected nothing and a duplicate would raise out of the caller's commit - working shape is session.connection() + conn.begin_nested() + Core insert(). Also accepted: sync listeners cannot call an async recorder (two entry points now); savepoint writes survive an uncommitted session on SQLite but not Postgres, so a missing commit passes every test and loses rows in prod (slice 2 now asserts from a fresh session after commit); the Player listener would have recorded joined_match for the house bots user; the real played_turn pair is agent_play.submit_action:269 and web_play.py:253; registration must be at import on the Session class, not app startup. All folded into plan revision 2."
+resolution_note: "Round 2. VERDICT: the new mechanism WORKS - the reviewer built it and ran it against the real stack (SQLAlchemy 2.0.50 + aiosqlite, app.db.make_engine, parity guards, real models). Rows persist past the caller's commit confirmed from an independent connection; duplicates raise inside the savepoint, are swallowed, and the caller's own rows still commit; it composes with the existing savepoint at mcp_connection.py:267; it fires under conftest's db/reset_db/client fixtures; no re-entrancy at 150 flushes. 3 HIGH accepted, all in the text around the shape: (1) after_insert is a MAPPER event - event.listen(Session, 'after_insert') is accepted without raising and fires ZERO times, so revision 2's 'bound to the Session class' reintroduced the exact green-suite-empty-table failure it was written to remove; fixed with an explicit event-kind table. (2) The dev/prod divergence was stated backwards - file-backed SQLite persists nothing uncommitted; the real defeater is StaticPool on in-memory fixtures, and the reviewer wrote revision 2's must-prove literally and it PASSED against a writer that never commits; replaced with three graded mitigations, spy-session ordering required. (3) plan.md:266 still prescribed after_commit - already fixed before this review landed. MEDIUMs accepted: session.info must be cleared (66 insert attempts for 2 milestones over 11 flushes); bots/seating.py:51 is a third User-creation site; the mandated re-entrancy guard is unnecessary and would be a silent-drop risk; no Postgres coverage anywhere in slices 1-8 while railway.json makes production the first Postgres exercise."
 raw_output_path: "docs/workflow/feature-runs/admin-engagement-dashboard/reviews/plan.claude.implementation-adversarial.review.md.raw.txt"
 narrowed_artifact_path: ""
 narrowed_artifact_sha256: ""
@@ -22,381 +22,294 @@ coverage_note: ""
 
 ## Findings
 
-Every finding below was checked against this repo. I ran the plan's proposed
-listener shapes as real code on the repo's own stack (SQLAlchemy 2.0.50 +
-aiosqlite, an `async_sessionmaker` configured exactly like `app/db.py`) rather
-than reasoning about the docs. Scratch scripts were throwaway and are deleted.
+### HIGH 1 — The risk table still tells the implementer to write in `after_commit` [CODE-CONFIRMED]
 
-The headline: **the plan's stated milestone mechanism does not work, in two
-independent ways, and both fail silently.**
+`plan.md:266`, first row of "Risks carried into implementation":
 
----
+> | `after_insert` cannot do async work | Collect in the listener, write in **`after_commit`**; slice 2 exists to prove this shape before anything depends on it |
 
-### CRITICAL 1 — `after_commit` cannot write anything; the plan's own error handling hides that [CODE-CONFIRMED]
+This is the exact shape the plan's own "What was wrong, so nobody re-derives it"
+table (line 88) declares broken, on the same page. Revision 2 rewrote the
+mechanism section and left the risk table untouched.
 
-The plan names `after_commit` as the write point twice — in the listeners
-section (`after_flush_postexec` / `after_commit`) and again in the risk table
-("Collect in the listener, write in `after_commit`").
-
-I ran it. `after_commit` raises immediately:
+I re-ran it rather than trusting round 1. Registering `after_commit` with the
+plan's own fail-open handler, on file-backed SQLite:
 
 ```
-InvalidRequestError: This session is in 'committed' state;
-no further SQL can be emitted within this transaction.
+[after_commit shape] rows_persisted=[]
+  swallowed=["InvalidRequestError: This session is in 'committed' state;
+              no further SQL can be emitted within this transaction."]
 ```
 
-Rows written: **0**. Not "sometimes zero" — zero, on the first and every
-attempt. Adding an inner `session.commit()` fails the same way.
+Zero rows, and the error is eaten by the `except (SQLAlchemyError, ValueError)`
+the plan specifies. This matters more than a stale sentence normally would: slice
+prompts get built from the risks table, and this row also claims "slice 2 exists
+to prove this shape" — pointing the checkpoint at the broken shape. Delete the
+row or rewrite it to say `after_flush_postexec`.
 
-This is worse than a plain bug because of how the plan's recorder handles
-errors. `InvalidRequestError` is a subclass of `SQLAlchemyError`, so the
-recorder's own `except SQLAlchemyError: logger.exception(...)  # fail-open`
-swallows it. The result in production: `signed_up`, `set_up_a_way_to_play` and
-`joined_match` are **never recorded at all**, the dashboard shows zeroes for the
-top of the funnel, and the only evidence is a log line nobody reads. Slice 2
-"proves the shape" only if its test asserts a row landed in a *separate*
-session — asserting on the same session, or asserting "no exception reached the
-caller", passes while recording nothing.
+### HIGH 2 — "Bound to the `Session` class" silently disables the `after_insert` half [CODE-CONFIRMED]
 
-The plan is also internally ambiguous: the body says
-`after_flush_postexec` / `after_commit` (an either/or with a slash), the risk
-table says `after_commit`. An implementer resolves that coin-flip on their own,
-and one face is total data loss.
+`plan.md:123-125`:
 
-**The working write point is `after_flush_postexec`.** Confirmed: collect in
-`after_insert`, write in `after_flush_postexec`, row persists (verified by
-re-reading from a fresh session). `before_commit` does *not* work either — it
-fires before the flush, so the `after_insert` collection is still empty
-(verified: `pending=[]`, 0 rows).
+> **Registration at import, not startup** — mirroring the existing
+> `install_sqlite_parity_guards` pattern, and bound to the `Session` class rather
+> than the async session factory, so it is active in every test fixture too.
 
----
-
-### CRITICAL 2 — `db.begin_nested()` is a no-op inside a flush, so a duplicate breaks the caller's transaction [CODE-CONFIRMED]
-
-This is the exact failure the plan says the savepoint prevents, and the plan's
-combination reintroduces it.
-
-`record_milestone` uses `async with db.begin_nested(): db.add(...)`. That shape
-works **only** because exiting the savepoint block calls the nested
-transaction's `commit()`, which flushes the pending object *inside* the
-savepoint. I verified that standalone: duplicate contained, caller commits fine.
-
-But when the same recorder is called from a flush-time listener, SQLAlchemy
-skips that flush. `SessionTransaction._prepare_impl` guards the flush loop with
-`if not self.session._flushing:` — and inside `after_flush_postexec` the session
-*is* flushing. So the savepoint opens, releases empty, and the milestone object
-stays pending. It is then inserted by the **outer** flush loop, outside any
-savepoint.
-
-Measured result, savepoint recorder called from `after_flush_postexec` with a
-duplicate present:
+The sentence covers both hooks, but `after_insert` is a **`MapperEvents`** event,
+not a `SessionEvents` one. The dangerous part is that SQLAlchemy does not reject
+it:
 
 ```
-[postexec] wrote 1/signed_up        <- listener reports success
-IntegrityError: UNIQUE constraint failed: user_milestones.user_id, ...
-   raised out of the caller's db.commit()
+[SILENT-NO-OP] event.listen(Session, 'after_insert') ACCEPTED but fires?
+               :: callback invocations=0
 ```
 
-The listener prints success. The caller's commit dies. That is a direct
-violation of spec AC22 ("advisory: a failure logs and never breaks the request
-that triggered it"), and it fires on the *second* signup-like event for any user
-whose milestone already exists — a routine case, not an edge case.
+`event.listen(Session, "after_insert", cb)` returns cleanly and the callback
+never runs. The reason is in `MapperEvents._accept_with`: `Session` is a `type`
+that is not a `Mapper` subclass and not a mapped class, so it falls through to
+`_MapperEventsHold(Session)` — the "this class will be mapped later" holding pen.
+`Session` is never mapped, so the listener waits forever.
 
-**The shape that actually works** (verified, both with and without a duplicate,
-and with further caller work after the containment):
+Combined with the fail-open recorder, an implementer who follows this sentence
+literally gets: green `ruff`, green `mypy`, green `pytest`, zero log lines, and a
+`user_milestones` table that never receives `signed_up`, `set_up_ai_agent`,
+`set_up_human_play` or `joined_match`. That is the same silent-success failure
+mode as both round-1 CRITICALs, reintroduced by the sentence written to fix them.
+
+Fix: state the split explicitly — `after_insert` on `User`, `Agent` and `Player`
+(or on `Mapper`); only `after_flush_postexec` on `Session`. Add a slice-2
+assertion on `event.contains(User, "after_insert", ...)` for each model, not just
+"listeners fire", so a mis-binding fails at registration rather than at the
+dashboard.
+
+### HIGH 3 — The dev/prod divergence is described backwards, and its mitigation cannot fail [CODE-CONFIRMED]
+
+`plan.md:127-137` is the section slice 2's proof list is built on. Both halves
+are wrong.
+
+**The stated mechanism does not reproduce.** The plan says "A savepoint write
+survives a session closed without committing on SQLite, but not on Postgres
+(measured both in-memory and file-backed)." Against the *new* shape, on
+file-backed SQLite:
+
+```
+[clean] T6 file-SQLite, session closed WITHOUT commit :: milestones=[] users=0
+[clean] T6b explicit rollback of the caller's txn     :: []
+```
+
+Nothing survives. Not the milestone, not the caller's own user row.
+
+**The real defeater is the fixture, and the plan's mitigation walks straight into
+it.** `sqlite+aiosqlite:///:memory:` — what conftest's `engine`, `db` and
+`reset_db` all build — resolves to **`StaticPool`**: one shared DBAPI connection
+for every session on that engine. A "fresh session" therefore reads the writer's
+*uncommitted* transaction:
+
+```
+[NON-DISCRIMINATING] in-memory: pool=StaticPool
+                     seen=['set_up_ai_agent', 'signed_up']   # never committed
+[discriminating]     file:      pool=AsyncAdaptedQueuePool  seen=[]
+```
+
+I wrote slice 2's must-prove literally, as a test using the repo's real
+`reset_db` fixture, against a writer that flushes and never commits:
 
 ```python
-def _write_pending(session, flush_context):
-    pending = session.info.pop("pending_milestones", [])
-    if not pending:
-        return
-    conn = session.connection()              # sync Connection, inside the flush
-    for row in pending:
-        try:
-            with conn.begin_nested():        # REAL savepoint on the connection
-                conn.execute(insert(UserMilestone).values(**row))
-        except IntegrityError:
-            pass                             # already recorded
+async def test_plan_slice2_shape_passes_even_without_commit(reset_db):
+    async with reset_db() as writer:
+        await _mk(writer, 3)
+        await writer.flush()                      # NO COMMIT — the prod-losing bug
+        async with reset_db() as fresh:           # "a fresh session after commit"
+            got = (await fresh.execute(select(UserMilestone.milestone))).scalars().all()
+        assert list(got) == ["signed_up"]
 ```
 
-The difference is that `conn.execute()` runs the INSERT *inside* the savepoint,
-so the rollback actually contains it. Results: no duplicate → 1 milestone,
-caller commit OK. Duplicate → "contained by savepoint", caller commit OK. A
-contained duplicate followed by more caller work → 2 milestones, 2 users, commit
-OK. Core `insert()` also sidesteps the ORM entirely, which matters for the next
-finding.
+It **passes**. The assertion the plan calls the guard against silent production
+row-loss goes green against the missing commit it exists to catch. This is round
+1's decisive finding — "slice 2's own must-prove list would have PASSED against
+the broken shape" — surviving into revision 2 in a new costume.
 
----
+Fix: slice 2's discriminating test must use a file-backed SQLite DB (a
+`tmp_path` URL, `AsyncAdaptedQueuePool`) or a second independent engine. Say so
+in the plan, because "a fresh session" reads as sufficient and is not. Replace
+the divergence paragraph with what was actually measured, or the next reviewer
+re-derives it.
 
-### HIGH 3 — the recorder is `async def`, but every viable hook is a sync callback [CODE-CONFIRMED]
+### MEDIUM 4 — The collection is never cleared, so every later flush replays it [CODE-CONFIRMED]
 
-`record_milestone` is declared `async def ... (db, user_id, milestone, ...)` and
-the plan says the listener "collects into `session.info` and a matching
-`after_flush_postexec` / `after_commit` hook performs the writes". All three
-SQLAlchemy hooks — `after_insert`, `after_flush_postexec`, `after_commit` — are
-**synchronous** callbacks on the sync `Session`. You cannot `await` in them.
-`Session.object_session(target)` inside `after_insert` returns the sync
-`Session`, not the `AsyncSession` (verified: it returns a live sync session and
-`target.id` is already populated).
-
-So the plan's single recorder cannot serve both paths as written. The build
-needs either two entry points (a sync core the listener calls plus a thin
-`async def` wrapper for the explicit call sites) or an explicit statement that
-the listener path uses a different function. The plan implies one function and
-budgets one file for it. An implementer hitting this mid-slice-2 will improvise,
-and the most natural improvisation — `asyncio.create_task(record_milestone(...))`
-— writes on a session that is about to close.
-
----
-
-### HIGH 4 — savepoint writes persist on SQLite without a commit and vanish on Postgres; the whole test suite is blind to it [CODE-CONFIRMED]
-
-I tested "recorder opens a savepoint, writes, session closes without the caller
-ever committing":
-
-| DB | savepoint recorder | plain `add` + `flush` |
-|---|---|---|
-| in-memory SQLite (whole test suite) | **1 row survives** | 0 rows |
-| file-backed SQLite | **1 row survives** | 0 rows |
-
-pysqlite/aiosqlite does not emit `BEGIN` for the outer transaction, so
-`SAVEPOINT … RELEASE` commits at the driver level. On Postgres the savepoint sits
-inside a real transaction, and `AsyncSession.close()` rolls it back. So a call
-site that forgets to commit **passes every test and silently loses the row in
-production**, and no SQLite test can ever catch it.
-
-This is not hypothetical — it lands on `ai_connected`, which the plan puts at
-`connection_activity.mark_seen`. That function does its own
-`await db.execute(update(...))` then `await db.commit()` (`connection_activity.py`,
-around line 128), and it is called from `require_connection`
-(`app/deps.py:211`) — a FastAPI dependency that runs on read-only agent
-endpoints too. If the recorder runs after `mark_seen`'s commit, the milestone
-lands in a fresh auto-begun transaction that many of those request handlers
-never commit. Green locally, empty in prod.
-
-Two things the plan must state: the recorder call goes **before** `mark_seen`'s
-`await db.commit()` (also required because `mark_seen` reads
-`first = bot.first_connected_at is None` before the UPDATE — that transition is
-only knowable there), and slice 2's proof list needs a test that asserts the row
-from a **new session after the caller commits**, not from the writing session.
-
----
-
-### HIGH 5 — the `Player` listener records `joined_match` for the house bots user [CODE-CONFIRMED]
-
-The plan's mapping table excludes bots only for `Agent` ("Bots (`kind='bot'`)
-record nothing"). The `Player` row has no such exclusion.
-
-But bot seats *are* `Player` rows, owned by a real `users` row:
-`app/engine/bots/seating.py:151` creates `Player(match_id=…, user_id=bots_user.id,
-agent_id=agent.id, …)` for every bot in every match, and
-`get_or_create_bots_user` (same file, line 45) creates the single house user
-`bots@agentludum.local`. That user is itself created with `db.add(user)` +
-`flush()`, so the `User` listener records `signed_up` for it too.
-
-Net effect: with an unfiltered `after_insert` on `Player`, the house bots user
-appears in `signed_up` and `joined_match`, and only stops appearing once slice 4
-sets `is_internal` **and** the read models filter on it. Slice 2 and slice 3 ship
-before slice 4, so between those checkpoints the numbers are wrong, and if the
-read-model filter is ever missed the number stays wrong. The fix is cheap — skip
-when the joining agent's `kind == BOT`, same rule as the Agent mapping — but the
-plan has to say it, because the two rules currently disagree.
-
----
-
-### MEDIUM 6 — "registered once at app startup" cannot work for the session-level hook, and misses the tests [CODE-CONFIRMED]
-
-I checked the registration surface. Only one target accepts these events:
-
-| Target | Result |
-|---|---|
-| `event.listen(Session, "before_flush", fn)` (sync class) | works, and fires for **every** sessionmaker in the process |
-| `event.listen(SessionLocal, …)` (`async_sessionmaker`) | `InvalidRequestError: No such event` |
-| `event.listen(AsyncSession, …)` | `InvalidRequestError: No such event` |
-
-So the session-level hook must go on the sync `Session` class. "Registered once
-at app startup" is then wrong in two ways. First, `app/main.py`'s lifespan is
-never entered by most tests — `tests/conftest.py` builds `async_sessionmaker`
-directly for the `engine`/`session_factory`/`db` fixtures and rebinds
-`app.db.SessionLocal` for `reset_db`; none of that boots the app. Second, the
-repo already has the right precedent: `app/db.py` calls
-`install_sqlite_parity_guards()` at **import** time, which does
-`event.listen(Session, "before_flush", …)` guarded by `event.contains(...)` for
-idempotency. The plan should copy that pattern verbatim and say so, or slice 2's
-listeners will be absent in exactly the tests meant to prove them.
-
-The mapper-level `after_insert` on `User`/`Agent`/`Player` is fine wherever it is
-registered — mapper events are global — but it must be imported, which is the
-same problem in a different coat.
-
----
-
-### MEDIUM 7 — an unguarded `after_flush_postexec` write hits `FlushError` after 100 flushes [CODE-CONFIRMED]
-
-`Session.commit()` re-flushes until the session is clean, up to 100 times.
-Adding rows from `after_flush_postexec` therefore triggers another flush, which
-fires the hook again. With a handler that adds unconditionally:
+The mechanism sketch (`plan.md:101-113`) shows `_record_sync` but never shows the
+`after_flush_postexec` body, and nothing in the plan says the queue in
+`session.info` is consumed. `session.info` lives for the whole Session and
+survives both `commit()` and `rollback()`. Measured on a request doing one user
+insert plus ten more flushes:
 
 ```
-FlushError: Over 100 subsequent flushes have occurred within session.commit()
- - is an after_flush() hook creating new objects?
-postexec fired 100 times
+[WASTE] 66 insert attempts for 2 distinct milestones
 ```
 
-The plan's "collect then drain" shape avoids this *if* the drain uses `pop` (the
-second pass sees an empty list — verified: fires twice, writes once). That is
-load-bearing behaviour the plan never states, and the obvious-looking variant
-(read the list, write, clear later) hangs the request for 100 flush cycles then
-500s. Worth one sentence in the plan and one test in slice 2.
+Quadratic in flushes per request. The plan's own risk table says the opposite:
 
-Related and also unstated: `after_flush_postexec` fires on **autoflush** too
-(verified — a bare `select()` after an `add` fires it). So the milestone is
-written the moment anything reads, not when the caller decides.
+> Only the *first* genuine play writes; the unique constraint short-circuits the rest.
 
----
+The unique constraint is not a short-circuit. Each replay is a full round trip
+plus a `SAVEPOINT`/`ROLLBACK TO` pair plus DBAPI exception construction — on the
+turn-submission hot path the same row flags. On Postgres it is strictly worse,
+because the failed statement aborts the transaction until the savepoint rollback
+un-aborts it.
 
-### MEDIUM 8 — slice 7's dependency list is wrong and its proof list drops an acceptance criterion [CODE-CONFIRMED]
+Second effect: because the queue survives `rollback()`, a milestone can be
+replayed against a parent that no longer exists. It is swallowed (see the credit
+in Residual Risks), but on SQLite dev, rowid reuse after a rollback means the
+replay can land on a *different* user.
 
-The build table says slice 7 (read models) depends on slice **1** only. But spec
-AC9 is "Bots and internal users excluded everywhere, via the stored flag", and
-that flag is `users.is_internal`, built in slice **4**. Slice 7's "must prove"
-list — distinct users, share suppression, return timezone, smoke-test exclusion,
-empty DB — never mentions internal or bot exclusion at all.
+Fix: `rows = session.info.pop(_KEY, None)` in the postexec hook, and put that one
+line in the plan next to `_record_sync`.
 
-Given finding 5 (the house bots user lands in the funnel), this is the criterion
-most likely to be silently skipped: nothing in slice 7 forces it, and by slice 8
-the page renders plausible-looking numbers. Slice 7 should read "Depends on 1, 4"
-and carry "internal and bot users excluded" in its proof list.
+### MEDIUM 5 — `seating.get_or_create_bots_user` is a third `User`-creation site the plan never lists [CODE-CONFIRMED]
 
----
+`grep` finds exactly three `User(...)` constructions in `app/`:
 
-### MEDIUM 9 — slice 2 turns global listeners on for the entire existing suite, with no regression clause [CODE-CONFIRMED]
+- `app/routes/auth.py:41` — named (via `sync_google_user`, slice 5)
+- `app/routes/dev_login.py:51` — named (slice 4)
+- `app/engine/bots/seating.py:51` — **named nowhere in the plan**
 
-`tests/factories.make_user` does `db.add(user)` then `await db.flush()`, and 90
-test files create users. The moment slice 2 registers `after_insert` on `User`,
-`Agent` and `Player`, every one of those flushes starts writing milestone rows,
-inside those tests' transactions.
+Driving the real `get_or_create_bots_user` through the mechanism:
 
-That is a large blast radius for a checkpoint whose "must prove" list is only
-about the new code. The listener now runs in tests that assert row counts, in
-`scripts/` tools, and in any session whose schema was not built by
-`Base.metadata.create_all`. Combined with CRITICAL 2, a duplicate anywhere in
-that surface turns into a failed caller commit in an unrelated test, and the
-diff checkpoint will read as "unrelated flakiness".
+```
+[RECORDS] house bots User creation records a milestone
+          rows=[(1, 'signed_up')]  sub=platform:bots
+```
 
-Slice 2 needs an explicit line: the full suite stays green with the listeners
-active, and that is part of what slice 2 proves.
+The house account enters the signup count. Slice 4's "creation wiring" bullet
+lists the predicate and the backfill but not this site, so on any DB where the
+bots user is created after the backfill it carries `is_internal` at its `false`
+server default — counted as a signup, and (it has no handle) shown in the AC18
+stuck list as a user who never picked one. Its email `bots@agentludum.local` is
+inside the default `INTERNAL_EMAIL_DOMAINS`, so the fix is only to route this
+site through the same predicate — but it has to be named to be routed.
 
----
+Related, same account: the mapping table (`plan.md:141-146`) lists `Agent` kind
+`ai` and kind `human` and does not say what happens to kind `bot`. A natural
+`if kind is AI … else set_up_human_play` attributes `set_up_human_play` to the
+house account for every seated bot. State the exclusion.
 
-### MEDIUM 10 — the two `played_turn` hooks are never named, and the two names the plan *does* give are the wrong places [CODE-CONFIRMED]
+### MEDIUM 6 — The mandated re-entrancy guard cannot be needed here, and inviting it risks silent write-loss [CODE-CONFIRMED / CODE-REFUTED]
 
-The plan says: "two request-level hooks — `record_player_action` and
-`record_submission` are each shared by genuine and non-genuine paths, so the
-hook sits at the request level where the caller is known." It correctly rules
-those two out and then never says what to use instead. An implementer reading
-only the plan has two function names and an instruction not to use them.
+`plan.md:159-162`: "postexec writes must be guarded against re-entrancy or they
+hit `FlushError` after 100 flushes."
 
-The viable pair, from the call graph:
+Refuted for the shape the plan chose. 150 flushes in one session with the
+Core-insert recorder:
 
-- **AI play** — `app/engine/agent_play.py::submit_action` (the
-  `module.record_submission` call is at line 269). This is the single choke point
-  for both AI entry paths: HTTP at `app/routes/agent_api.py:77` and MCP at
-  `mcp_server/mcp_tools.py:379` both call it. It already carries
-  `is_connector_fallback`, so slice 3's "connector-fallback records nothing" is
-  testable right there. It commits at the end of the function, so the recorder
-  call must go before that commit.
-- **Human play** — the act handler in `app/routes/web_play.py` (the
-  `record_player_action` call is at line 253, with `await db.commit()` just
-  after). This is what makes AC4 pass.
+```
+[PASS] T3 150 flushes in one session :: 300 milestones, postexec fired 300x
+```
 
-Both are viable. Neither is named. The shared helpers stay clean because the
-non-genuine paths — `app/engine/bots/service.py:124` (bots and autopilot) and
-`app/engine/turn_drivers.py:136,142` (defaulted) — go through the same helpers
-and never through these two functions.
+No error, because `conn.execute(insert(...))` never marks the session dirty, so
+`_prepare_impl`'s flush loop never re-enters. The `FlushError` is real, but only
+for a hook that adds *ORM objects unconditionally* — I reproduced it deliberately
+in both variants:
 
----
+```
+[REPRODUCED] FlushError: Over 100 subsequent flushes have occurred within
+             session.commit() ... after 101 hook calls   (after_flush)
+[REPRODUCED] ... after 101 hook calls                    (after_flush_postexec)
+```
 
-### MEDIUM 11 — the plan never says whether a milestone survives the caller's rollback [CODE-CONFIRMED]
+Left as a hard requirement, an implementer adds a stateful suppression flag
+(`session.info["_recording"] = True` or a module global). That flag is exactly
+the kind of thing that stays set across nested flushes and drops legitimate
+writes — trading an impossible failure for a plausible silent one. Rewrite as:
+"cannot arise, because the recorder never touches the ORM unit of work; it would
+arise if the recorder ever went back to `session.add`."
 
-The architecture diagram calls `user_milestones` "durable, append-only". With a
-flush-time listener that is only half true, and the plan does not pick a side:
+### MEDIUM 7 — Nothing in this feature has ever been run against Postgres [UNVERIFIED]
 
-- Caller flushes then rolls back → **0 milestones, 0 users** (verified). The
-  milestone dies with the caller's work.
-- Caller autoflushes mid-request → milestone already written, before the caller
-  has decided anything (verified).
+Round 1's measurements, revision 2's rewrite and everything above are aiosqlite.
+Production is Postgres, and `railway.json` runs `alembic upgrade head` as
+`preDeployCommand` on merge to `main` — the plan's own "this is NOT inert by
+default" correction. The single behaviour that genuinely differs is the one the
+mechanism leans on: on Postgres a failed statement aborts the whole transaction
+until `ROLLBACK TO SAVEPOINT`, so `except IntegrityError: pass` is safe *only*
+because `conn.begin_nested()` wraps it. That is the canonical pattern and I have
+no reason to think it fails — but the plan flags a dev/prod divergence and then
+assigns no Postgres coverage anywhere in slices 1-8, so the first Postgres
+exercise of the recorder is production traffic. Slice 6 already requires a
+dry-run against a production copy; the cheapest fix is to run the slice-2
+recorder tests against that same copy while it exists.
 
-Both may be the behaviour you want. But "write-once at event time, durable" and
-"rolls back with the transaction that caused it" are different contracts, and
-slice 2's proof list tests neither. Pick one and write a test for it, because
-this is the property the backfill (slice 6) and the read models (slice 7) both
-assume without saying.
+### LOW 8 — The Core insert bypasses `install_sqlite_parity_guards`, so the stated reason for catching `ValueError` does not apply on that path [CODE-CONFIRMED]
 
----
+`plan.md:115-116`: "`ValueError` is caught deliberately: `StringLengthExceeded`
+is a `ValueError` and would otherwise escape the advisory catch."
 
-### LOW 12 — the repo's own SQLite parity guard raises an exception class the recorder does not catch [CODE-CONFIRMED]
+True for the async wrapper — I confirmed it fires there and is swallowed
+cleanly, with the caller's later commit still succeeding. Not true for
+`_record_sync`. The parity guard is a `before_flush` ORM hook, and
+`app/sqlite_parity.py`'s own docstring says so: Core statements bypass the flush
+and are not checked. Measured, writing 64 characters into the `String(32)`
+`milestone` column via `conn.execute(insert(...))` on file-backed SQLite:
 
-`app/sqlite_parity.py` registers a `before_flush` guard that raises
-`StringLengthExceeded(ValueError)` when a string exceeds its column length. That
-is **not** a `SQLAlchemyError`, so it escapes `record_milestone`'s
-`except SQLAlchemyError` and breaks the caller — the opposite of advisory. The
-values at risk are small (`agent_kind` is `ai`/`human` in `String(16)`,
-`source_match_id` holds ids like `M_1271` in `String(32)`), so the practical
-risk is low today.
+```
+[BYPASSED] declared=32 stored=64 -> Postgres would raise, SQLite stores it
+```
 
-Second half of the same note: that guard explicitly skips `TypeDecorator`
-columns, and the plan stores `milestone` as a `FlexibleEnumType`. So an
-over-length milestone value is unchecked on SQLite and would only fail on
-Postgres. Keep the milestone names short and the point is moot, but the safety
-net the repo thinks it has does not cover this column.
-
----
+Exposure today is nil (milestone values are constants, `source_match_id` mirrors
+`Match.id` which is also `String(32)`). The cost is a stated invariant the code
+does not have, on the one write path that reaches production unguarded — and the
+next person to add a user-supplied string to the milestone row will believe the
+net is there.
 
 ## Residual Risks
 
-**Verified sound, so implementers should not waste time re-deriving them.**
-`after_insert` gives a populated `target.id` and a live `Session.object_session`,
-so collecting `user_id` in the listener works. `after_insert` does **not** fire
-for Core `insert()` — the plan's stated limit is exactly right, and slice 2's
-assertion test is worth keeping. Nested savepoints compose: a recorder savepoint
-inside the existing outer savepoint at `app/engine/mcp_connection.py:267` contains
-a duplicate cleanly and the outer block still commits, so the four
-`first_connected_at` branches (lines 145/174/206/222 — all four line numbers
-verified accurate) are safe hook sites. `railway.json` really does set
-`"preDeployCommand": ["alembic upgrade head"]` and `app/main.py:71` skips the
-boot-time migration on Railway, so the plan's backfill reasoning holds. Slice 8's
-anchors are real: `colspan="7"` at `app/templates/admin/users_list.html:41`,
-`/admin/users/{user_id}` at `app/routes/admin_web.py:213`, and `AdminAction` is a
-`FlexibleEnumType` (`String(16)`), so two new values need no DDL on either
-dialect.
+**Credit, measured, so nobody re-litigates these.** All of the following were run
+and behaved correctly; they are the plan's genuine wins.
 
-**Not resolvable here.** All transaction behaviour above was measured on SQLite
-and aiosqlite, because that is what this machine has. Postgres semantics for
-savepoints and for close-without-commit are standard and well documented, but the
-specific divergence in finding 4 was only *observed* on SQLite; the Postgres half
-is inference. If a Postgres URL is available at implementation time, run the same
-close-without-commit probe against it before trusting any test that asserts a
-milestone landed.
+- Rows persist past the caller's commit and are visible from an independent
+  connection on file-backed SQLite: listener path, async wrapper, and both mixed
+  in one session.
+- A duplicate raises `IntegrityError` inside the savepoint, is swallowed, and the
+  caller's transaction stays fully usable — the caller's own rows (three agents)
+  still commit. Same for the async wrapper.
+- The listener write composes with the existing savepoint at
+  `mcp_connection.py:267`. A nested `async record_milestone` *inside* that
+  savepoint also works, including a duplicate inside the duplicate.
+- An FK violation in the recorder (parent user absent) is swallowed and the
+  caller continues to commit normally.
+- `StringLengthExceeded` raised from the parity guard inside the async wrapper's
+  savepoint is caught by the plan's handler and does **not** leave the session in
+  `PendingRollbackError` — the caller's next commit succeeds.
+- The listeners fire under conftest's `db` and `reset_db` fixtures and are
+  registered under `client`, with no lifespan involved. Binding
+  `after_flush_postexec` to `Session` genuinely does what the plan claims; it is
+  only the `after_insert` half (HIGH 2) that does not.
+- A `SELECT` inside `after_insert` — needed for the house-bots exclusion — does
+  **not** trip autoflush re-entrancy, via either `Session.object_session(target)`
+  or the `connection` argument. Either spelling is safe.
+- The plan's stated `after_insert` limit holds: no Core bulk insert or
+  `bulk_save_objects` of `User` / `Agent` / `Player` exists in `app/`,
+  `mcp_server/`, `scripts/` or `migrations/`. `web_join.py:403`'s `add_all` is
+  ORM and fires normally.
 
-**Left standing after this review.** The plan gives no measurement for the
-turn-path cost it promises to measure in slice 3 — no threshold, no baseline, so
-"measure" cannot fail. Slice 6's backfill has no dry-run mode, which the repo's
-own data-critical practice asks for on anything that rewrites production rows.
-And the plan never states what happens to milestones already recorded during
-slices 2–3 for the house bots user once slice 4 lands — the `is_internal`
-backfill fixes the flag, but nothing cleans the rows, so whether the read models
-filter by flag or by row is a decision still owed.
+**Carried, not findings.**
 
-**Sequencing.** Slice 2 is genuinely provable before slice 3 exists — its proof
-list needs only slices 1 and 2 — but only if the mechanism is fixed first and the
-proof list is tightened to (a) assert from a fresh session after commit, (b) keep
-the whole existing suite green with listeners on. As written, slice 2 would sail
-through its checkpoint while recording nothing, and slices 3 through 8 would all
-be built on top of that.
+- Registration idempotency is implied by "mirroring `install_sqlite_parity_guards`"
+  but not stated. That pattern's `if not event.contains(...)` guard is the load-bearing
+  half; without it a double import doubles every write attempt (harmless, but it
+  doubles the hot-path cost in MEDIUM 4).
+- Concurrency: two requests racing the same first milestone on Postgres resolve
+  through the same `IntegrityError`-inside-savepoint path. Correct by
+  construction, unexercised by any planned test.
+- `reached_at` on SQLite stores naive datetimes even under
+  `DateTime(timezone=True)`. Irrelevant to the mechanism, but AC16's read-time
+  timezone derivation is built on this column, and dev/test comparisons will not
+  behave like prod.
+- Slices 3-8 all sit downstream of slice 2's checkpoint. Until HIGH 3 is fixed,
+  that checkpoint can go green on an implementation that records nothing, which
+  is precisely how revisions 1 and 2 each reached a review.
 
 ```json
-{"reviewed": true, "findings": [{"severity": "CRITICAL", "title": "after_commit cannot emit SQL, so the plan's stated write point records nothing", "detail": "Ran on this repo's SQLAlchemy 2.0.50: writing from after_commit raises InvalidRequestError ('session is in committed state') and persists 0 rows, and because that is a SQLAlchemyError the recorder's own fail-open handler swallows it, so signed_up, set_up_a_way_to_play and joined_match would silently never be recorded; after_flush_postexec is the working write point and before_commit is also refuted (fires before the collection exists)."}, {"severity": "CRITICAL", "title": "db.begin_nested() is a no-op inside a flush, so a duplicate breaks the caller's commit", "detail": "Verified: SessionTransaction._prepare_impl skips its flush loop when session._flushing is true, so the ORM object added inside the savepoint is inserted by the outer flush instead and a duplicate raises IntegrityError out of the caller's db.commit(), violating AC22; the shape that actually contains it is session.connection() + conn.begin_nested() + a Core insert()."}, {"severity": "HIGH", "title": "The async recorder cannot be called from any of the listener hooks", "detail": "after_insert, after_flush_postexec and after_commit are all synchronous callbacks on the sync Session (object_session returns the sync session), so `async def record_milestone` cannot be awaited from the listener path and the plan's single shared recorder needs to be split into a sync core plus an async wrapper."}, {"severity": "HIGH", "title": "Savepoint writes persist on SQLite without a commit but roll back on Postgres", "detail": "Measured on both in-memory and file-backed SQLite: a savepoint write survives a session closed without commit (1 row) while a plain flush does not (0 rows), so a call site that forgets to commit passes every test and silently loses the row in prod - which directly threatens ai_connected, since mark_seen commits itself and is called from require_connection on read-only endpoints that never commit again."}, {"severity": "HIGH", "title": "The Player after_insert listener records joined_match for the house bots user", "detail": "bots/seating.py:151 creates Player(user_id=bots_user.id) for every bot seat and get_or_create_bots_user creates a real users row (bots@agentludum.local) that the User listener also records signed_up for, but the plan's exclusion rule covers only bot Agents, so the funnel is polluted from slice 2 until slice 4's is_internal flag plus an unstated read-model filter."}, {"severity": "MEDIUM", "title": "Session-level listeners cannot be registered at app startup or on the session factory", "detail": "Verified that event.listen rejects both async_sessionmaker and AsyncSession ('No such event') so only the sync Session class works, and registering in the FastAPI lifespan would miss every test using the db/reset_db fixtures since conftest builds its own sessionmakers without booting the app - the repo's own install_sqlite_parity_guards() import-time pattern in app/db.py is the shape to copy."}, {"severity": "MEDIUM", "title": "Unguarded writes from after_flush_postexec hit FlushError after 100 flushes", "detail": "Measured: a handler that adds rows on every call triggers 'FlushError: Over 100 subsequent flushes have occurred within session.commit()', so the plan's collect-then-drain must use pop() to leave the second pass empty - load-bearing behaviour the plan never states - and the hook also fires on plain autoflush, not only on commit."}, {"severity": "MEDIUM", "title": "Slice 7 depends on slice 4, and its proof list omits internal/bot exclusion", "detail": "The build table lists slice 7 (read models) as depending on slice 1 only, but spec AC9 requires bots and internal users excluded via users.is_internal which is built in slice 4, and slice 7's must-prove list never mentions the exclusion at all - the criterion most likely to be silently skipped given the bots-user pollution."}, {"severity": "MEDIUM", "title": "Slice 2 switches global listeners on for the whole existing suite with no regression clause", "detail": "tests/factories.make_user flushes a User immediately and 90 test files create users, so slice 2's mapper events start firing across the entire suite; combined with the savepoint defect a duplicate anywhere turns into a failed commit in an unrelated test, and slice 2's must-prove list should explicitly include 'full suite green with listeners active'."}, {"severity": "MEDIUM", "title": "The two played_turn hook points are never named, only the wrong ones are", "detail": "The plan rules out record_player_action and record_submission without saying what replaces them; the viable pair is app/engine/agent_play.py::submit_action (line 269, the single choke point shared by agent_api.py:77 and mcp_tools.py:379, and already carrying is_connector_fallback) and the act handler in app/routes/web_play.py (line 253), with both calls needing to sit before their function's db.commit()."}, {"severity": "MEDIUM", "title": "The plan never states whether a milestone survives the caller's rollback", "detail": "Measured: a milestone written from a flush-time listener is discarded when the caller rolls back (0 rows) and is written on a mere autoflush before the caller decides anything, which contradicts the architecture diagram's 'durable, append-only' framing - slice 2 tests neither behaviour and the backfill and read models both assume one of them."}, {"severity": "LOW", "title": "The repo's SQLite parity guard raises an exception the recorder does not catch", "detail": "app/sqlite_parity.py raises StringLengthExceeded (a ValueError, not a SQLAlchemyError) from before_flush so it would escape record_milestone's advisory catch and break the caller, and that same guard skips TypeDecorator columns so an over-length FlexibleEnumType milestone value is unchecked on SQLite and would only fail on Postgres."}]}
+{"reviewed": true, "findings": [{"severity": "HIGH", "title": "Risk table still prescribes the refuted after_commit write", "detail": "plan.md:266 tells the implementer to 'write in after_commit' and says slice 2 will prove that shape, which I re-ran and measured at 0 rows persisted with the error swallowed by the plan's own fail-open handler."}, {"severity": "HIGH", "title": "'Bound to the Session class' silently no-ops the after_insert listeners", "detail": "after_insert is a MapperEvents event; event.listen(Session, 'after_insert', cb) is accepted without error by SQLAlchemy 2.0.50 (it falls through to _MapperEventsHold) and fires zero times, so the four insert-driven milestones would never record and nothing would ever error."}, {"severity": "HIGH", "title": "Dev/prod divergence described backwards and its mitigation cannot fail", "detail": "On file-backed SQLite the new shape persists nothing when the session closes uncommitted (refuting the stated savepoint quirk), while the repo's in-memory fixtures use StaticPool so a 'fresh session' reads uncommitted rows - I wrote slice 2's must-prove literally against reset_db and it passes against a writer that never commits."}, {"severity": "MEDIUM", "title": "session.info collection is never cleared, replaying on every later flush", "detail": "Measured 66 insert attempts for 2 distinct milestones across 11 flushes, and the plan's claim that 'the unique constraint short-circuits the rest' is wrong - each replay is a full round trip plus a SAVEPOINT/ROLLBACK pair on the turn-submission hot path."}, {"severity": "MEDIUM", "title": "seating.get_or_create_bots_user is an unlisted third User-creation site", "detail": "Driving the real helper records signed_up for the house bots account, and app/engine/bots/seating.py:51 appears nowhere in slice 4's creation wiring, so the platform account enters the signup count and the AC18 stuck list unless is_internal is applied there."}, {"severity": "MEDIUM", "title": "Mandated re-entrancy guard cannot be needed and invites silent write-loss", "detail": "150 flushes with the Core-insert recorder produced 300 milestones and no error because the session is never made dirty; the FlushError only reproduces for a hook that adds ORM objects unconditionally, so requiring a guard pushes the implementer toward a suppression flag that can drop real writes."}, {"severity": "MEDIUM", "title": "No Postgres coverage anywhere in slices 1-8", "detail": "Every measurement in rounds 1-3 and in this review is aiosqlite, yet the load-bearing behaviour (a failed statement aborting a Postgres transaction until ROLLBACK TO SAVEPOINT) is Postgres-only and railway.json runs the migration as preDeployCommand, so production is the first Postgres exercise."}, {"severity": "LOW", "title": "Core insert bypasses install_sqlite_parity_guards, voiding the stated ValueError rationale", "detail": "The parity guard is a before_flush ORM hook that Core statements bypass by design, and a 64-character value written into the String(32) milestone column stored all 64 characters on SQLite where Postgres would raise."}]}
 ```
 
 ## Runner Stats
@@ -406,4 +319,4 @@ be built on top of that.
 
 ## Resolution
 - status: accepted
-- note: 12 findings (2 CRITICAL, 3 HIGH). The reviewer RAN the proposed mechanism against the repo's SQLAlchemy 2.0.50 + aiosqlite stack rather than reasoning about it, and both load-bearing shapes were broken AND failed silently. CRITICAL 1: after_commit cannot emit SQL (InvalidRequestError, 0 rows persisted, swallowed by the plan's own fail-open handler) - after_flush_postexec is the working point. CRITICAL 2: db.begin_nested() is a no-op inside a flush because _prepare_impl skips its flush loop when session._flushing, so the savepoint protected nothing and a duplicate would raise out of the caller's commit - working shape is session.connection() + conn.begin_nested() + Core insert(). Also accepted: sync listeners cannot call an async recorder (two entry points now); savepoint writes survive an uncommitted session on SQLite but not Postgres, so a missing commit passes every test and loses rows in prod (slice 2 now asserts from a fresh session after commit); the Player listener would have recorded joined_match for the house bots user; the real played_turn pair is agent_play.submit_action:269 and web_play.py:253; registration must be at import on the Session class, not app startup. All folded into plan revision 2.
+- note: Round 2. VERDICT: the new mechanism WORKS - the reviewer built it and ran it against the real stack (SQLAlchemy 2.0.50 + aiosqlite, app.db.make_engine, parity guards, real models). Rows persist past the caller's commit confirmed from an independent connection; duplicates raise inside the savepoint, are swallowed, and the caller's own rows still commit; it composes with the existing savepoint at mcp_connection.py:267; it fires under conftest's db/reset_db/client fixtures; no re-entrancy at 150 flushes. 3 HIGH accepted, all in the text around the shape: (1) after_insert is a MAPPER event - event.listen(Session, 'after_insert') is accepted without raising and fires ZERO times, so revision 2's 'bound to the Session class' reintroduced the exact green-suite-empty-table failure it was written to remove; fixed with an explicit event-kind table. (2) The dev/prod divergence was stated backwards - file-backed SQLite persists nothing uncommitted; the real defeater is StaticPool on in-memory fixtures, and the reviewer wrote revision 2's must-prove literally and it PASSED against a writer that never commits; replaced with three graded mitigations, spy-session ordering required. (3) plan.md:266 still prescribed after_commit - already fixed before this review landed. MEDIUMs accepted: session.info must be cleared (66 insert attempts for 2 milestones over 11 flushes); bots/seating.py:51 is a third User-creation site; the mandated re-entrancy guard is unnecessary and would be a silent-drop risk; no Postgres coverage anywhere in slices 1-8 while railway.json makes production the first Postgres exercise.
