@@ -73,6 +73,7 @@ Without the explicit `"direct"`, AC14 is unwritable: the spec's precedence rule
 (campaign tag → referrer host → `"direct"`) collapses "we looked and they came
 direct" together with "we never looked", which is the exact bug AC14 forbids.
 `NULL` then renders as `"unknown"` and means one unambiguous thing.
+
 `is_internal` — `Boolean`, `nullable=False`, `server_default=false`.
 
 ### New config keys
