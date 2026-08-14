@@ -187,3 +187,34 @@ async def test_terms_state_the_age_limit_and_governing_law(client: AsyncClient) 
     body = resp.text
     assert "18 or older" in body
     assert "State of California" in body
+
+
+async def test_privacy_discloses_that_we_record_how_you_arrived(
+    client: AsyncClient,
+) -> None:
+    """Guarded as a presence, like the strategy-text caveat above.
+
+    The site records where a visitor came from — campaign tags on the link, the
+    referring site, the landing page — and saves it against the account if they
+    sign up. An earlier version of this page said the opposite in as many words
+    ("no analytics"), which was true when it was written and stopped being true
+    the day the engagement dashboard shipped.
+
+    So this pins the disclosure rather than the wording of any one sentence: if
+    someone trims this paragraph while the capture is still running, the page
+    goes back to being wrong about the thing a privacy policy exists to state.
+    """
+    prose = _prose(await client.get("/privacy", follow_redirects=False))
+
+    assert "how you arrived" in prose, "the page must say we record where you came from"
+    assert "campaign tags" in prose, "the page must name what is taken from the link"
+    assert "only save it against an account if you sign up" in prose, (
+        "the page must say when this stops being a cookie and becomes a record"
+    )
+    assert "written to our error log" in prose, (
+        "the page must not claim signing up is the ONLY way this reaches us — a "
+        "failed request logs the whole address, campaign tags included"
+    )
+    assert "no analytics" not in prose, (
+        "the old claim contradicts the feature that now ships"
+    )
