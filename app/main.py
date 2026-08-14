@@ -57,6 +57,23 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
+# How long the signed-in session cookie lives — and, because the first-touch
+# arrival record rides in that same cookie (see app/identity/first_touch.py),
+# how wide an attribution window we get. One number governs both; they are not
+# separable without giving arrival its own cookie.
+#
+# This is passed explicitly because the value that mattered was previously the
+# one nobody chose: Starlette defaults `max_age` to 14 days, and omitting the
+# argument silently took it. Fourteen days is short for attribution — someone
+# who reads a Reddit post, bookmarks the site and comes back three weeks later
+# arrives as "direct", which is the exact question /admin/engagement exists to
+# answer. Ninety days is the generous end of the usual 30-90 day window.
+#
+# The other half of the trade is a login that lasts a quarter. That is a feature
+# on a site people check back on, and the blast radius of a stolen cookie is
+# small here: no payments, no card, an email address at worst.
+SESSION_MAX_AGE_SECONDS = 90 * 24 * 60 * 60
+
 # Optional deep logging for the MCP OAuth auth layer (FastMCP token swap and
 # upstream validation). Off by default; set MCP_AUTH_DEBUG=1 to surface the
 # precise reason a bearer token is rejected on /mcp, without flooding normal
@@ -252,6 +269,7 @@ def create_app() -> FastAPI:
         same_site="lax",
         https_only=settings.cookie_secure,  # Secure cookie in prod (COOKIE_SECURE=true)
         session_cookie="hhh_session",
+        max_age=SESSION_MAX_AGE_SECONDS,
     )
     install_request_logging(app)
     # Accept OAuth client registrations that ask only for the authorization-code
