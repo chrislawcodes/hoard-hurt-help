@@ -1363,27 +1363,21 @@ button.danger:hover,
 
 /* ============================================================
  * LEGAL — /privacy and /terms
- * Long-form prose. Capped near 38rem because a legal page nobody
- * can read is the same as not having one.
+ * Both pages are deliberately short, so headings act as section
+ * labels rather than chapter breaks: smaller than a normal h2 and
+ * tighter above. Capped near 38rem because a legal page nobody can
+ * read is the same as not having one.
  * ============================================================ */
 .legal { max-width: 38rem; line-height: 1.6; }
-.legal h2 { margin: 2rem 0 0.5rem; }
-.legal h3 { margin: 1.25rem 0 0.35rem; font-size: 1rem; }
+.legal h2 { margin: 1.6rem 0 0.4rem; font-size: 1.05rem; }
 .legal p { margin: 0 0 0.85rem; }
-.legal ul, .legal ol { margin: 0 0 0.85rem; padding-left: 1.35rem; }
-.legal li { margin: 0 0 0.35rem; }
 .legal code { font-size: 0.9em; }
 .legal-date { color: var(--ink-soft); margin: 0.45rem 0 0; font-size: 0.8rem; }
-/* The summary card carries the whole page for most readers, so it leads and
-   its heading sits flush with the top of the card. */
-.legal-summary { margin-bottom: 2rem; }
-.legal-summary h2 { margin-top: 0; }
-.legal-note { color: var(--ink-soft); font-size: 0.9rem; margin-bottom: 0; }
 /* Ruled-off paragraphs for the parts a reader would be annoyed to have missed:
-   the strategy-text caveat, the alpha data warning, the liability limits. */
+   the strategy-text caveat, the alpha warning, the liability limits. */
 .legal-flag { border-left: 3px solid var(--line); padding-left: 0.9rem; }
-/* The alpha frame opens both pages and governs everything under it, so it sits
-   above the summary card rather than inside it. */
+/* The alpha frame opens both pages and governs every fact under it, so it gets
+   room to read as the lead rather than as the first section. */
 .legal-frame { margin-bottom: 1.75rem; }
 
 /* ============================================================
