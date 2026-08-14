@@ -13,6 +13,7 @@ from app.models.model_verification import ModelVerification, ModelVerificationSt
 from app.models.player import Player
 from app.models.request_incident import RequestIncident
 from app.models.user import User
+from app.models.user_milestone import MilestoneKind, UserMilestone
 from app.models.turn import Turn, TurnMessage, TurnSubmission
 
 __all__ = [
@@ -29,6 +30,8 @@ __all__ = [
     "AdminAction",
     "AdminAuditLog",
     "User",
+    "UserMilestone",
+    "MilestoneKind",
     "Match",
     "ModelVerification",
     "ModelVerificationStatus",
