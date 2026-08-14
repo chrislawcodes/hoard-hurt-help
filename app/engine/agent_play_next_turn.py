@@ -49,6 +49,7 @@ from app.engine.turn_routing import (
     connection_is_dead,
 )
 from app.games import get as get_game_module
+from app.games.base import GameModule
 from app.models.agent import Agent, AgentKind, AgentStatus
 from app.models.agent_version import AgentVersion
 from app.models.connection import Connection, ConnectionStatus
@@ -64,6 +65,9 @@ logger = logging.getLogger(__name__)
 # version is optional because the AgentVersion join is an outer join.
 _AgentMatchRow = tuple[Agent, Player, Match, AgentVersion | None]
 
+# One of the connection's seats paired with its match's open turn.
+_SeatRow = tuple[int, str, Player, Turn]
+
 
 @dataclass
 class CandidateContext:
@@ -78,6 +82,7 @@ class CandidateContext:
     agent_by_id: dict[int, Agent] = field(default_factory=dict)
     player_by_key: dict[tuple[int, str], Player] = field(default_factory=dict)
     version_by_agent_id: dict[int, AgentVersion] = field(default_factory=dict)
+    match_by_id: dict[str, Match] = field(default_factory=dict)
     latest_turn_by_match: dict[str, Turn] = field(default_factory=dict)
     dead_ids: list[int] = field(default_factory=list)
 
@@ -212,6 +217,7 @@ async def _build_candidate_lookups(
         ctx.player_by_key[(agent.id, match.id)] = player
         ctx.agent_by_id[agent.id] = agent
         ctx.version_by_agent_id[agent.id] = version
+        ctx.match_by_id[match.id] = match
     # Matches with no open turn are simply absent from the map (same as the old
     # per-match ``None`` skip), so the downstream ``.get`` lookups are unchanged.
     match_ids = {match_id for _agent_id, match_id in ctx.player_by_key}
@@ -241,6 +247,51 @@ async def _undefaulted_pairs(
     return {(row.turn_id, row.player_id) for row in rows.all()}
 
 
+async def _drop_seats_off_the_clock(
+    db: AsyncSession, ctx: CandidateContext, seats: list[_SeatRow]
+) -> list[_SeatRow]:
+    """Drop the seats a sequential game would refuse a move from.
+
+    A simultaneous game (PD) resolves every seat each turn, so every seat owes a
+    move and nothing is dropped. Its module is never even asked: ``next_actor``
+    is deliberately fail-loud for simultaneous games, so consulting it on the PD
+    path would turn every PD poll into a 500.
+
+    A sequential game (Liar's Dice) has exactly one seat on the clock. The others
+    cannot submit — ``validate_move`` answers them NOT_YOUR_TURN — so serving one
+    buys a paid model think and a 400, and leaves the seat a candidate again on
+    the very next poll. Worse, a user holding two seats in the same match can
+    have the idle one win ``select_next_turn``'s tie-break and starve the seat
+    that actually owes the move until its deadline defaults it.
+
+    The question is put to ``next_actor``, the same hook the sequential driver
+    uses to choose whose turn to open and whose submission to wait for, so
+    serving and the turn loop cannot disagree about whose move it is.
+    """
+    modules_by_match: dict[str, GameModule] = {}
+    for _agent_id, match_id, _player, _turn in seats:
+        if match_id in modules_by_match:
+            continue
+        module = get_game_module(ctx.match_by_id[match_id].game)
+        if not module.config_defaults().simultaneous:
+            modules_by_match[match_id] = module
+    if not modules_by_match:
+        return seats
+
+    # One `next_actor` call per sequential match in the poll, not per seat.
+    actor_by_match = {
+        match_id: await module.next_actor(db, ctx.match_by_id[match_id])
+        for match_id, module in modules_by_match.items()
+    }
+    kept: list[_SeatRow] = []
+    for seat in seats:
+        _agent_id, match_id, player, _turn = seat
+        if match_id in actor_by_match and player.seat_name != actor_by_match[match_id]:
+            continue
+        kept.append(seat)
+    return kept
+
+
 async def _filter_to_candidates(
     db: AsyncSession, ctx: CandidateContext
 ) -> list[TurnCandidate]:
@@ -248,14 +299,16 @@ async def _filter_to_candidates(
 
     Drops a turn the player already acted on, and — during the talk phase — one
     the player already broadcast a message for, since there is nothing left to do
-    until the act phase opens.
+    until the act phase opens. In a sequential game it also drops every seat but
+    the one on the clock (see ``_drop_seats_off_the_clock``).
     """
-    seats: list[tuple[int, str, Player, Turn]] = []
+    seats: list[_SeatRow] = []
     for (agent_id, match_id), player in ctx.player_by_key.items():
         turn = ctx.latest_turn_by_match.get(match_id)
         if turn is None:
             continue
         seats.append((agent_id, match_id, player, turn))
+    seats = await _drop_seats_off_the_clock(db, ctx, seats)
     if not seats:
         return []
 
