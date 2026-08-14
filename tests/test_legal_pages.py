@@ -1,11 +1,15 @@
 """Tests for the public /privacy and /terms pages and the footer links to them.
 
-The content assertions here are deliberate: these two pages make promises to
-users, and a few of those promises are load-bearing enough that quietly losing
-them in an edit should break the build. The strategy-text caveat is the sharpest
-one — the terms grant a broad license over strategy text while the product keeps
-it off other players' screens, so both pages have to keep saying that out loud or
-they start contradicting each other.
+Most of the content assertions here guard an *absence*. Both pages are written
+to promise as little as possible, because this is an Alpha where nearly every
+fact stated on them will change — so the failure mode worth catching is a
+well-meaning edit that adds a commitment back. Each such test names the sentence
+an earlier draft actually carried.
+
+The exception is the strategy-text caveat, which is guarded as a presence: the
+terms grant a broad license over strategy text while the product keeps it off
+other players' screens, so both pages have to keep saying that out loud or they
+start contradicting each other.
 """
 
 from __future__ import annotations
@@ -23,6 +27,18 @@ from tests.factories import make_user
 from tests.conftest import signed_in_cookies as _signed_in
 
 LEGAL_PATHS = ("/privacy", "/terms")
+
+
+def _prose(resp: object) -> str:
+    """Page text with runs of whitespace collapsed, lowercased.
+
+    The templates wrap prose across source lines, so a sentence a test cares
+    about is split by a newline and indentation in the response body. Matching
+    the raw text would make every assertion here hostage to where the paragraph
+    happens to wrap — a reflow would fail the suite while the promise it guards
+    sat there unchanged.
+    """
+    return " ".join(getattr(resp, "text").split()).lower()
 
 
 async def _seed_disabled_user(reset_db: async_sessionmaker) -> User:
@@ -90,7 +106,7 @@ async def test_disabled_user_can_still_read_the_terms(
 async def test_terms_claim_a_license_over_strategy_text(client: AsyncClient) -> None:
     """The license has to name strategies, or it does not cover the thing it must."""
     resp = await client.get("/terms", follow_redirects=False)
-    body = resp.text.lower()
+    body = _prose(resp)
     assert "license" in body
     assert "strateg" in body
 
@@ -106,8 +122,7 @@ async def test_both_pages_warn_that_strategies_are_not_secret(
     product fact into a broken promise.
     """
     resp = await client.get(path, follow_redirects=False)
-    body = resp.text.lower()
-    assert "do not put anything confidential in a strategy" in body
+    assert "do not put anything confidential in a strategy" in _prose(resp)
 
 
 @pytest.mark.parametrize("path", LEGAL_PATHS)
@@ -116,7 +131,36 @@ async def test_both_pages_warn_that_alpha_data_can_be_wiped(
 ) -> None:
     """The database really does get reset; users are told before it happens to them."""
     resp = await client.get(path, follow_redirects=False)
-    assert "wipe" in resp.text.lower()
+    assert "wipe" in _prose(resp)
+
+
+@pytest.mark.parametrize("path", LEGAL_PATHS)
+async def test_both_pages_frame_themselves_as_a_snapshot(
+    client: AsyncClient, path: str
+) -> None:
+    """The frame is what lets the rest of the page speak in the present tense.
+
+    Both pages state plain facts — one cookie, no analytics, these providers —
+    and in an Alpha that changes weekly every one of those is a promise waiting
+    to go stale. The frame at the top is what makes them descriptions instead.
+    Lose it and the pages quietly become a list of commitments again.
+    """
+    resp = await client.get(path, follow_redirects=False)
+    assert "not a commitment about the future" in _prose(resp)
+
+
+@pytest.mark.parametrize("path", LEGAL_PATHS)
+async def test_neither_page_promises_notice_before_changing(
+    client: AsyncClient, path: str
+) -> None:
+    """Changing the site should never require sending anyone an announcement.
+
+    An earlier draft promised to "say something on the site" before a significant
+    change, and the terms promised warning before charging. Both are work nothing
+    performs, on a project where the whole point is changing fast.
+    """
+    resp = await client.get(path, follow_redirects=False)
+    assert "without notice" in _prose(resp)
 
 
 @pytest.mark.parametrize("path", LEGAL_PATHS)
@@ -132,7 +176,7 @@ async def test_neither_page_promises_export_or_deletion(
     is exactly the sentence a well-meaning edit adds back.
     """
     resp = await client.get(path, follow_redirects=False)
-    body = resp.text.lower()
+    body = _prose(resp)
     assert "not promising" in body
     assert "we will delete your account" not in body
 

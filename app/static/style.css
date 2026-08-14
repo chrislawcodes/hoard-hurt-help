@@ -1382,6 +1382,9 @@ button.danger:hover,
 /* Ruled-off paragraphs for the parts a reader would be annoyed to have missed:
    the strategy-text caveat, the alpha data warning, the liability limits. */
 .legal-flag { border-left: 3px solid var(--line); padding-left: 0.9rem; }
+/* The alpha frame opens both pages and governs everything under it, so it sits
+   above the summary card rather than inside it. */
+.legal-frame { margin-bottom: 1.75rem; }
 
 /* ============================================================
  * MOBILE — small-screen overrides
