@@ -29,6 +29,7 @@ from app.engine.match_cancellation import mark_cancelled
 from app.engine.player_counts import active_player_count
 from app.engine.user_match_start import is_bot_kind
 from app.games import get as get_game_module
+from app.games.hoard_hurt_help.rules import DEFAULT_MUTUAL_HELP_MODE
 from app.models.agent import Agent, AgentKind
 from app.models.match import GameState, Match, MatchKind
 from app.models.player import Player
@@ -152,6 +153,58 @@ def _next_boundary() -> datetime:
     return floor + timedelta(minutes=AUTO_MATCH_INTERVAL_MINUTES)
 
 
+# The two match kinds the platform opens by itself. A player's match is created
+# once, on the rule that was current then, and is nobody's to revise afterwards —
+# these two are the platform's own standing offer, so they track the current rule.
+_MANAGED_MATCH_KINDS = (
+    MatchKind.PRACTICE_ARENA.value,
+    MatchKind.AUTO_SCHEDULED.value,
+)
+
+
+async def sync_managed_match_rules(db: AsyncSession) -> None:
+    """Move every unstarted managed match onto the current mutual-help rule.
+
+    The Practice Arena and the 15-minute auto-match are the two matches most
+    people meet first, and both would otherwise keep offering a superseded rule.
+    The arena is the worse of the two: it sits open for a year and nothing
+    re-creates it on a schedule, so a change to DEFAULT_MUTUAL_HELP_MODE would
+    simply never reach it. The auto-match rolls over on its own within 15
+    minutes, but the one already open when the rule changes would still be
+    played under the old one.
+
+    Edited in place rather than cancelled and rebuilt. Only SCHEDULED and
+    REGISTERING matches are touched, so nothing here has been played: there is no
+    result to relabel, and — unlike a rebuild — nobody who already joined loses
+    their seat. A match that has actually started keeps the rule it was played
+    under, which is the invariant the whole feature rests on; the state filter is
+    what enforces it.
+
+    Idempotent, and does no write at all when every managed match already agrees.
+    """
+    stale = (
+        await db.execute(
+            select(Match).where(
+                Match.match_kind.in_(_MANAGED_MATCH_KINDS),
+                Match.state.in_([GameState.SCHEDULED, GameState.REGISTERING]),
+                Match.mutual_help_mode != DEFAULT_MUTUAL_HELP_MODE.value,
+            )
+        )
+    ).scalars().all()
+    if not stale:
+        return
+
+    for match in stale:
+        logger.info(
+            "Moved managed match %s from mutual-help rule %s to %s.",
+            match.id,
+            match.mutual_help_mode,
+            DEFAULT_MUTUAL_HELP_MODE.value,
+        )
+        match.mutual_help_mode = DEFAULT_MUTUAL_HELP_MODE.value
+    await db.commit()
+
+
 async def ensure_practice_arena(db: AsyncSession) -> None:
     """Create a Practice Arena if none is open. Idempotent."""
     existing = (
@@ -170,6 +223,9 @@ async def ensure_practice_arena(db: AsyncSession) -> None:
         # through to create a fresh one so the poller self-heals without manual
         # intervention. Only REGISTERING/SCHEDULED arenas reach here — once a human joins
         # the arena goes ACTIVE, so this never cancels a match a person is in.
+        #
+        # A superseded mutual-help rule is deliberately NOT in this check:
+        # `sync_managed_match_rules` fixes that in place, without throwing away seats.
         bot_count = (
             await db.scalar(
                 select(func.count())

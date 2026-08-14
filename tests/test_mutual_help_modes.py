@@ -1,9 +1,14 @@
 """Mutual-help decay switch (feature decay-switch).
 
-ON (default) keeps the sliding +8/+7/…→+2 per-pair decay; OFF pays a flat +8 to
-each side on every mutual help — no decay, no floor. Every test that exercises the
-OFF path farms the pair PAST the first mutual help (k≥1), where ON diverges from
-8, so an accidentally-ON match cannot make an OFF test pass by luck.
+ON keeps the sliding +8/+7/…→+2 per-pair decay; OFF pays a flat +8 to each side
+on every mutual help — no decay, no floor. Every test that exercises the OFF path
+farms the pair PAST the first mutual help (k≥1), where ON diverges from 8, so an
+accidentally-ON match cannot make an OFF test pass by luck.
+
+Note ON is no longer what a new match gets — the default is
+DEFAULT_MUTUAL_HELP_MODE, which is flat_6. Tests here name the mode they mean
+rather than leaning on that default, so moving it again breaks nothing but the
+handful of tests that are genuinely about the default.
 """
 
 from __future__ import annotations
@@ -26,9 +31,12 @@ from app.engine.game_records import ActionRecord
 from app.engine.match_creation import create_match
 from app.games import get as get_game_module
 from app.games.hoard_hurt_help.game import HoardHurtHelp
+from app.games.hoard_hurt_help.rules import DEFAULT_MUTUAL_HELP_MODE, MutualHelpMode
 from app.games.hoard_hurt_help.scoring import current_pact_values, resolve_turn
 from app.models import GameState, Match, Player, Turn, TurnSubmission, User
-from tests.factories import make_bot
+from app.models.user import UserRole
+from tests.conftest import signed_in_cookies as _form_cookies
+from tests.factories import make_bot, make_user
 
 
 # --- DB fixtures (mirror tests/test_resolver.py, parametrized by the switch) ---
@@ -383,18 +391,20 @@ async def test_create_match_persists_flag(db):
         min_players=2, max_players=4, per_turn_deadline_seconds=60,
         total_rounds=5, turns_per_round=7, mutual_help_mode="flat_8",
     )
-    on = await create_match(
-        db, game="hoard-hurt-help", name="on", scheduled_start=future,
+    default = await create_match(
+        db, game="hoard-hurt-help", name="default", scheduled_start=future,
         min_players=2, max_players=4, per_turn_deadline_seconds=60,
-        total_rounds=5, turns_per_round=7,  # omitted → defaults ON
+        total_rounds=5, turns_per_round=7,  # omitted → the platform default
     )
     # Real round-trip: capture ids, expire the identity map, re-read from the DB.
-    off_id, on_id = off.id, on.id
+    off_id, default_id = off.id, default.id
     db.expire_all()
     reloaded_off = (await db.execute(select(Match).where(Match.id == off_id))).scalar_one()
-    reloaded_on = (await db.execute(select(Match).where(Match.id == on_id))).scalar_one()
+    reloaded_default = (
+        await db.execute(select(Match).where(Match.id == default_id))
+    ).scalar_one()
     assert reloaded_off.mutual_help_mode == "flat_8"
-    assert reloaded_on.mutual_help_mode == "decay"
+    assert reloaded_default.mutual_help_mode == DEFAULT_MUTUAL_HELP_MODE.value
 
 
 # --- AC4/FR7: the watch-page robot-circle legend matches the setting ---
@@ -430,6 +440,22 @@ async def test_legend_on_match_shows_decay(client, reset_db):
     r = await client.get("/games/hoard-hurt-help/matches/G_LON")
     assert r.status_code == 200
     assert "mutual +8 each, bonus decays each round" in r.text
+
+
+async def test_legend_on_a_default_rule_match_states_the_default_payout(client, reset_db):
+    """What someone actually reads on a new match's page.
+
+    The default is what a visitor meets first, so its legend is worth pinning
+    on its own: the rest of the file proves each mode renders correctly, this
+    proves the mode a new match gets is the one that shows up.
+    """
+    await _seed_viewable_match(
+        reset_db, "G_LDEF", mutual_help_mode=DEFAULT_MUTUAL_HELP_MODE.value
+    )
+    r = await client.get("/games/hoard-hurt-help/matches/G_LDEF")
+    assert r.status_code == 200
+    assert "mutual +6 each, every time" in r.text
+    assert "bonus decays each round" not in r.text
 
 
 def test_legend_defaults_to_decay_when_unset():
@@ -626,7 +652,7 @@ async def test_rules_text_matches_payout_for_every_mode():
 
 
 def test_unknown_mode_is_rejected_not_defaulted():
-    """A typo must raise, not silently become 'decay'.
+    """A typo must raise, not silently become the default.
 
     Quietly defaulting would mislabel which rule a match was played under — an
     experiment result that looks fine and means something else.
@@ -637,3 +663,92 @@ def test_unknown_mode_is_rejected_not_defaulted():
 
     with pytest.raises(ValueError):
         mutual_help_value("flat_5", 0)
+
+
+# --- The rule a NEW match gets -------------------------------------------------
+#
+# There are four create paths (the shared helper, its state-seeding wrapper, the
+# admin JSON API, and the human form) plus the column's own backstop. They each
+# carry their own default, so "the default moved" is only true when all of them
+# moved. These pin that, and pin the value itself so the site's rule can't drift
+# without a test saying so.
+
+
+async def _seed_form_user(reset_db, *, i: int, role: UserRole = UserRole.USER) -> User:
+    async with reset_db() as db:
+        user = await make_user(db, i)
+        user.role = role
+        await db.commit()
+        await db.refresh(user)
+        return user
+
+
+def test_new_matches_default_to_flat_6():
+    """The platform-wide default rule. Change this test when the rule changes."""
+    assert DEFAULT_MUTUAL_HELP_MODE is MutualHelpMode.FLAT_6
+
+
+def test_every_create_default_is_the_platform_default():
+    """No create path may quietly hand out a different rule than the others."""
+    import inspect
+
+    from app.engine.match_creation import create_match, create_match_with_state
+    from app.models.match import Match
+    from app.schemas.admin import CreateGameRequest
+
+    want = DEFAULT_MUTUAL_HELP_MODE.value
+
+    for fn in (create_match, create_match_with_state):
+        param = inspect.signature(fn).parameters["mutual_help_mode"]
+        assert param.default == want, fn.__name__
+
+    assert CreateGameRequest(name="x", scheduled_start=datetime.now(timezone.utc)) \
+        .mutual_help_mode == want
+
+    # The column's default is written out as a literal because the model layer
+    # cannot import a game module (the games package imports the engine, which
+    # imports the model). This is the pin that keeps the two together.
+    column = Match.__table__.c.mutual_help_mode
+    assert column.default.arg == want
+    assert column.server_default.arg == want
+
+
+async def test_form_creates_a_default_mode_match_when_no_mode_is_posted(client, reset_db):
+    """A plain player's match — the form shows them no rule control at all."""
+    user = await _seed_form_user(reset_db, i=91)
+    when = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+
+    r = await client.post(
+        "/games/hoard-hurt-help/matches/new",
+        data={"name": "Default Rule Match", "scheduled_start": when},
+        cookies=_form_cookies(user.id),
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+
+    async with reset_db() as db:
+        match = (
+            await db.execute(select(Match).where(Match.name == "Default Rule Match"))
+        ).scalar_one()
+        assert match.mutual_help_mode == DEFAULT_MUTUAL_HELP_MODE.value
+
+
+async def test_admin_form_preselects_the_default_mode(client, reset_db):
+    """The admin picker opens on the same rule every other create path uses.
+
+    A form quietly offering a different rule than the API and the poller would
+    mislabel matches with nothing to notice.
+    """
+    admin = await _seed_form_user(reset_db, i=92, role=UserRole.ADMIN)
+    r = await client.get(
+        "/games/hoard-hurt-help/matches/new",
+        cookies=_form_cookies(admin.id),
+    )
+    assert r.status_code == 200
+
+    selected = [
+        mode.value
+        for mode in MutualHelpMode
+        if f'value="{mode.value}" selected' in r.text
+    ]
+    assert selected == [DEFAULT_MUTUAL_HELP_MODE.value]

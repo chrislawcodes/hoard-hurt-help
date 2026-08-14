@@ -58,15 +58,23 @@
     <div class="form-row">
         {# A select, not a checkbox: "absent" must keep meaning "leave the default
            alone" on every other game's form, and there are now five choices.
-           Platform admins only — a player's match always uses the shipped rule. #}
+           Platform admins only — a player's match always uses the shipped rule.
+           Which option is pre-selected comes from DEFAULT_MUTUAL_HELP_MODE, not a
+           hand-placed `selected`: a form quietly offering a different rule than
+           every other create path would mislabel matches with nothing to notice. #}
+        {% set mutual_help_choices = [
+            ("decay", "Decays — 8, 7, 6 … down to 2 as the same pair repeats"),
+            ("no_repeats", "No repeats — 8, but not two turns in a row with the same partner"),
+            ("flat_8", "Flat 8 — every time, no decay"),
+            ("flat_7", "Flat 7 — every time"),
+            ("flat_6", "Flat 6 — every time (betrayal out-pays the pact)"),
+        ] %}
         <label>
             Mutual-help bonus
             <select name="mutual_help_mode">
-                <option value="decay" selected>Decays — 8, 7, 6 … down to 2 as the same pair repeats</option>
-                <option value="no_repeats">No repeats — 8, but not two turns in a row with the same partner</option>
-                <option value="flat_8">Flat 8 — every time, no decay</option>
-                <option value="flat_7">Flat 7 — every time</option>
-                <option value="flat_6">Flat 6 — every time (betrayal out-pays the pact)</option>
+                {% for mode_value, mode_label in mutual_help_choices %}
+                <option value="{{ mode_value }}"{% if mode_value == default_mutual_help_mode %} selected{% endif %}>{{ mode_label }}</option>
+                {% endfor %}
             </select>
         </label>
     </div>

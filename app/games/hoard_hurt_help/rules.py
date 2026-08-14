@@ -27,7 +27,7 @@ class MutualHelpMode(str, enum.Enum):
     Every point taken off the pact's payout widens that gap.
     """
 
-    DECAY = "decay"  # 8, 7, 6 … floored at 2. The shipped rule.
+    DECAY = "decay"  # 8, 7, 6 … floored at 2
     # Full bonus unless this same pair mutually helped on the PREVIOUS turn — a
     # one-turn cooldown, not a lifetime cap. Note a pair can still collect every
     # turn by alternating between two partners; the rule pushes players to keep
@@ -36,6 +36,14 @@ class MutualHelpMode(str, enum.Enum):
     FLAT_8 = "flat_8"  # 8 every time — no decay, no floor
     FLAT_7 = "flat_7"  # 7 every time
     FLAT_6 = "flat_6"  # 6 every time — betrayal (8) now out-pays the pact
+
+
+# The rule a NEW match gets when its creator doesn't pick one. Every create path
+# defaults to this, so flipping it here is the whole switch. It deliberately does
+# NOT reinterpret an existing match: each row stores the mode it was played
+# under, and those rows are experiment results — relabelling one would corrupt a
+# comparison rather than break something visibly.
+DEFAULT_MUTUAL_HELP_MODE = MutualHelpMode.FLAT_6
 
 
 _FLAT_TOTALS = {

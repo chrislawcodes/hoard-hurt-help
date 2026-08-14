@@ -242,6 +242,7 @@ class SchedulerRegistry:
             ensure_auto_match,
             ensure_practice_arena,
             fill_and_start_auto_matches,
+            sync_managed_match_rules,
         )
         from app.engine.overdue_sweeper import sweep_overdue_turns
         from app.engine.seat_hold import sweep_held_seats
@@ -253,36 +254,45 @@ class SchedulerRegistry:
                 await fn(db)
 
         while True:
-            # 1st: fill overdue auto-matches with bots before start_due_games
+            # 1st: bring the platform's own open matches onto the current
+            # mutual-help rule. Must precede fill_and_start_auto_matches — that
+            # step starts a due auto-match, and after it starts the rule is what
+            # the match was played under and is no longer ours to change.
+            await self._run_subsystem(
+                "sync_managed_match_rules",
+                lambda: _with_db(sync_managed_match_rules),
+            )
+
+            # 2nd: fill overdue auto-matches with bots before start_due_games
             # evaluates player count — if reversed, auto-matches get cancelled.
             await self._run_subsystem(
                 "fill_and_start_auto_matches",
                 lambda: _with_db(fill_and_start_auto_matches),
             )
 
-            # 2nd: recreate Practice Arena if the last one ended.
+            # 3rd: recreate Practice Arena if the last one ended.
             await self._run_subsystem(
                 "ensure_practice_arena", lambda: _with_db(ensure_practice_arena)
             )
 
-            # 3rd: open the next 30-min auto-match window if none exists.
+            # 4th: open the next 15-min auto-match window if none exists.
             await self._run_subsystem(
                 "ensure_auto_match", lambda: _with_db(ensure_auto_match)
             )
 
-            # 4th: confirm held seats whose AI came online, release expired ones —
+            # 5th: confirm held seats whose AI came online, release expired ones —
             # BEFORE start_due_games counts players, so a seat that just went live
             # counts and one that timed out does not.
             await self._run_subsystem(
                 "sweep_held_seats", lambda: sweep_held_seats(session_factory)
             )
 
-            # 5th: existing logic — start/cancel non-arena games that are due.
+            # 6th: existing logic — start/cancel non-arena games that are due.
             await self._run_subsystem(
                 "start_due_games", lambda: self.start_due_games(session_factory)
             )
 
-            # 6th: watchdog — self-heal without waiting for a server restart.
+            # 7th: watchdog — self-heal without waiting for a server restart.
             #   a) Cancel ACTIVE games that have no players left (zombie games from
             #      destructive migrations that wiped the players table).  They can
             #      never make progress because _all_messaged / _all_submitted return
@@ -291,7 +301,7 @@ class SchedulerRegistry:
             #      stay dead until the next server restart without this).
             await self._run_subsystem("watchdog", lambda: self._watchdog(factory))
 
-            # 7th: overdue-turn sweeper — force-advance matches the watchdog's
+            # 8th: overdue-turn sweeper — force-advance matches the watchdog's
             # restarts cannot heal (deterministic crashes re-crash on every
             # resume; a wedged-alive task never resolves its turn). Runs AFTER
             # the watchdog: a turn still frozen a full grace period past its

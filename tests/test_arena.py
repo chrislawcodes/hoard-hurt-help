@@ -19,9 +19,11 @@ from app.engine.arena import (
     ensure_auto_match,
     ensure_practice_arena,
     fill_and_start_auto_matches,
+    sync_managed_match_rules,
 )
 from app.engine.bot_presets import HISTORICAL_BOT_NAME_POOL
 from app.engine.bots.seating import BotSeatingError
+from app.games.hoard_hurt_help.rules import DEFAULT_MUTUAL_HELP_MODE, MutualHelpMode
 from app.models import Base
 from app.models.match import GameState, Match, MatchKind
 from app.models.player import Player
@@ -184,6 +186,157 @@ async def test_ensure_practice_arena_refreshes_stale_capacity(db_session):
         assert new_arena is not None
         assert new_arena.id != stale_id
         assert new_arena.max_players == PRACTICE_ARENA_MAX_PLAYERS
+
+
+# --- sync_managed_match_rules: the platform's own matches track the current rule ---
+
+_STALE_MODE = next(m for m in MutualHelpMode if m is not DEFAULT_MUTUAL_HELP_MODE)
+
+
+async def _open_managed_match(db, *, kind: str, mutual_help_mode: str) -> str:
+    """Open one managed match, then force it onto `mutual_help_mode`."""
+    if kind == MatchKind.PRACTICE_ARENA.value:
+        await ensure_practice_arena(db)
+    else:
+        await ensure_auto_match(db)
+    match = (
+        await db.execute(select(Match).where(Match.match_kind == kind))
+    ).scalars().first()
+    assert match is not None
+    # Every managed match is born on the current rule; the tests below then age it.
+    assert match.mutual_help_mode == DEFAULT_MUTUAL_HELP_MODE.value
+    match.mutual_help_mode = mutual_help_mode
+    await db.commit()
+    return match.id
+
+
+@pytest.mark.parametrize(
+    "kind",
+    [MatchKind.PRACTICE_ARENA.value, MatchKind.AUTO_SCHEDULED.value],
+)
+async def test_sync_moves_an_open_managed_match_onto_the_current_rule(db_session, kind):
+    """Both platform-run matches follow a change to DEFAULT_MUTUAL_HELP_MODE.
+
+    Neither gets there on its own. The arena sits open for a year and nothing
+    re-creates it on a schedule; the auto-match rolls over every 15 minutes, but
+    the one already open when the rule changes would still be played on the old
+    one. Without this the two matches most people meet first keep offering a rule
+    nothing else uses.
+    """
+    async with db_session() as db:
+        match_id = await _open_managed_match(
+            db, kind=kind, mutual_help_mode=_STALE_MODE.value
+        )
+
+    async with db_session() as db:
+        await sync_managed_match_rules(db)
+
+    async with db_session() as db:
+        match = (
+            await db.execute(select(Match).where(Match.id == match_id))
+        ).scalar_one()
+        assert match.mutual_help_mode == DEFAULT_MUTUAL_HELP_MODE.value
+        # Edited in place: same match, still open. A cancel-and-rebuild would
+        # take the seats of anyone who had already joined with it.
+        assert match.state in (GameState.SCHEDULED, GameState.REGISTERING)
+
+
+async def test_sync_keeps_the_arena_and_its_seated_bots(db_session):
+    """The arena's bots survive the rule change — it is not rebuilt."""
+    async with db_session() as db:
+        arena_id = await _open_managed_match(
+            db,
+            kind=MatchKind.PRACTICE_ARENA.value,
+            mutual_help_mode=_STALE_MODE.value,
+        )
+        before = await db.scalar(
+            select(func.count()).select_from(Player).where(Player.match_id == arena_id)
+        )
+        assert before == PRACTICE_ARENA_BOT_COUNT
+
+    async with db_session() as db:
+        await sync_managed_match_rules(db)
+
+    async with db_session() as db:
+        assert arena_id == (
+            await db.execute(
+                select(Match.id).where(
+                    Match.match_kind == MatchKind.PRACTICE_ARENA.value,
+                    Match.state.in_([GameState.SCHEDULED, GameState.REGISTERING]),
+                )
+            )
+        ).scalars().one()
+        after = await db.scalar(
+            select(func.count()).select_from(Player).where(Player.match_id == arena_id)
+        )
+        assert after == before
+
+
+async def test_sync_never_touches_a_match_that_has_started(db_session):
+    """A played match keeps the rule it was played under — the core invariant.
+
+    These rows are experiment results. Relabelling one corrupts a comparison
+    rather than breaking something visibly, so nothing that has left
+    SCHEDULED/REGISTERING may be rewritten, managed match or not.
+    """
+    async with db_session() as db:
+        arena_id = await _open_managed_match(
+            db,
+            kind=MatchKind.PRACTICE_ARENA.value,
+            mutual_help_mode=_STALE_MODE.value,
+        )
+        arena = await db.get(Match, arena_id)
+        assert arena is not None
+        arena.state = GameState.ACTIVE  # a human joined; the game is under way
+        await db.commit()
+
+    async with db_session() as db:
+        await sync_managed_match_rules(db)
+
+    async with db_session() as db:
+        arena = await db.get(Match, arena_id)
+        assert arena is not None
+        assert arena.mutual_help_mode == _STALE_MODE.value
+
+
+async def test_sync_leaves_a_players_own_match_alone(db_session):
+    """Only the platform's own matches track the rule.
+
+    A player's match was created on the rule that was current then, and revising
+    it later would change the game out from under whoever set it up.
+    """
+    async with db_session() as db:
+        player_match = Match(
+            id="M_PLAYER",
+            game="hoard-hurt-help",
+            name="Someone's match",
+            state=GameState.REGISTERING,
+            scheduled_start=datetime.now(timezone.utc) + timedelta(hours=1),
+            match_kind=MatchKind.MANUAL.value,
+            mutual_help_mode=_STALE_MODE.value,
+        )
+        db.add(player_match)
+        await db.commit()
+
+    async with db_session() as db:
+        await sync_managed_match_rules(db)
+
+    async with db_session() as db:
+        kept = await db.get(Match, "M_PLAYER")
+        assert kept is not None
+        assert kept.mutual_help_mode == _STALE_MODE.value
+
+
+async def test_sync_is_a_no_op_when_every_managed_match_agrees(db_session):
+    """Runs every poll tick, so the common case must not write."""
+    async with db_session() as db:
+        await ensure_practice_arena(db)
+        await ensure_auto_match(db)
+
+    async with db_session() as db:
+        with patch.object(db, "commit", new=AsyncMock()) as commit:
+            await sync_managed_match_rules(db)
+        commit.assert_not_awaited()
 
 
 async def test_ensure_practice_arena_recreates_after_completion(db_session):

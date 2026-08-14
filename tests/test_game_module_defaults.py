@@ -82,6 +82,11 @@ async def test_pd_inherits_default_hooks() -> None:
             scheduled_start=_now(),
             total_rounds=7,
             rounds_awarded=3,
+            # Stated rather than inherited: this test is about PD's hooks, not
+            # about which rule new matches default to, and the pact numbers below
+            # are decay's. Riding the platform default made it fail the day that
+            # default moved.
+            mutual_help_mode="decay",
         )
         db.add(match)
         await db.flush()

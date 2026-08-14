@@ -14,7 +14,7 @@ from app.aware_datetime import ensure_aware
 
 # Re-exported for the Jinja filter below; the canonical definition lives in
 # app.read_models.agent_display, which owns agent display-name formatting.
-from app.games.hoard_hurt_help.rules import mutual_help_legend
+from app.games.hoard_hurt_help.rules import DEFAULT_MUTUAL_HELP_MODE, mutual_help_legend
 from app.read_models.agent_display import strip_archive_suffix
 
 
@@ -40,6 +40,10 @@ templates = Jinja2Templates(
 # helper as a global lets the match page build it from the match row it already
 # has, instead of every route that renders a replay passing the string down.
 templates.env.globals["mutual_help_legend"] = mutual_help_legend
+
+# The rule a new match gets by default, so the create form pre-selects the same
+# mode every other create path would have used.
+templates.env.globals["default_mutual_help_mode"] = DEFAULT_MUTUAL_HELP_MODE.value
 
 
 def _to_utc_iso(value: object) -> str | None:

@@ -29,7 +29,7 @@ from app.engine.match_deletion import cancel_match, delete_match
 from app.engine.user_match_start import start_match_for_user, viewer_start_eligibility
 from app.games import GameError, get as get_game_module
 from app.games.base import GameModule
-from app.games.hoard_hurt_help.rules import MutualHelpMode
+from app.games.hoard_hurt_help.rules import DEFAULT_MUTUAL_HELP_MODE, MutualHelpMode
 from app.models.match import GameState, Match
 from app.models.user import User, UserRole
 from app.routes.web_match_loaders import (
@@ -281,11 +281,11 @@ async def create_match_submit(
     # Choosing the per-match rule is a platform-admin power. A player's submitted
     # value is ignored rather than rejected: the control isn't rendered for them,
     # so a value here means a hand-made request, not a mistake worth explaining.
-    chosen_mode = "decay"
+    chosen_mode = DEFAULT_MUTUAL_HELP_MODE.value
     if is_platform_admin and mutual_help_mode:
         # Reject an unknown mode rather than letting it reach the column: a typo
-        # that silently became "decay" would mislabel which rule a match was
-        # played under.
+        # that silently fell back to the default would mislabel which rule a
+        # match was played under.
         try:
             MutualHelpMode(mutual_help_mode)
         except ValueError:
