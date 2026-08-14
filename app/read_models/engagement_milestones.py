@@ -29,7 +29,7 @@ from dataclasses import dataclass
 from datetime import datetime, tzinfo
 from typing import Sequence
 
-from sqlalchemy import Select, func, select
+from sqlalchemy import Select, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.match_naming import TEST_NAME_PREFIX
@@ -115,18 +115,38 @@ def _genuine_submissions(
     ``was_defaulted`` covers both a missed deadline and a connector fallback, and a
     NULL timestamp is treated as defaulted too — matching what /admin/reports
     already does, so the two admin pages cannot disagree about the same week.
+
+    **The joins to turn and match are OUTER, and that is the whole point.** They
+    exist only to reach the match name, so smoke-test matches can be left out.
+
+    As inner joins they silently dropped every submission whose match row was
+    missing, which made this query disagree with migration 0054 — the backfill
+    counts a genuine turn from the submission and its player alone, and never
+    joins to a match. Two definitions of one thing, so the page reported "played a
+    turn: 2" and "genuine turns: 0" at the same time. Found by driving the real
+    page in a browser; no test covered this function at all.
+
+    Missing match rows are real: the dev database has 27 turns pointing at a match
+    id with no match row. They are **not** produced by ``delete_match``, which
+    removes submissions, messages, turns and players before the match and leaves
+    nothing orphaned — these came from scratch data. The read path still must not
+    require a row it does not control, and a match we cannot see cannot be a smoke
+    test, so its turns are kept.
     """
     return (
         select(Player.user_id, TurnSubmission.submitted_at)
         .join(Player, Player.id == TurnSubmission.player_id)
-        .join(Turn, Turn.id == TurnSubmission.turn_id)
-        .join(Match, Match.id == Turn.match_id)
+        .outerjoin(Turn, Turn.id == TurnSubmission.turn_id)
+        .outerjoin(Match, Match.id == Turn.match_id)
         .where(
             Player.user_id.in_(cohort),
             TurnSubmission.was_defaulted.is_(False),
             TurnSubmission.submitted_at.is_not(None),
             Player.autopilot_at.is_(None),
-            ~Match.name.ilike(f"{TEST_NAME_PREFIX}%"),
+            or_(
+                Match.id.is_(None),
+                ~Match.name.ilike(f"{TEST_NAME_PREFIX}%"),
+            ),
         )
     )
 
