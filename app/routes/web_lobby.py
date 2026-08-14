@@ -9,6 +9,7 @@ into focused sibling modules:
 * ``web_legacy_redirects``— legacy ``/play/...`` -> ``/games/...`` redirects
 * ``web_account_notice``  — the public ``/disabled`` account notice
 * ``web_contact``         — the public ``/contact`` page
+* ``web_legal``           — the public ``/privacy`` and ``/terms`` pages
 
 This module keeps the lobby board (``/games/{game}``) and its polled
 ``/games/{game}/upcoming`` fragment. They stay here on purpose: tests
@@ -51,6 +52,7 @@ from app.routes import (
     web_games_catalog,
     web_leaderboard,
     web_legacy_redirects,
+    web_legal,
 )
 from app.routes.showcase_replay import load_showcase_replay_cached
 from app.routes.web_support import (
@@ -78,6 +80,7 @@ from app.routes.web_legacy_redirects import (
 )
 from app.routes.web_account_notice import account_disabled
 from app.routes.web_contact import contact
+from app.routes.web_legal import privacy, terms
 from app.templating import templates
 
 logger = logging.getLogger(__name__)
@@ -307,6 +310,7 @@ router.routes.extend(_lobby_router.routes)  # /games/{game}, /games/{game}/upcom
 router.routes.append(_route_by_path(web_legacy_redirects.router, "/play/{game}/upcoming"))
 router.routes.extend(web_account_notice.router.routes)  # /disabled
 router.routes.extend(web_contact.router.routes)  # /contact
+router.routes.extend(web_legal.router.routes)  # /privacy, /terms
 
 
 __all__ = [
@@ -330,4 +334,6 @@ __all__ = [
     "legacy_play_upcoming_redirect",
     "account_disabled",
     "contact",
+    "privacy",
+    "terms",
 ]

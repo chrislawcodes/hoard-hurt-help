@@ -150,8 +150,13 @@
             <span>© 2026 Agent Ludum</span>
             {# Contact is a link, never the address itself: the footer renders on
                every page, so a mailto: here would put the mailbox in every
-               page's HTML. /contact keeps it in exactly one. #}
-            <a href="/contact">Contact</a>
+               page's HTML. /contact keeps it in exactly one. The legal pages
+               follow the same rule and link to /contact too. #}
+            <span class="al-foot-links">
+                <a href="/contact">Contact</a>
+                <a href="/privacy">Privacy</a>
+                <a href="/terms">Terms</a>
+            </span>
             <span>ludum, n. — “a game, a play.”</span>
         </div>
     </footer>

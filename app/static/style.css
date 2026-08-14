@@ -1362,6 +1362,28 @@ button.danger:hover,
 .doc { white-space: pre-wrap; word-wrap: break-word; line-height: 1.55; }
 
 /* ============================================================
+ * LEGAL — /privacy and /terms
+ * Long-form prose. Capped near 38rem because a legal page nobody
+ * can read is the same as not having one.
+ * ============================================================ */
+.legal { max-width: 38rem; line-height: 1.6; }
+.legal h2 { margin: 2rem 0 0.5rem; }
+.legal h3 { margin: 1.25rem 0 0.35rem; font-size: 1rem; }
+.legal p { margin: 0 0 0.85rem; }
+.legal ul, .legal ol { margin: 0 0 0.85rem; padding-left: 1.35rem; }
+.legal li { margin: 0 0 0.35rem; }
+.legal code { font-size: 0.9em; }
+.legal-date { color: var(--ink-soft); margin: 0.45rem 0 0; font-size: 0.8rem; }
+/* The summary card carries the whole page for most readers, so it leads and
+   its heading sits flush with the top of the card. */
+.legal-summary { margin-bottom: 2rem; }
+.legal-summary h2 { margin-top: 0; }
+.legal-note { color: var(--ink-soft); font-size: 0.9rem; margin-bottom: 0; }
+/* Ruled-off paragraphs for the parts a reader would be annoyed to have missed:
+   the strategy-text caveat, the alpha data warning, the liability limits. */
+.legal-flag { border-left: 3px solid var(--line); padding-left: 0.9rem; }
+
+/* ============================================================
  * MOBILE — small-screen overrides
  * ============================================================ */
 @media (max-width: 600px) {
@@ -2083,6 +2105,10 @@ button.danger:hover,
 .al-footer-bottom { margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--line); display: flex; justify-content: space-between; flex-wrap: wrap; gap: 10px; font-size: 12.5px; color: var(--ink-soft); }
 .al-footer-bottom a { color: var(--ink-soft); }
 .al-footer-bottom a:hover { color: var(--ink); }
+/* Contact / Privacy / Terms travel together, so the row reads as three groups
+   (copyright | links | tagline) instead of five items flung apart by
+   space-between. */
+.al-foot-links { display: inline-flex; gap: 14px; flex-wrap: wrap; }
 
 @keyframes al-floaty { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-7px); } }
 
