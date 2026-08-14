@@ -28,7 +28,7 @@ router = APIRouter(tags=["web"])
 
 # Bump this whenever the wording of either page changes in a way a reader would
 # care about. Both pages show it, so they always agree on their own vintage.
-LAST_UPDATED = "August 13, 2026"
+LAST_UPDATED = "August 14, 2026"
 
 
 async def _legal_context(request: Request, db: DbSession) -> dict[str, object]:

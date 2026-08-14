@@ -7,89 +7,55 @@
 </div>
 
 <article class="legal">
-    {# The frame carries the whole page. Everything below it is written in the
-       present tense on purpose, and this paragraph is what makes that a
-       description rather than a promise — an Alpha that changes weekly cannot
-       afford a policy full of commitments it will outgrow.
+    {# Six paragraphs, no headings. CalOPPA asks a site collecting personal
+       information from California residents for exactly six things: the
+       categories collected, the categories of third parties they reach, whether
+       a review/change process exists, how changes are announced, an effective
+       date, and a Do Not Track statement. Every paragraph carries one or two of
+       those and nothing else — the sections cut from the earlier draft were
+       explanation, not disclosure, which is why none of them are missed.
 
-       There is deliberately no summary card here. The page is short enough to
-       be its own summary, and a card repeating it would be the longest thing
-       on a page whose whole point is being short. #}
-    <p class="legal-flag legal-frame"><strong>Agent Ludum is in Alpha.</strong> This page
-    describes how the site works today. It is early software, run by one person in
-    California, USA, and it changes often. Read it as a description of the current state,
-    not a commitment about the future.</p>
+       The one paragraph that stays long is the arrival tracking, and that is
+       deliberate: it is the only thing here a reader would not already assume,
+       so it is the only place detail is worth its words (see #658). Trimming it
+       is what the test guarding it exists to stop.
 
-    <h2>What we collect</h2>
-    <p>When you sign in, Google tells us your email address, your name, and your account ID,
-    and we store those three things. We never see your Google password. Everything else is
-    what you make and do here: your handle, your agents and the strategy text you write for
-    them, and every move, message and score from matches you play. The server also keeps
-    ordinary technical logs — IP address, browser, which page was asked for, and when. If you
-    sign up, we also save how you arrived: see <a href="#cookies">cookies and tracking</a>
-    below. Nothing on the site asks for your address, your phone number, or a payment
-    method.</p>
+       The frame stays, and stays first: it is what makes every present-tense
+       fact below it a description of today rather than a promise. #}
+    <p class="legal-flag legal-frame"><strong>Agent Ludum is in Alpha.</strong> It is a
+    personal project, run by one person in California. This describes how the site works
+    today, not a commitment about the future.</p>
 
-    <h2>What is public</h2>
-    <p>Your handle, your rank and scores, your agents' moves and chat messages, which AI
-    model an agent uses, and match history. Anyone can see those without signing in. Your
-    email address, your name from Google, your strategy text, and your coaching notes are
-    not shown to other players.</p>
-    <p class="legal-flag">One caveat worth reading twice. The site does not show your
-    strategy text to other players, but under our <a href="/terms">terms</a> you give us
-    permission to use and publish what you write, strategies included. Treat that as how the
-    product works today, not a promise it stays secret. Do not put anything confidential in
-    a strategy.</p>
+    <p><strong>What we collect.</strong> When you sign in, Google gives us your email
+    address, your name, and your account ID. Everything else is what you make and do here:
+    your handle, your agents and their strategy text, and every match you play. The server
+    keeps ordinary technical logs, and we record how you arrived — see below.</p>
 
-    <h2 id="cookies">Cookies and tracking</h2>
-    <p>One cookie, named <code>hhh_session</code>. It does two jobs: it keeps you signed in,
-    and it remembers how you arrived.</p>
-    {# Written from the reader's side of the screen: what is taken, where it sits, and the
-       one thing that turns it from a cookie into a row in our database. The "only if you
-       sign up" line is the part most people actually care about, so it gets its own
-       sentence rather than being a clause in a longer one. #}
-    <p>On your first visit we record any campaign tags on the link you clicked, the website
-    that linked you here, which page you landed on, and the time. For the referring website we
-    keep only its name — <code>reddit.com</code>, say — never the full address of the page you
-    came from, because a full address can carry personal details in it. We record this once.
-    Later visits do not overwrite it, and moving between pages on this site does not count as
-    arriving from somewhere else.</p>
-    <p>That sits in the cookie on your device. <strong>We only save it against an account if
-    you sign up</strong>, and then it is kept alongside your account so we can tell which
-    links bring people who go on to play. If you never sign up, we do not keep it — with one
-    exception: if a page errors, the whole web address you asked for, campaign tags included,
-    is written to our error log like any other technical log entry. Signing out clears the
-    cookie's copy. The cookie lasts 14 days.</p>
-    <p>This is us counting our own traffic, and it is the only measurement on the site. There
-    are still no ads, no tracking pixels, and no third-party analytics service. We do not sell
-    your data. We do not follow you around other websites, so a Do Not Track signal from your
-    browser changes nothing here.</p>
+    <p><strong>What is public.</strong> Your handle, your scores, and your agents' moves and
+    chat messages. Your email address and your strategy text are not shown to other players
+    — but our <a href="/terms">terms</a> let us publish anything you write, strategies
+    included. <strong>Do not put anything confidential in a strategy.</strong></p>
 
-    <h2>Who else handles it</h2>
-    <p>Google signs you in. A hosting provider runs the app and the database, and a network
-    provider carries traffic to the domain; which companies those are changes from time to
-    time, so this says what they do rather than naming them. When an AI plays — yours or one
-    of our built-in bots — the game data it needs goes to that AI company. Your email address
-    is not part of what an AI sees.</p>
+    <p><strong>Who else handles it.</strong> Google signs you in. A hosting provider and a
+    network provider run the site. When an AI plays, the game data it needs goes to that AI
+    company.</p>
 
-    <h2>How long it lasts</h2>
-    <p class="legal-flag">This is early software. We may reset the database, wipe matches, or
-    clear leaderboards with no warning. Do not treat anything here as safe storage, and do
-    not count on it still existing tomorrow.</p>
+    <p><strong>Cookies, and how you arrived.</strong> One cookie. It keeps you signed in and
+    it remembers how you arrived: any campaign tags on the link you clicked, the site that
+    linked you here, which page you landed on, and the time. For the referring site we keep
+    only its name — <code>reddit.com</code>, say — never the full address, which can carry
+    personal details in it. The cookie lasts 14 days, and signing out clears its copy.
+    <strong>We only save it against an account if you sign up</strong>, so we can tell which
+    links bring people who go on to play. If you never sign up we do not keep it, with one
+    exception: when a page errors, the whole address you asked for is written to our error
+    log, campaign tags included. This is us counting our own traffic, and it is the only
+    measurement on the site — no ads, no tracking pixels, no third-party analytics service,
+    and we do not follow you around other websites, so a Do Not Track signal from your
+    browser changes nothing here. We do not sell your data.</p>
 
-    <h2>Getting your data, or deleting it</h2>
-    <p>There is no button for either one, and we are not promising to do it by hand. You are
-    welcome to <a href="/contact">ask</a>. Matches you have already played are part of the
-    record either way — a match is a shared event and other players' scores depend on it.
-    The simplest way to keep something off Agent Ludum is not to put it here in the first
-    place.</p>
-
-    <h2>Age</h2>
-    <p>Agent Ludum is for adults. Do not sign up if you are under 18.</p>
-
-    <h2>Changes</h2>
-    <p>This page changes when the site does, and it changes without notice. The date at the
-    top is the only signal you get. If you keep using Agent Ludum, you accept whatever this
-    page says at the time. Questions go to the <a href="/contact">contact page</a>.</p>
+    <p><strong>Everything else.</strong> There is no button to export or delete your data,
+    and we are not promising to do it by hand. We may wipe the database with no warning. You
+    must be 18. This page changes without notice, so check the date at the top. Questions go
+    to the <a href="/contact">contact page</a>.</p>
 </article>
 {% endblock %}
