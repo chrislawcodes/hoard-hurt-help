@@ -12,6 +12,7 @@ from app.auth.google import oauth
 from app.auth.session import clear_session, set_session_user
 from app.config import settings
 from app.deps import DbSession
+from app.identity.first_touch import pop_first_touch
 from app.identity.internal_accounts import is_internal_email
 from app.models.user import User, UserRole
 from app.routes.nav_context import resolve_play_setup_state
@@ -22,7 +23,44 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-async def sync_google_user(db: AsyncSession, userinfo: GoogleUserInfo) -> User:
+def _apply_first_touch(
+    user: User,
+    first_touch: dict[str, object] | None,
+    source_channel: str | None,
+) -> None:
+    """Copy a captured first touch onto a brand-new user row.
+
+    ``source_channel`` is set directly by callers that know the account was born
+    somewhere with no web session at all — the MCP sign-in paths pass "mcp", so
+    those signups are never silently counted as direct web traffic.
+    """
+    if source_channel is not None:
+        user.first_source_channel = source_channel
+        return
+    if not first_touch:
+        # Capture was off, or this path has no session. Leaving every column NULL
+        # is meaningful: it means "never captured", which the dashboard shows as
+        # unknown rather than folding it in with genuine direct visits.
+        return
+    user.first_utm_source = _as_str(first_touch.get("utm_source"))
+    user.first_utm_medium = _as_str(first_touch.get("utm_medium"))
+    user.first_utm_campaign = _as_str(first_touch.get("utm_campaign"))
+    user.first_referrer_host = _as_str(first_touch.get("referrer_host"))
+    user.first_landing_path = _as_str(first_touch.get("landing_path"))
+    user.first_source_channel = _as_str(first_touch.get("channel"))
+
+
+def _as_str(value: object) -> str | None:
+    return value if isinstance(value, str) and value else None
+
+
+async def sync_google_user(
+    db: AsyncSession,
+    userinfo: GoogleUserInfo,
+    *,
+    first_touch: dict[str, object] | None = None,
+    source_channel: str | None = None,
+) -> User:
     """Create the user on first sign-in, or fill in names we didn't have yet.
 
     given_name/family_name come straight from Google, so we capture them from the
@@ -52,6 +90,10 @@ async def sync_google_user(db: AsyncSession, userinfo: GoogleUserInfo) -> User:
             # excluded group between page loads.
             is_internal=is_internal_email(userinfo.email),
         )
+        # Attribution is written ONLY here, on the branch that creates the account.
+        # A returning user's original source must never be overwritten by wherever
+        # they happened to be when they signed in again.
+        _apply_first_touch(user, first_touch, source_channel)
         db.add(user)
         await db.flush()
         return user
@@ -109,7 +151,7 @@ async def google_callback(request: Request, db: DbSession):
     userinfo_raw = token.get("userinfo") or await oauth.google.userinfo(token=token)
     userinfo = GoogleUserInfo(**dict(userinfo_raw))
 
-    user = await sync_google_user(db, userinfo)
+    user = await sync_google_user(db, userinfo, first_touch=pop_first_touch(request))
     await db.commit()
 
     set_session_user(request, user.id)

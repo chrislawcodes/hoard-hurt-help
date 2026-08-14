@@ -234,7 +234,7 @@ async def test_get_next_turn_uses_google_identity_and_mcp_connection(
 
     captured: dict[str, object] = {}
 
-    async def fake_sync_google_user(db: object, userinfo: object) -> SimpleNamespace:
+    async def fake_sync_google_user(db: object, userinfo: object, **_kwargs: object) -> SimpleNamespace:
         captured["userinfo"] = userinfo
         return SimpleNamespace(id=42, google_sub=userinfo.sub, disabled_at=None)
 
@@ -291,7 +291,7 @@ async def test_get_next_turn_strips_duplicate_static_for_mcp(
 ) -> None:
     from mcp_server import connection_identity, mcp_tools, server
 
-    async def fake_sync_google_user(db: object, userinfo: object) -> SimpleNamespace:
+    async def fake_sync_google_user(db: object, userinfo: object, **_kwargs: object) -> SimpleNamespace:
         return SimpleNamespace(id=42, google_sub=userinfo.sub, disabled_at=None)
 
     async def fake_mcp_connection_for(
@@ -374,7 +374,7 @@ async def test_get_next_turns_strips_duplicate_static_for_mcp(
 ) -> None:
     from mcp_server import connection_identity, mcp_tools, server
 
-    async def fake_sync_google_user(db: object, userinfo: object) -> SimpleNamespace:
+    async def fake_sync_google_user(db: object, userinfo: object, **_kwargs: object) -> SimpleNamespace:
         return SimpleNamespace(id=42, google_sub=userinfo.sub, disabled_at=None)
 
     async def fake_mcp_connection_for(
@@ -476,7 +476,7 @@ async def test_pull_tools_use_shared_oauth_resolution(
 
     captured: dict[str, object] = {}
 
-    async def fake_sync_google_user(db: object, userinfo: object) -> SimpleNamespace:
+    async def fake_sync_google_user(db: object, userinfo: object, **_kwargs: object) -> SimpleNamespace:
         captured["userinfo"] = userinfo
         return SimpleNamespace(id=42, google_sub=userinfo.sub, disabled_at=None)
 
@@ -591,7 +591,7 @@ async def test_multi_connection_user_resolves_via_oauth_client_id(
 
     EXPECTED_CLIENT_ID = "dcr-uuid-client"  # the per-client DCR id used for routing
 
-    async def fake_sync_google_user(db: object, userinfo: object) -> SimpleNamespace:
+    async def fake_sync_google_user(db: object, userinfo: object, **_kwargs: object) -> SimpleNamespace:
         return SimpleNamespace(id=42, google_sub=userinfo.sub, disabled_at=None)
 
     async def fake_mcp_connection_for(

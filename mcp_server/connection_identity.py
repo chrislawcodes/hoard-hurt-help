@@ -32,6 +32,7 @@ from app.engine.mcp_client_identity import provider_from_client_name
 from app.engine.mcp_connection import mcp_connection_for
 from app.models.connection import Connection, ConnectionProvider
 from app.models.player import Player
+from app.identity.first_touch import CHANNEL_MCP
 from app.routes.auth import sync_google_user
 from app.schemas.auth import GoogleUserInfo
 
@@ -173,7 +174,9 @@ async def _connection_from_token(
     if keyed is not None:
         return keyed
     userinfo = _google_userinfo_from_token(access_token)
-    user = await sync_google_user(db, userinfo)
+    # See oauth_auth: no web session on this path, so the channel is set
+    # explicitly rather than left to look like direct traffic.
+    user = await sync_google_user(db, userinfo, source_channel=CHANNEL_MCP)
     connection = await mcp_connection_for(db, user, provider=provider, oauth_client_id=oauth_client_id)
     if connection is None:
         # No provider to key on and no single existing connection to fall back to —
