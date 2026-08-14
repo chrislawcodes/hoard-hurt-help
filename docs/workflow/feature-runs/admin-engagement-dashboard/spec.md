@@ -115,15 +115,56 @@ external service — Chris's decision, not this feature's) or a visitor-ID cooki
 The funnel therefore starts at **signed up = 100%**, and the page carries a
 one-line note that visitor numbers arrive when analytics is added.
 
-### D8 — One shared "internal user" filter
+### D8 — Internal users are marked by a stored flag, not a live email match
 
-A single predicate, defined once and used by every query on the page: a user is
-internal if their role is `ADMIN`, **or** their email is in a configurable
-exclusion list, **or** their email ends with an internal domain
-(default `@agentludum.local`, which is the bots service account).
+**Revised after the spec review (Codex, MEDIUM, CODE-CONFIRMED).** The first
+draft keyed the exclusion off the email address. That is unstable:
+`sync_google_user` **rewrites `users.email`** on later logins when there is no
+collision ([auth.py:52–79](../../../app/routes/auth.py)). A user could silently
+move into or out of the excluded group between two page loads, and last month's
+numbers would not reproduce.
 
-Defined once because the failure mode is the four summary numbers disagreeing
-with the funnel underneath them.
+**Decision:** a stored `users.is_internal` boolean, set once at account creation
+and never recomputed on later logins. Every query on the page filters on that
+one column.
+
+**Why this matters more than it looks.** Filtering bots by `agents.kind != 'ai'`
+is necessary but nowhere near sufficient. Measured in the dev DB:
+
+| Account | Agent kind | Player rows |
+|---|---|---|
+| `ludumlabs@house.local` | **ai** | 264 |
+| `ludumlabs_flat_6@house.local` | **ai** | 120 |
+| `ludumlabs_no_repeats@house.local` | **ai** | 120 |
+| `bots@agentludum.local` | bot | 45 |
+| `sims@agentludum.local` | **ai** | 40 |
+| `harness-A/B/C@local.test` | **ai** | 8 each |
+
+Only one of those is marked as a bot. The house, sim, and harness accounts all
+run agents marked as real AI, and together they are over 500 of 646 player rows.
+Without this flag the dashboard measures Chris, not his users.
+
+Seed domains for the backfill: `agentludum.local`, `house.local`, `local.test`.
+Plus any user whose role is `ADMIN` at migration time.
+
+**Correctable without SQL.** The migration's backfill is a guess based on today's
+domains; a real user could land on an odd domain, or a new internal domain could
+appear. The existing admin user detail page (`/admin/users/{id}`) already has
+promote / demote / disable / enable actions — this adds one more toggle beside
+them. Without it, fixing a mis-flagged account means hand-editing production.
+
+### D9 — Every count is distinct users, never rows
+
+**Added after the spec review (Codex, MEDIUM, CODE-CONFIRMED).** One user can own
+several agents and many player rows. Any count phrased as "how many signups went
+on to play" must be `COUNT(DISTINCT users.id)`, never a row count over a join.
+
+The funnel is already safe by construction — D5 defines each step as a *set* of
+user ids. The exposed risk is the **source table**, where a naive join of users →
+players → turn_submissions would report a single busy user as dozens of players.
+
+Stated as its own rule because it applies to every number added to this page
+later, not just the ones specified today.
 
 ---
 
@@ -148,9 +189,24 @@ Five new nullable columns on `users`, all `String`, all defaulting to NULL:
 `first_utm_source(120)`, `first_utm_medium(120)`, `first_utm_campaign(120)`,
 `first_referrer_host(255)`, `first_landing_path(255)`.
 
-Additive and reversible. Existing users keep NULL. Any constraint operation must
-use `op.batch_alter_table` — the dev DB is SQLite and `alembic upgrade head`
-otherwise fails there (see `tests/test_migrations.py`).
+Plus `is_internal: bool`, non-null, default `False`, server default `false` (D8).
+
+Additive and reversible. Existing users keep NULL sources. Any constraint
+operation must use `op.batch_alter_table` — the dev DB is SQLite and
+`alembic upgrade head` otherwise fails there (see `tests/test_migrations.py`).
+
+**The `is_internal` backfill is the one data-critical step in this migration.**
+It sets the flag for existing rows whose email domain is in the seed list, or
+whose role is `ADMIN`. Per the repo's data-critical rule it must:
+- run as an explicit `UPDATE` inside the migration, not a Python loop;
+- match on the domain suffix only, case-insensitively;
+- be reversible (the downgrade drops the column, so the flag disappears cleanly);
+- be verified after deploy by reading back the flagged row count and comparing it
+  to the known internal accounts, before trusting any number on the page.
+
+Production may hold internal accounts on domains not in the seed list. That is
+why D8 requires the admin toggle — the backfill is a starting guess, not a
+guarantee.
 
 ### 3. `app/routes/auth.py` — write at account creation
 
@@ -188,7 +244,15 @@ percentage. Sorted by signups descending.
 
 ### 7. `app/templates/base.html` — the menu
 
-A "Engagement" link in the admin menu next to Match Admin, Reporting, Users.
+An "Engagement" link in the Platform admin submenu, next to Match Admin and
+Reporting ([base.html:95](../../../app/templates/base.html)).
+
+### 8. `app/routes/admin_web.py` — the internal-account toggle
+
+One POST action beside the existing promote / demote / disable / enable actions
+on `/admin/users/{id}`, flipping `users.is_internal`, written to the existing
+`AdminAuditLog` like its neighbours. Required by D8 so a mis-flagged account is
+fixable without editing production by hand.
 
 ---
 
@@ -202,7 +266,12 @@ Authoritative list is the discovery checklist (11 items) in
    increases, including on a dataset where a user archived their agent.
 3. Step membership is "ever did X".
 4. Bots (`agents.kind != 'ai'`) and internal users excluded everywhere, via one
-   shared filter.
+   shared filter reading the stored `users.is_internal` flag (D8).
+12. Every "how many people" number is `COUNT(DISTINCT users.id)`, never a row
+    count over a join (D9). A test seeds one user with three agents and many
+    player rows and asserts they count exactly once.
+13. `/admin/users/{id}` can toggle `is_internal`, audit-logged like its
+    neighbouring admin actions.
 5. First touch survives later navigation **and** the OAuth round trip.
 6. An end-to-end test proves it: land with `?utm_source=`, browse elsewhere,
    sign in, assert the `users` row records the source.
@@ -231,6 +300,14 @@ Authoritative list is the discovery checklist (11 items) in
   "AI connected".
 - Bots excluded: a match full of `kind='bot'` agents contributes zero.
 - Internal users excluded from all four summary numbers *and* the funnel.
+- **Distinct-user counting (D9):** one user with three agents and twelve player
+  rows counts exactly once at every step and once in the source table.
+- **Stable exclusion (D8):** a user flagged internal stays excluded after
+  `sync_google_user` rewrites their email on a later login.
+- The migration backfill flags the seed-domain accounts and leaves a normal
+  gmail.com user unflagged.
+- Toggling `is_internal` on `/admin/users/{id}` moves that user in and out of
+  the funnel, and writes an `AdminAuditLog` row.
 
 **Capture correctness**
 - Land with `?utm_source=x&utm_medium=y`, navigate to a second page, complete
@@ -260,5 +337,8 @@ Authoritative list is the discovery checklist (11 items) in
 | Middleware added after `SessionMiddleware` | Capture silently records nothing, forever | D2 states the order and the reason; an end-to-end test through the real app catches it |
 | Divide-by-zero on an empty window | Admin page 500s on a quiet week | Explicit zero-signup test |
 | Exclusion filter applied unevenly | Summary numbers contradict the funnel below | One shared predicate, D8; test asserts both paths use it |
+| Email rewritten on later login | Exclusion silently flips; last month's numbers stop reproducing | D8 stores a flag at creation instead of matching email live |
+| Row counts instead of user counts | One busy user reads as dozens of players; source table inflates | D9 makes distinct-user counting a rule; multi-agent test |
+| Backfill misses a prod internal account | Dashboard quietly counts internal traffic as real | Admin toggle (D8) + post-deploy row-count verification |
 | Session cookie size | Session is a signed cookie; first touch adds bytes | Cap every field length; five short strings only |
 | Referrer carries personal data | Privacy | Store host only, never the full URL |
