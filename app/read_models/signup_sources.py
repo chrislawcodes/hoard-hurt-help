@@ -20,6 +20,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.user import User
+from app.read_models.engagement_milestones import cohort_users
 from app.models.user_milestone import MilestoneKind, UserMilestone
 
 UNKNOWN_LABEL = "unknown"
@@ -60,16 +61,14 @@ async def load_signup_sources(
     signed_up_before: datetime | None = None,
 ) -> list[SourceRow]:
     """Signups per source, and how many of them ever played a genuine turn."""
+    # The cohort rule lives in ONE place. Restating it here is how the page ended
+    # up with two tables that could disagree about who counts.
     stmt = select(
         User.id,
         User.first_utm_source,
         User.first_referrer_host,
         User.first_source_channel,
-    ).where(User.is_internal.is_(False))
-    if signed_up_after is not None:
-        stmt = stmt.where(User.created_at >= signed_up_after)
-    if signed_up_before is not None:
-        stmt = stmt.where(User.created_at < signed_up_before)
+    ).where(User.id.in_(cohort_users(signed_up_after, signed_up_before)))
 
     rows = (await db.execute(stmt)).all()
     if not rows:

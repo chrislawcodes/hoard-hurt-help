@@ -32,6 +32,7 @@ from typing import Sequence
 from sqlalchemy import Select, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.aware_datetime import ensure_aware
 from app.match_naming import TEST_NAME_PREFIX
 from app.models.match import Match
 from app.models.player import Player
@@ -90,8 +91,8 @@ class EngagementReport:
         return not self.small_sample
 
 
-def _cohort_users(
-    signed_up_after: datetime | None, signed_up_before: datetime | None
+def cohort_users(
+    signed_up_after: datetime | None = None, signed_up_before: datetime | None = None
 ) -> Select[tuple[int]]:
     """Users who signed up in the window, excluding accounts that are ours.
 
@@ -142,7 +143,16 @@ def _genuine_submissions(
             Player.user_id.in_(cohort),
             TurnSubmission.was_defaulted.is_(False),
             TurnSubmission.submitted_at.is_not(None),
-            Player.autopilot_at.is_(None),
+            # Autopilot is judged PER MOVE, not per seat. When a person walks out
+            # of a match the seat is marked, and the first version of this filter
+            # dropped every submission that seat ever made — including the real
+            # moves they played before leaving. Someone who played on two separate
+            # days and then quit read as "never came back", with zero turns, which
+            # is precisely the person this page exists to notice.
+            or_(
+                Player.autopilot_at.is_(None),
+                TurnSubmission.submitted_at < Player.autopilot_at,
+            ),
             or_(
                 Match.id.is_(None),
                 ~Match.name.ilike(f"{TEST_NAME_PREFIX}%"),
@@ -156,8 +166,16 @@ def _distinct_local_days(moments: Sequence[datetime], zone: tzinfo) -> int:
 
     Not UTC: a US evening session spans two UTC days and would read as a return
     visit that never happened.
+
+    ``ensure_aware`` is doing real work here. SQLite drops the offset on read, so
+    these come back naive, and ``astimezone`` on a naive value assumes the
+    *server's* local time rather than UTC. Measured on real data that was off by a
+    whole day — and inverted the rule, counting one Pacific evening as two days
+    while counting a genuine two-day return as one.
     """
-    return len({moment.astimezone(zone).date() for moment in moments if moment})
+    return len(
+        {ensure_aware(moment).astimezone(zone).date() for moment in moments if moment}
+    )
 
 
 async def load_engagement_report(
@@ -167,7 +185,7 @@ async def load_engagement_report(
     signed_up_before: datetime | None = None,
     zone: tzinfo,
 ) -> EngagementReport:
-    cohort = _cohort_users(signed_up_after, signed_up_before)
+    cohort = cohort_users(signed_up_after, signed_up_before)
     cohort_ids = set((await db.execute(cohort)).scalars().all())
     cohort_size = len(cohort_ids)
 
@@ -215,7 +233,15 @@ async def load_engagement_report(
     # make a healthy AI setup rate look like a failure.
     ai_owners = reached_by_milestone.get(MilestoneKind.SET_UP_AI_AGENT, set())
     connected = reached_by_milestone.get(MilestoneKind.AI_CONNECTED, set())
-    ai_share = len(connected & ai_owners) / len(ai_owners) if ai_owners else None
+    # Suppressed on its OWN denominator, not the cohort's. Gating this on cohort
+    # size printed a percentage one paragraph above the note explaining that
+    # percentages were hidden — and a cohort of 500 with 3 AI owners cleared the
+    # threshold while still moving 33 points per person.
+    ai_share = (
+        len(connected & ai_owners) / len(ai_owners)
+        if len(ai_owners) >= SMALL_SAMPLE_THRESHOLD
+        else None
+    )
 
     stuck_all = await _load_stuck(db, cohort_ids, reached_by_milestone, returned)
     return EngagementReport(
@@ -274,7 +300,7 @@ async def count_genuine_turns(
     played_before: datetime | None = None,
 ) -> int:
     """Genuine moves in the window, by anyone who is not an internal account."""
-    everyone = select(User.id).where(User.is_internal.is_(False))
+    everyone = cohort_users()
     stmt = select(func.count()).select_from(_genuine_submissions(everyone).subquery())
     if played_after is not None or played_before is not None:
         inner = _genuine_submissions(everyone)

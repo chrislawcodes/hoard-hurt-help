@@ -42,12 +42,16 @@ SESSION_KEY = "first_touch"
 # Not page views: assets, health checks, and the machine-facing surfaces. The
 # OAuth and well-known paths are excluded too — a client arriving straight at
 # them is not a visitor landing on the site.
+#
+# There is no "/sse" here despite the name being the obvious guess: this app has
+# no such route. The live event streams are "/games/{game}/matches/{id}/stream"
+# and friends, so an earlier "/sse" entry matched nothing and every open stream
+# was treated as a landing page. Suffix-matched below rather than prefixed.
 _SKIP_PREFIXES = (
     "/static",
     "/healthz",
     "/api",
     "/mcp",
-    "/sse",
     "/openapi.json",
     "/.well-known",
     "/auth",
@@ -68,6 +72,9 @@ _MAX_LENGTHS = {
 # Distinct from an absent record, which means capture never ran at all — without
 # the difference, the largest row on the sources table silently means "we failed
 # to record this".
+# Every live event stream in this app ends here.
+_STREAM_SUFFIX = "/stream"
+
 CHANNEL_DIRECT = "direct"
 CHANNEL_MCP = "mcp"
 
@@ -150,7 +157,10 @@ class FirstTouchMiddleware(BaseHTTPMiddleware):
             return
         if request.method != "GET":
             return
-        if any(request.url.path.startswith(prefix) for prefix in _SKIP_PREFIXES):
+        path = request.url.path
+        if any(path.startswith(prefix) for prefix in _SKIP_PREFIXES):
+            return
+        if path.endswith(_STREAM_SUFFIX) or path == "/favicon.ico":
             return
         session = request.scope.get("session")
         if session is None:
@@ -164,9 +174,15 @@ class FirstTouchMiddleware(BaseHTTPMiddleware):
 
 
 def pop_first_touch(request: Request) -> dict[str, Any] | None:
-    """Read the recorded first touch, if there is one."""
+    """Take the recorded first touch, removing it from the session.
+
+    It really does pop, and the name was a lie before. Left in place, one
+    signup's arrival was reused for the NEXT account created in the same browser
+    within the cookie's 14 days — two different people credited to one link.
+    A first touch belongs to one signup.
+    """
     session = request.scope.get("session")
     if not isinstance(session, dict):
         return None
-    value = session.get(SESSION_KEY)
+    value = session.pop(SESSION_KEY, None)
     return value if isinstance(value, dict) else None

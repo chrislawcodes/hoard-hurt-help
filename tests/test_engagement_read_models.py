@@ -68,11 +68,12 @@ async def test_internal_accounts_are_excluded_everywhere(db) -> None:
 
 
 @pytest.mark.asyncio
-async def test_ai_connected_is_measured_against_ai_owners(db) -> None:
-    """Not against everyone.
+async def test_ai_connected_share_is_suppressed_on_a_tiny_denominator(db) -> None:
+    """One AI owner is not a percentage, whatever the cohort size.
 
-    Manual play is the default for a new user. Measuring AI connection against all
-    signups would make a perfect AI setup rate look like a failure.
+    The suppression used to key on cohort size, but this share's denominator is
+    AI owners — usually far smaller. That printed "100.0% got it connected" one
+    paragraph above the note saying percentages were hidden.
     """
     ai_user = await make_user(db, 1)
     human_user = await make_user(db, 2)
@@ -82,9 +83,31 @@ async def test_ai_connected_is_measured_against_ai_owners(db) -> None:
     await record_milestone(db, human_user.id, MilestoneKind.SET_UP_HUMAN_PLAY)
     await db.commit()
 
+    assert (await load_engagement_report(db, zone=UTC)).ai_connected_share is None
+
+
+@pytest.mark.asyncio
+async def test_ai_connected_share_counts_only_ai_owners(db) -> None:
+    """Measured against people who chose an AI, not against everyone.
+
+    Manual play is the default for a new user, so dividing by all signups would
+    make a perfect setup rate look like a failure.
+    """
+    for i in range(SMALL_SAMPLE_THRESHOLD):
+        user = await make_user(db, i)
+        await db.commit()
+        await record_milestone(db, user.id, MilestoneKind.SET_UP_AI_AGENT)
+        if i % 2 == 0:
+            await record_milestone(db, user.id, MilestoneKind.AI_CONNECTED)
+    # Manual players must not dilute the denominator.
+    for i in range(SMALL_SAMPLE_THRESHOLD, SMALL_SAMPLE_THRESHOLD + 10):
+        user = await make_user(db, i)
+        await db.commit()
+        await record_milestone(db, user.id, MilestoneKind.SET_UP_HUMAN_PLAY)
+    await db.commit()
+
     report = await load_engagement_report(db, zone=UTC)
-    # One AI owner, and they connected. 100%, not 50%.
-    assert report.ai_connected_share == 1.0
+    assert report.ai_connected_share == 0.5
 
 
 @pytest.mark.asyncio
