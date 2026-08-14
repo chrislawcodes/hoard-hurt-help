@@ -5,7 +5,8 @@
     "performance_sensitive": false,
     "extra_gemini_lenses": [
       "completeness-adversarial"
-    ]
+    ],
+    "reviewer": "claude"
   },
   "blocked": {
     "active": false,
@@ -21,27 +22,36 @@
     "questions": [],
     "assumptions": [],
     "summary": "New admin-only engagement page plus first-touch signup-source capture. Read-only queries over existing tables for the funnel, and one additive migration on the users table for the source columns.",
-    "updated_at": 1786665493,
+    "updated_at": 1786666703,
     "answers": {},
     "non_goals": [
-      "No third-party analytics service (Plausible, Fathom, Umami, Google Analytics). That is a separate decision for Chris because it costs money and needs his account.",
-      "No anonymous visitor-ID cookie and no linking of landed-and-bounced visitors to accounts. That would likely require a cookie-consent banner in the EU.",
+      "No third-party analytics service (Plausible, Fathom, Umami, Google Analytics). Separate decision for Chris: costs money, needs his account.",
+      "SUPERSEDED 2026-08-13 by Chris: the original non-goal was \"no anonymous visitor-ID cookie\". Chris chose full attribution, which means first-touch capture DOES set a session cookie on every anonymous visitor where none is set today. Recorded in spec D3 with its consequences.",
+      "No cookie-consent banner. Chris decision D3 creates the need for one in the EU; solving it is a separate piece of work and explicitly not in this feature.",
+      "No append-only event log. Admin match-deletes and handle-resets therefore make a past funnel non-reproducible; documented as a known limit in spec D7.",
       "No cohort retention grid. At 10-20 users it would be noise.",
-      "No changes to any public-facing page. Capture is passive and invisible to visitors.",
       "No changes to the existing /admin/reports turn-timing page."
     ],
     "acceptance_criteria": [
-      "Admin-only page at /admin/engagement, reachable from the admin menu in base.html alongside Match Admin, Reporting and Users, and returning 403 for a non-admin user.",
-      "The funnel is computed as strictly nested sets: a user counts at step N only if they also cleared every step before it. A regression test asserts the sequence is non-increasing for any dataset, including one where a user archived their agent.",
-      "Funnel steps are: signed up, picked a handle, started AI hookup, AI connected, built an agent, joined a match, played a turn, came back another day. Step membership uses ever-did-X (archived and deleted rows still count), not currently-has-X.",
-      "Built-in bots (agents.kind != ai) are excluded from every count, and platform admins plus test accounts are excluded behind a single shared filter used by all queries on the page.",
-      "First-touch source (HTTP referrer plus utm_source, utm_medium, utm_campaign) is captured on the first page view of a session and survives both later navigation and the Google OAuth round trip, landing on the users row at account creation.",
-      "A test proves the end-to-end capture path: land on a page with a utm_source query parameter, browse to another page, then complete sign-in, and assert the new users row records that source.",
-      "The page shows a source table: source, signups from that source, and how many of those went on to play a turn.",
-      "The page shows a stuck-people list naming each user who has not come back and the furthest funnel step they reached.",
-      "The funnel starts at signed up = 100 percent. The page shows NO anonymous visitor count, because no traffic-analytics source exists yet and adding one is a non-goal. The page carries a one-line note saying visitor numbers arrive when an analytics tool is added.",
-      "Migration is additive and reversible, uses op.batch_alter_table for any constraint operation, and leaves existing users with NULL source.",
-      "First-touch capture never blocks or slows a page render, and a failure to record it never breaks the request. It is advisory only and must be commented as such."
+      "Admin-only page at /admin/engagement, in the Platform admin submenu, returning 403 for a non-admin.",
+      "Funnel is strictly nested; a test asserts the sequence never increases, including a dataset where a user archived their agent.",
+      "Funnel steps follow the product gate ladder (handle then agent then connection), NOT connection before agent. A test asserts a user who built an agent but never connected is counted at built-an-agent.",
+      "Step membership is ever-did-X: archived agents and deleted connections still count.",
+      "Bots and internal users are excluded everywhere via the stored users.is_internal flag, applied by one shared filter.",
+      "is_internal is set at all three user-creation sites (Google sign-in, bots seating, dev login), not only by the migration backfill.",
+      "First touch survives later navigation and the Google OAuth round trip; an end-to-end test proves it.",
+      "First touch is cleared on sign-out so a second user in the same browser does not inherit it.",
+      "Users created through the two MCP sign-in callers record source \"mcp\", never \"direct\".",
+      "Played-a-turn excludes was_defaulted rows; a test with a no-show player proves it.",
+      "Every people-count is COUNT(DISTINCT users.id); a test with one user owning three agents and many player rows proves it counts once.",
+      "Came-back-another-day uses the page window timezone, not UTC; a test with a US evening session spanning two UTC days proves it is not a return visit.",
+      "Smoke-test matches (TEST_NAME_PREFIX) are excluded, matching the existing /admin/reports filter.",
+      "Source table shows source, signups, and how many played. A row with no capture renders as \"unknown\", kept separate from a genuine \"direct\" visit.",
+      "Stuck-people list labels users who have no handle, and caps at 50 rows with a remainder count.",
+      "Funnel starts at signed up = 100 percent, shows no anonymous visitor count, and carries a note saying visitor numbers arrive when an analytics tool is added.",
+      "Migration is additive and reversible, uses op.batch_alter_table for constraint operations, and leaves existing users with NULL source columns.",
+      "admin/users/{id} can toggle is_internal, renders that control for floor-admin targets (outside the not-floor_admin gate), and audit-logs it via a new AdminAction value; admin/users shows an internal column.",
+      "First-touch capture is advisory: a failure logs and continues and never breaks a page render."
     ],
     "checklist": {
       "goal": "Give platform admins one page showing where new users fall out of the signup-to-playing journey, and which traffic source each signup came from, so the next week of work targets the biggest measured leak instead of a hunch.",
@@ -65,7 +75,7 @@
     "note": "",
     "updated_at": 0
   },
-  "init_head_sha": "0a38ccf04bbb00ad4e47446f20ebd95638a0d4a1",
+  "init_head_sha": "e690920f0740d72d7667fffd85e00cbd482fcb2e",
   "experiment": {},
   "token_usage": [
     {
@@ -161,6 +171,46 @@
       "agent_id": null,
       "artifact_sha_at_time": "f3fc02d24da6c03f33d7b87cf53f4d58ea125a6789b593ec301474a4d0ef3015",
       "parse_error": "no Gemini token stats found in stdout"
+    },
+    {
+      "stage": "spec",
+      "round": 0,
+      "activity_type": "adversarial_review",
+      "model": "claude-opus-4-8",
+      "lens": "requirements-adversarial",
+      "prompt_chars": 22301,
+      "prompt_cap": 250000,
+      "input_tokens": 365616,
+      "output_tokens": 70331,
+      "cost_usd_estimate": 3.586355,
+      "timestamp": "2026-08-14T00:19:00.436552Z",
+      "started_at": "2026-08-14T00:19:00.436552Z",
+      "ended_at": "2026-08-14T00:19:00.436552Z",
+      "duration_seconds": null,
+      "agent_id": null,
+      "artifact_sha_at_time": "f3fc02d24da6c03f33d7b87cf53f4d58ea125a6789b593ec301474a4d0ef3015",
+      "cache_read_tokens": 6364532,
+      "total_tokens": 151405
+    },
+    {
+      "stage": "spec",
+      "round": 0,
+      "activity_type": "adversarial_review",
+      "model": "claude-opus-4-8",
+      "lens": "completeness-adversarial",
+      "prompt_chars": 22711,
+      "prompt_cap": 250000,
+      "input_tokens": 306858,
+      "output_tokens": 54836,
+      "cost_usd_estimate": 2.90519,
+      "timestamp": "2026-08-14T00:19:02.893396Z",
+      "started_at": "2026-08-14T00:19:02.893396Z",
+      "ended_at": "2026-08-14T00:19:02.893396Z",
+      "duration_seconds": null,
+      "agent_id": null,
+      "artifact_sha_at_time": "f3fc02d24da6c03f33d7b87cf53f4d58ea125a6789b593ec301474a4d0ef3015",
+      "cache_read_tokens": 7224229,
+      "total_tokens": 149379
     }
   ],
   "command_telemetry": [
@@ -187,6 +237,90 @@
       "files_written": 5,
       "subprocess_invocations": 4,
       "ttl_crossed": false
+    },
+    {
+      "command": "reconcile",
+      "stage": null,
+      "ts": "2026-08-14T00:03:52Z",
+      "wall_seconds": 0.046,
+      "input_bytes_read": 0,
+      "output_bytes_written": 0,
+      "files_read": 0,
+      "files_written": 0,
+      "subprocess_invocations": 6,
+      "ttl_crossed": false
+    },
+    {
+      "command": "reconcile",
+      "stage": null,
+      "ts": "2026-08-14T00:03:57Z",
+      "wall_seconds": 0.081,
+      "input_bytes_read": 0,
+      "output_bytes_written": 0,
+      "files_read": 0,
+      "files_written": 0,
+      "subprocess_invocations": 8,
+      "ttl_crossed": false
+    },
+    {
+      "command": "reconcile",
+      "stage": null,
+      "ts": "2026-08-14T00:04:02Z",
+      "wall_seconds": 0.253,
+      "input_bytes_read": 49022,
+      "output_bytes_written": 15251,
+      "files_read": 8,
+      "files_written": 2,
+      "subprocess_invocations": 20,
+      "ttl_crossed": false
+    },
+    {
+      "command": "reconcile",
+      "stage": null,
+      "ts": "2026-08-14T00:19:23Z",
+      "wall_seconds": 0.275,
+      "input_bytes_read": 62998,
+      "output_bytes_written": 0,
+      "files_read": 6,
+      "files_written": 0,
+      "subprocess_invocations": 20,
+      "ttl_crossed": false
+    },
+    {
+      "command": "reconcile",
+      "stage": null,
+      "ts": "2026-08-14T00:19:24Z",
+      "wall_seconds": 0.27,
+      "input_bytes_read": 61953,
+      "output_bytes_written": 0,
+      "files_read": 6,
+      "files_written": 0,
+      "subprocess_invocations": 20,
+      "ttl_crossed": false
+    },
+    {
+      "command": "reconcile",
+      "stage": null,
+      "ts": "2026-08-14T00:19:24Z",
+      "wall_seconds": 0.271,
+      "input_bytes_read": 58781,
+      "output_bytes_written": 17018,
+      "files_read": 8,
+      "files_written": 2,
+      "subprocess_invocations": 20,
+      "ttl_crossed": false
+    },
+    {
+      "command": "reconcile",
+      "stage": null,
+      "ts": "2026-08-14T00:19:25Z",
+      "wall_seconds": 0.286,
+      "input_bytes_read": 60529,
+      "output_bytes_written": 17694,
+      "files_read": 8,
+      "files_written": 2,
+      "subprocess_invocations": 20,
+      "ttl_crossed": false
     }
   ],
   "stages": {
@@ -206,5 +340,28 @@
     "markers_sha": "",
     "last_diff_head_sha": ""
   },
-  "spec_adversarial_rounds": 0
+  "spec_adversarial_rounds": 0,
+  "reconcile_refreshed": [
+    {
+      "stage": "spec",
+      "review": "docs/workflow/feature-runs/admin-engagement-dashboard/reviews/spec.codex.feasibility-adversarial.review.md",
+      "old_sha": "f3fc02d24da6c03f33d7b87cf53f4d58ea125a6789b593ec301474a4d0ef3015",
+      "new_sha": "3f6a14c57a9fd923dc6e68385a91916deaa3c59f8d48b04da2df1becd92badc7",
+      "ts": "20260814T000402Z"
+    },
+    {
+      "stage": "spec",
+      "review": "docs/workflow/feature-runs/admin-engagement-dashboard/reviews/spec.gemini.requirements-adversarial.review.md",
+      "old_sha": "f3fc02d24da6c03f33d7b87cf53f4d58ea125a6789b593ec301474a4d0ef3015",
+      "new_sha": "dc6a588aa10055bdc51aceba37457ef383aadca7a1008975c62a2c3bbc122bc0",
+      "ts": "20260814T001924Z"
+    },
+    {
+      "stage": "spec",
+      "review": "docs/workflow/feature-runs/admin-engagement-dashboard/reviews/spec.gemini.completeness-adversarial.review.md",
+      "old_sha": "f3fc02d24da6c03f33d7b87cf53f4d58ea125a6789b593ec301474a4d0ef3015",
+      "new_sha": "dc6a588aa10055bdc51aceba37457ef383aadca7a1008975c62a2c3bbc122bc0",
+      "ts": "20260814T001925Z"
+    }
+  ]
 }

@@ -6,43 +6,46 @@
   "allowed_dirty_paths": [],
   "required_reviews": [
     {
-      "reviewer": "codex",
+      "reviewer": "claude",
       "lens": "feasibility-adversarial",
       "stage": "spec",
-      "path": "docs/workflow/feature-runs/admin-engagement-dashboard/reviews/spec.codex.feasibility-adversarial.review.md",
+      "path": "docs/workflow/feature-runs/admin-engagement-dashboard/reviews/spec.claude.feasibility-adversarial.review.md",
       "context_paths": [
         "app/models/user.py",
         "tests/test_migrations.py",
         "app/routes/auth.py",
+        "app/routes/admin_web.py",
         "docs/workflow/feature-runs/admin-engagement-dashboard/state.json"
       ],
-      "model": "gpt-5.4-mini"
+      "model": "claude-opus-4-8"
     },
     {
-      "reviewer": "gemini",
+      "reviewer": "claude",
       "lens": "requirements-adversarial",
       "stage": "spec",
-      "path": "docs/workflow/feature-runs/admin-engagement-dashboard/reviews/spec.gemini.requirements-adversarial.review.md",
+      "path": "docs/workflow/feature-runs/admin-engagement-dashboard/reviews/spec.claude.requirements-adversarial.review.md",
       "context_paths": [
         "app/models/user.py",
         "tests/test_migrations.py",
         "app/routes/auth.py",
+        "app/routes/admin_web.py",
         "docs/workflow/feature-runs/admin-engagement-dashboard/state.json"
       ],
-      "model": "gemini-3.1-flash-lite"
+      "model": "claude-opus-4-8"
     },
     {
-      "reviewer": "gemini",
+      "reviewer": "claude",
       "lens": "completeness-adversarial",
       "stage": "spec",
-      "path": "docs/workflow/feature-runs/admin-engagement-dashboard/reviews/spec.gemini.completeness-adversarial.review.md",
+      "path": "docs/workflow/feature-runs/admin-engagement-dashboard/reviews/spec.claude.completeness-adversarial.review.md",
       "context_paths": [
         "app/models/user.py",
         "tests/test_migrations.py",
         "app/routes/auth.py",
+        "app/routes/admin_web.py",
         "docs/workflow/feature-runs/admin-engagement-dashboard/state.json"
       ],
-      "model": "gemini-3.1-flash-lite"
+      "model": "claude-opus-4-8"
     }
   ],
   "max_artifact_chars": 50000,

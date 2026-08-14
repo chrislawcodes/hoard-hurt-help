@@ -3,14 +3,14 @@ reviewer: "gemini"
 lens: "completeness-adversarial"
 stage: "spec"
 artifact_path: "docs/workflow/feature-runs/admin-engagement-dashboard/spec.md"
-artifact_sha256: "f3fc02d24da6c03f33d7b87cf53f4d58ea125a6789b593ec301474a4d0ef3015"
+artifact_sha256: "dc6a588aa10055bdc51aceba37457ef383aadca7a1008975c62a2c3bbc122bc0"
 repo_root: "."
 git_head_sha: "ea2d5a003657eb453cba580ddd0acc80691b72e5"
 git_base_ref: "origin/main"
 git_base_sha: "0a38ccf04bbb00ad4e47446f20ebd95638a0d4a1"
 generation_method: "gemini-cli"
 resolution_status: "failed"
-resolution_note: ""
+resolution_note: "Gemini CLI is non-functional on this machine: IneligibleTierError, Google ended Gemini Code Assist for individuals. Not a transient failure and retry cannot succeed. Substituted with spec.claude.completeness-adversarial (same lens, Claude reviewer, spec 020 path), which ran and is reconciled as accepted."
 raw_output_path: ""
 narrowed_artifact_path: ""
 narrowed_artifact_sha256: ""
@@ -34,4 +34,4 @@ Gemini review failed after 2 attempt(s).
 
 ## Resolution
 - status: failed
-- note: review runner failure
+- note: Gemini CLI is non-functional on this machine: IneligibleTierError, Google ended Gemini Code Assist for individuals. Not a transient failure and retry cannot succeed. Substituted with spec.claude.completeness-adversarial (same lens, Claude reviewer, spec 020 path), which ran and is reconciled as accepted.

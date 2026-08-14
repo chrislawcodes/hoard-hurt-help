@@ -3,14 +3,14 @@ reviewer: "codex"
 lens: "feasibility-adversarial"
 stage: "spec"
 artifact_path: "docs/workflow/feature-runs/admin-engagement-dashboard/spec.md"
-artifact_sha256: "f3fc02d24da6c03f33d7b87cf53f4d58ea125a6789b593ec301474a4d0ef3015"
+artifact_sha256: "3f6a14c57a9fd923dc6e68385a91916deaa3c59f8d48b04da2df1becd92badc7"
 repo_root: "."
 git_head_sha: "ea2d5a003657eb453cba580ddd0acc80691b72e5"
 git_base_ref: "origin/main"
 git_base_sha: "0a38ccf04bbb00ad4e47446f20ebd95638a0d4a1"
 generation_method: "codex-runner"
-resolution_status: "open"
-resolution_note: ""
+resolution_status: "accepted"
+resolution_note: "Both MEDIUM findings accepted and fixed in the spec revision. (1) Mutable email: D8 rewritten to store users.is_internal at account creation instead of matching email live, plus an admin toggle to correct a wrong flag. (2) Distinct-user rule: added D9 requiring COUNT(DISTINCT users.id) everywhere, with a multi-agent regression test."
 raw_output_path: "docs/workflow/feature-runs/admin-engagement-dashboard/reviews/spec.codex.feasibility-adversarial.review.md.raw.txt"
 narrowed_artifact_path: ""
 narrowed_artifact_sha256: ""
@@ -40,5 +40,5 @@ coverage_note: ""
 - total_tokens=0
 
 ## Resolution
-- status: open
-- note: 
+- status: accepted
+- note: Both MEDIUM findings accepted and fixed in the spec revision. (1) Mutable email: D8 rewritten to store users.is_internal at account creation instead of matching email live, plus an admin toggle to correct a wrong flag. (2) Distinct-user rule: added D9 requiring COUNT(DISTINCT users.id) everywhere, with a multi-agent regression test.
