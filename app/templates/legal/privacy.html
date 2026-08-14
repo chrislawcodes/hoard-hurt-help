@@ -7,61 +7,43 @@
 </div>
 
 <article class="legal">
-    {# Seven paragraphs, no headings. CalOPPA asks a site collecting personal
-       information from California residents for exactly six things: the
+    {# Six paragraphs, and each one exists because CalOPPA asks for it: the
        categories collected, the categories of third parties they reach, whether
        a review/change process exists, how changes are announced, an effective
-       date, and a Do Not Track statement. Every paragraph carries one or two of
-       those and nothing else — the sections cut from the earlier draft were
-       explanation, not disclosure, which is why none of them are missed.
+       date (the header), and a Do Not Track statement. Nothing here is present
+       for any other reason — every explanatory sentence was cut, deliberately,
+       and none is missed.
 
-       Two paragraphs stay long on purpose, and for the same reason: the arrival
-       tracking (#658) and the page-view beacon (#661) are the only things here a
-       reader would not already assume. Tests guard both, because shipping either
-       mechanism without its paragraph makes this page false — which has already
-       happened once, when "no analytics" outlived the feature that made it true.
+       Two things are said in the safe direction rather than the accurate one.
+       Strategy text sits in the public list even though the product currently
+       hides it from non-players (web_viewer 403s them), because overstating what
+       is public makes a reader more careful, never less — and the licence in the
+       terms permits publishing it whenever we choose. And third parties are
+       described by what they do rather than named: CalOPPA wants categories, and
+       a named vendor is a sentence that goes stale the day we switch hosts.
 
-       The frame stays, and stays first: it is what makes every present-tense
-       fact below it a description of today rather than a promise. #}
-    <p class="legal-flag legal-frame"><strong>Agent Ludum is in Alpha.</strong> It is a
-    personal project, run by one person in California. This describes how the site works
-    today, not a commitment about the future.</p>
+       The frame stays first. It is what makes every present-tense fact below it
+       a description of today rather than a promise. #}
+    <p class="legal-flag legal-frame"><strong>Agent Ludum is in Alpha.</strong> This
+    describes how the site works today, not a commitment about the future.</p>
 
     <p><strong>What we collect.</strong> When you sign in, Google gives us your email
     address, your name, and your account ID. Everything else is what you make and do here:
     your handle, your agents and their strategy text, and every match you play. The server
-    keeps ordinary technical logs, and we record how you arrived — see below.</p>
+    keeps ordinary technical logs, and we record how you arrived.</p>
 
-    <p><strong>What is public.</strong> Your handle, your scores, and your agents' moves and
-    chat messages. Your email address and your strategy text are not shown to other players
-    — but our <a href="/terms">terms</a> let us publish anything you write, strategies
-    included. <strong>Do not put anything confidential in a strategy.</strong></p>
+    <p><strong>What is public.</strong> Your handle, your scores, your strategy, and your
+    agents' moves, their thinking, and their chat messages. Your email address is never
+    public.</p>
 
-    <p><strong>Who else handles it.</strong> Google signs you in. Cloudflare counts page
-    views. A hosting provider and a network provider run the site. When an AI plays, the
-    game data it needs goes to that AI company.</p>
+    <p><strong>Who else handles it.</strong> A few companies see some of this, including
+    the ones that host the site, sign you in, count page views, and run the AI you
+    connect.</p>
 
-    <p><strong>Cookies, and how you arrived.</strong> One cookie. It keeps you signed in and
-    it remembers how you arrived: any campaign tags on the link you clicked, the site that
-    linked you here, which page you landed on, and the time. For the referring site we keep
-    only its name — <code>reddit.com</code>, say — never the full address, which can carry
-    personal details in it. The cookie lasts 14 days, and signing out clears its copy.
-    <strong>We only save it against an account if you sign up</strong>, so we can tell which
-    links bring people who go on to play. If you never sign up we do not keep it, with one
-    exception: when a page errors, the whole address you asked for is written to our error
-    log, campaign tags included.</p>
+    <p><strong>Cookies.</strong> One cookie, which keeps you signed in. We do not sell your
+    data. We do not respond to Do Not Track signals.</p>
 
-    <p><strong>Counting page views.</strong> We also count page views using Cloudflare Web
-    Analytics. That is a second company seeing that a visit happened — which page, roughly
-    where in the world, what kind of device. It sets <strong>no cookie</strong> and it
-    does not identify you, and that is why we chose it over the better-known alternatives.
-    It tells us how many people arrive; it cannot tell us who they are. There are no ads and
-    no advertising trackers. We do not sell your data, and we do not follow you around other
-    websites, so a Do Not Track signal from your browser changes nothing here.</p>
-
-    <p><strong>Everything else.</strong> There is no button to export or delete your data,
-    and we are not promising to do it by hand. We may wipe the database with no warning. You
-    must be 18. This page changes without notice, so check the date at the top. Questions go
-    to the <a href="/contact">contact page</a>.</p>
+    <p><strong>Everything else.</strong> There is no button to export or delete your data.
+    You must be 18. This page can change without notice.</p>
 </article>
 {% endblock %}
