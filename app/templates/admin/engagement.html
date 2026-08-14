@@ -1,0 +1,167 @@
+{% extends "base.html" %}
+{% block title %}Engagement — Platform Admin{% endblock %}
+{% block content %}
+<div class="page-head">
+    <h1>Engagement</h1>
+    <p class="sub">Where new users fall out on the way to playing, and which source produced them.</p>
+</div>
+
+<form class="card form" method="get">
+    <input type="hidden" name="tz" id="engagement-tz" value="{{ tz }}">
+    <div class="form-row">
+        <label>
+            <span class="field-label">Signed up from</span>
+            <input type="date" name="start_date" value="{{ start_date }}">
+        </label>
+        <label>
+            <span class="field-label">Signed up to</span>
+            <input type="date" name="end_date" value="{{ end_date }}">
+        </label>
+    </div>
+    <p class="hint">Picks the signup cohort. How far each person got is measured ever, not only inside the window.</p>
+    <div class="form-actions">
+        <button type="submit" class="btn btn-primary">Apply filter</button>
+        {% if start_date or end_date %}
+        <a class="btn btn-ghost" href="/admin/engagement">Clear</a>
+        {% endif %}
+    </div>
+</form>
+
+<div class="section-head"><h2>This window</h2></div>
+<div class="report-table-wrap">
+    <table>
+        <tr><th>Number</th><th>Count</th><th>What it counts</th></tr>
+        <tr>
+            <td>Signups</td>
+            <td>{{ report.cohort_size }}</td>
+            <td>Accounts created in the window. Excludes internal accounts.</td>
+        </tr>
+        <tr>
+            <td>Came back another day</td>
+            <td>{{ report.returned_count }}</td>
+            <td>Played genuine turns on two or more days, in {{ tz }}. Excludes internal accounts.</td>
+        </tr>
+        <tr>
+            <td>Genuine turns</td>
+            <td>{{ turns_in_window }}</td>
+            <td>Real moves. Excludes missed deadlines, connector fallbacks and autopilot. Excludes internal accounts.</td>
+        </tr>
+    </table>
+</div>
+{% if not windowed %}
+<p class="hint">No date filter is set, so there is no previous period to compare against.</p>
+{% endif %}
+
+<div class="section-head"><h2>How far they got</h2><span class="count">{{ report.cohort_size }} people</span></div>
+<p class="hint">
+    Each row counts everyone who reached it, whether or not they reached the rows above.
+    People arrive by different routes — an AI connected through MCP is live before it has an
+    agent, and a manual player never connects one at all — so a smaller number below a bigger
+    one is not always someone dropping out.
+</p>
+<div class="report-table-wrap">
+    <table>
+        <tr>
+            <th>Step</th>
+            <th>People</th>
+            {% if report.show_percentages %}<th>Share</th>{% endif %}
+            <th>Fewer than above</th>
+        </tr>
+        {% for step in report.steps %}
+        <tr>
+            <td>{{ step.label }}</td>
+            <td>{{ step.count }}</td>
+            {% if report.show_percentages %}
+            <td>{% if report.cohort_size %}{{ ((step.count / report.cohort_size) * 100) | round(1) }}%{% else %}—{% endif %}</td>
+            {% endif %}
+            <td>{% if step.fewer_than_above is none %}—{% else %}{{ step.fewer_than_above }}{% endif %}</td>
+        </tr>
+        {% endfor %}
+        <tr>
+            <td>{{ "Came back another day" }}</td>
+            <td>{{ report.returned_count }}</td>
+            {% if report.show_percentages %}
+            <td>{% if report.cohort_size %}{{ ((report.returned_count / report.cohort_size) * 100) | round(1) }}%{% else %}—{% endif %}</td>
+            {% endif %}
+            <td>—</td>
+        </tr>
+    </table>
+</div>
+{% if report.ai_connected_share is not none %}
+<p class="hint">
+    Of the people who set up an AI agent, {{ (report.ai_connected_share * 100) | round(1) }}% got it connected.
+    Measured against AI owners rather than everyone, because manual play is the default for a new user.
+</p>
+{% endif %}
+{% if report.small_sample %}
+<p class="hint">
+    Fewer than 20 people in this window, so shares are hidden — with numbers this small one
+    person moves a percentage several points and the chart says more than the data does.
+</p>
+{% endif %}
+
+<div class="section-head"><h2>Where signups came from</h2></div>
+<div class="report-table-wrap">
+    <table>
+        <tr><th>Source</th><th>Signups</th><th>Played a turn</th></tr>
+        {% for row in sources %}
+        <tr>
+            <td>{{ row.label }}</td>
+            <td>{{ row.signups }}</td>
+            <td>{{ row.played }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="3" class="report-empty">No signups in this window.</td></tr>
+        {% endfor %}
+    </table>
+</div>
+<p class="hint">
+    <strong>unknown</strong> means we never recorded a source for that account — capture is
+    off by default, and accounts made before this feature have none. It is not the same as
+    <strong>direct</strong>, which means we looked and found no campaign tag or referring site.
+</p>
+<p class="hint">
+    Someone who arrives from a link but whose first completed sign-in is through an AI client
+    is recorded as <strong>mcp</strong>, and the original campaign is lost. There is no visitor
+    count here either — that needs a traffic-analytics tool, which this page does not include.
+</p>
+
+<div class="section-head">
+    <h2>Not come back yet</h2>
+    <span class="count">{{ report.stuck | length }}{% if report.stuck_remainder %} of {{ report.stuck | length + report.stuck_remainder }}{% endif %}</span>
+</div>
+<div class="report-table-wrap">
+    <table>
+        <tr><th>Person</th><th>Furthest step</th><th></th></tr>
+        {% for person in report.stuck %}
+        <tr>
+            <td>{{ person.label }}</td>
+            <td>{{ person.furthest }}</td>
+            <td><a href="/admin/users/{{ person.user_id }}">Open →</a></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="3" class="report-empty">Everyone in this window has come back.</td></tr>
+        {% endfor %}
+    </table>
+</div>
+{% if report.stuck_remainder %}
+<p class="hint">{{ report.stuck_remainder }} more not shown.</p>
+{% endif %}
+
+<p class="hint">
+    Milestones for accounts created before this feature shipped were reconstructed from
+    surviving records and are approximate. They undercount people who gave up at a point the
+    app later cleaned up — abandoned setups, released seats, deleted agents and matches.
+</p>
+
+<script>
+  // Report in the reader's own timezone, not UTC. Same pattern as /admin/reports.
+  (function () {
+    var field = document.getElementById("engagement-tz");
+    if (field && !field.value) {
+      try { field.value = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"; }
+      catch (e) { field.value = "UTC"; }
+    }
+  })();
+</script>
+{% endblock %}

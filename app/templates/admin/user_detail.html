@@ -8,11 +8,20 @@
         Joined {{ target.created_at | localdt }}
         {% if target.role.value == 'admin' %} · <span class="badge badge-ok">admin</span>{% endif %}
         {% if target.disabled_at %} · <span class="badge badge-alert">disabled since {{ target.disabled_at | localdt }}</span>{% endif %}
-        {% if floor_admin %} · <span class="badge badge-soon">floor admin</span>{% endif %}
+        {% if floor_admin %} · <span class="badge badge-soon">floor admin</span>{% endif %}{% if target.is_internal %} · <span class="badge badge-soon">internal</span>{% endif %}
     </p>
 </div>
 
 <div class="toolbar" style="margin-bottom:1.5rem;">
+    {# Deliberately OUTSIDE the floor_admin gate below. Floor admins are precisely
+       the accounts the migration flags as internal, so gating this control would
+       hide it on the rows most likely to need correcting. #}
+    <form method="post" action="/admin/users/{{ target.id }}/internal">
+        <input type="hidden" name="internal" value="{{ 'false' if target.is_internal else 'true' }}">
+        <button type="submit" class="btn btn-ghost">
+            {% if target.is_internal %}Count as a real user{% else %}Mark as internal{% endif %}
+        </button>
+    </form>
     {% if not floor_admin %}
         {% if target.disabled_at %}
         <form method="post" action="/admin/users/{{ target.id }}/enable">

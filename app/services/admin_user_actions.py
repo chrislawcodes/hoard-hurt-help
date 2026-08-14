@@ -137,3 +137,32 @@ async def reset_handle(
     target.handle_key = None
     target.handle_changed_at = None
     _write_audit(db, actor=actor, target=target, action=AdminAction.handle_reset, reason=reason)
+
+
+async def set_internal(
+    db: AsyncSession,
+    *,
+    actor: User,
+    target_id: int,
+    internal: bool,
+    reason: str | None = None,
+) -> None:
+    """Mark an account as ours, or as a real player's.
+
+    The flag is normally set once when the account is created, and the migration
+    backfill guessed at it for accounts that already existed. That guess is based
+    on email domains, so a real player on an unusual domain — or an internal
+    account on a new one — needs correcting by hand. Without this, the fix is
+    editing production directly.
+    """
+    target = await _load_target(db, target_id)
+    if target.is_internal == internal:
+        return
+    target.is_internal = internal
+    _write_audit(
+        db,
+        actor=actor,
+        target=target,
+        action=AdminAction.mark_internal if internal else AdminAction.unmark_internal,
+        reason=reason,
+    )

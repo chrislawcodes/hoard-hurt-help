@@ -27,6 +27,7 @@ from app.oauth_dcr_compat import OAuthRegistrationCompatMiddleware
 from app.request_logging import install_request_logging
 from app.routes.web_support import GameSlugRedirect, game_slug_redirect_response
 from app.routes import (
+    admin_engagement,
     admin_api,
     admin_web,
     agent_api,
@@ -288,6 +289,7 @@ def create_app() -> FastAPI:
     app.include_router(web_routes.router, dependencies=page_deps)
     app.include_router(handle_web.router, dependencies=page_deps)
     app.include_router(admin_web.router, dependencies=page_deps)
+    app.include_router(admin_engagement.router, dependencies=page_deps)
     app.include_router(match_manage_web.router, dependencies=page_deps)
     app.include_router(match_bots_web.router, dependencies=page_deps)
     app.include_router(admin_api.router)

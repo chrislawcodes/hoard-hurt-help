@@ -21,6 +21,7 @@
         <th>Agents</th>
         <th>Role</th>
         <th>Status</th>
+        <th>Counted</th>
         <th></th>
     </tr>
     {% for u in rows %}
@@ -35,10 +36,15 @@
         <td>
             {% if u.disabled_at %}<span class="badge badge-alert">disabled</span>{% else %}<span style="opacity:0.5">active</span>{% endif %}
         </td>
+        {# Whether this account is counted on /admin/engagement. Shown here so a
+           mis-flagged account can be FOUND, not just fixed once you know about it. #}
+        <td>
+            {% if u.is_internal %}<span class="badge badge-soon">internal</span>{% else %}<span style="opacity:0.5">yes</span>{% endif %}
+        </td>
         <td><a href="/admin/users/{{ u.id }}">Details →</a></td>
     </tr>
     {% else %}
-    <tr><td colspan="7">No users found.</td></tr>
+    <tr><td colspan="8">No users found.</td></tr>
     {% endfor %}
 </table>
 

@@ -18,6 +18,10 @@ class AdminAction(str, enum.Enum):
     promote = "promote"
     demote = "demote"
     handle_reset = "handle_reset"
+    # Paired, like disable/enable and promote/demote: with one value, marking
+    # and unmarking would render identically in the audit trail.
+    mark_internal = "mark_internal"
+    unmark_internal = "unmark_internal"
 
 
 class AdminAuditLog(Base):
