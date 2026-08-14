@@ -55,6 +55,10 @@ async def _ensure_dev_user(db: AsyncSession) -> User:
             handle=_DEV_USER_HANDLE,
             handle_key=_DEV_USER_HANDLE.lower(),
             role=UserRole.USER,
+            # Always internal. Set explicitly rather than by the domain rule: this
+            # address is `dev@localhost`, and "localhost" is an address host, not
+            # one of the configured internal domains.
+            is_internal=True,
         )
         db.add(user)
         await db.flush()

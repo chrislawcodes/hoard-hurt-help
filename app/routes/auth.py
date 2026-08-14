@@ -12,6 +12,7 @@ from app.auth.google import oauth
 from app.auth.session import clear_session, set_session_user
 from app.config import settings
 from app.deps import DbSession
+from app.identity.internal_accounts import is_internal_email
 from app.models.user import User, UserRole
 from app.routes.nav_context import resolve_play_setup_state
 from app.schemas.auth import GoogleUserInfo
@@ -45,6 +46,11 @@ async def sync_google_user(db: AsyncSession, userinfo: GoogleUserInfo) -> User:
             given_name=userinfo.given_name,
             family_name=userinfo.family_name,
             role=role,
+            # Decided once, here, and never recomputed. The email below can be
+            # rewritten on a later login and the role can change, so evaluating
+            # this at read time would let an account drift in and out of the
+            # excluded group between page loads.
+            is_internal=is_internal_email(userinfo.email),
         )
         db.add(user)
         await db.flush()
