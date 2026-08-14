@@ -119,6 +119,24 @@ async def test_both_pages_warn_that_alpha_data_can_be_wiped(
     assert "wipe" in resp.text.lower()
 
 
+@pytest.mark.parametrize("path", LEGAL_PATHS)
+async def test_neither_page_promises_export_or_deletion(
+    client: AsyncClient, path: str
+) -> None:
+    """No self-serve export or delete exists, so neither page may promise one.
+
+    An earlier draft offered to do both by hand over email. That committed one
+    person to work no code performs, which is the kind of promise a policy should
+    not be making — so the pages now state the channel and withhold the promise
+    on purpose. This pins the withholding, because "we will delete your account"
+    is exactly the sentence a well-meaning edit adds back.
+    """
+    resp = await client.get(path, follow_redirects=False)
+    body = resp.text.lower()
+    assert "not promising" in body
+    assert "we will delete your account" not in body
+
+
 async def test_terms_state_the_age_limit_and_governing_law(client: AsyncClient) -> None:
     """Two clauses with no home anywhere else in the product."""
     resp = await client.get("/terms", follow_redirects=False)
