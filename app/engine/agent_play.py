@@ -55,10 +55,12 @@ from app.engine.connection_activity import increment_turns_played, mark_first_mo
 from app.games import get as get_game_module
 from app.games.base import GameError
 from app.identity import word_filter
+from app.identity.milestones import record_milestone
 from app.models.connection import Connection
 from app.models.match import GameState
 from app.models.player import Player
 from app.models.turn import Turn, TurnSubmission
+from app.models.user_milestone import MilestoneKind
 from app.ops_events import log_ops_event
 from app.schemas.agent import (
     AgentStateResponse,
@@ -274,6 +276,14 @@ async def submit_action(
         existing=existing,
         is_connector_fallback=is_connector_fallback,
     )
+    if not is_connector_fallback:
+        # A connector fallback is the connector filling in for an AI that did not
+        # answer, so it is not the user's agent playing. Excluded here, at the
+        # moment of writing, rather than by a read-time rule — a fallback row is
+        # otherwise indistinguishable from a missed deadline in the stored data.
+        await record_milestone(
+            db, player.user_id, MilestoneKind.PLAYED_TURN, source_match_id=match_id
+        )
     if is_connector_fallback:
         log_ops_event(
             logger,

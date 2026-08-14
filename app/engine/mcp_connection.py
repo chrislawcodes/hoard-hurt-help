@@ -11,6 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.engine.connection_auth_loading import connection_user_load_options
 from app.engine.tokens import bot_key_hint, bot_key_lookup, generate_connection_key
+from app.identity.milestones import record_milestone
+from app.models.user_milestone import MilestoneKind
 from app.models.connection import Connection, ConnectionProvider, ConnectionStatus
 from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
 from app.models.user import User
@@ -143,6 +145,7 @@ async def _mcp_connection_once(
                 live_by_client.last_seen_at = now
                 if live_by_client.first_connected_at is None:
                     live_by_client.first_connected_at = now
+                    await record_milestone(db, user_id, MilestoneKind.AI_CONNECTED)
                 if live_by_client.status == ConnectionStatus.PENDING:
                     live_by_client.status = ConnectionStatus.ACTIVE
             return live_by_client
@@ -172,6 +175,7 @@ async def _mcp_connection_once(
             live_connection.last_seen_at = now
             if live_connection.first_connected_at is None:
                 live_connection.first_connected_at = now
+                await record_milestone(db, user_id, MilestoneKind.AI_CONNECTED)
             if live_connection.status == ConnectionStatus.PENDING:
                 live_connection.status = ConnectionStatus.ACTIVE
         if oauth_client_id is not None and live_connection.oauth_client_id != oauth_client_id:
@@ -204,6 +208,7 @@ async def _mcp_connection_once(
         deleted_connection.runner_pid = None
         if deleted_connection.first_connected_at is None:
             deleted_connection.first_connected_at = now
+            await record_milestone(db, user_id, MilestoneKind.AI_CONNECTED)
         deleted_connection.last_seen_at = now
         if oauth_client_id is not None:
             deleted_connection.oauth_client_id = oauth_client_id
@@ -224,6 +229,7 @@ async def _mcp_connection_once(
     )
     db.add(connection)
     await db.flush()
+    await record_milestone(db, user_id, MilestoneKind.AI_CONNECTED)
     await _ensure_mcp_connection_provider(db, connection, provider)
     return (
         (

@@ -23,6 +23,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import broadcast
 from app.aware_datetime import ensure_aware
+from app.identity.milestones import record_milestone
+from app.models.user_milestone import MilestoneKind
 from app.engine.connection_health import (
     LOOP_RUNNING_WINDOW_SECONDS,
     ConnectionHealth,
@@ -125,6 +127,12 @@ async def mark_seen(
         values["last_seen_at"] = now
 
     await db.execute(update(Connection).where(Connection.id == bot.id).values(**values))
+    if first:
+        # Recorded BEFORE the commit below, deliberately. This function commits its
+        # own work, so a milestone written after it would sit in an uncommitted
+        # transaction — which still reads back fine on SQLite (dev and tests share
+        # one connection) and silently loses the row on Postgres.
+        await record_milestone(db, bot.user_id, MilestoneKind.AI_CONNECTED)
     await db.commit()
 
     # Refresh the in-memory object from what the atomic UPDATE just wrote, so
