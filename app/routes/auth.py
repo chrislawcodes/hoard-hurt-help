@@ -34,6 +34,11 @@ def _apply_first_touch(
     somewhere with no web session at all — the MCP sign-in paths pass "mcp", so
     those signups are never silently counted as direct web traffic.
     """
+    if not settings.first_touch_capture_enabled:
+        # Off means off. The MCP paths pass source_channel directly and have no
+        # browser session, so they bypassed the middleware's check entirely and
+        # kept writing a source while capture was disabled.
+        return
     if source_channel is not None:
         user.first_source_channel = source_channel
         return
@@ -88,7 +93,11 @@ async def sync_google_user(
             # rewritten on a later login and the role can change, so evaluating
             # this at read time would let an account drift in and out of the
             # excluded group between page loads.
-            is_internal=is_internal_email(userinfo.email),
+            # Domain OR platform admin — matching migration 0053 exactly. The
+            # domain rule alone never fires for a real Google address, so every
+            # admin account created after the deploy was counted as a real user
+            # on their own dashboard, permanently, since the flag is write-once.
+            is_internal=is_internal_email(userinfo.email) or role is UserRole.ADMIN,
         )
         # Attribution is written ONLY here, on the branch that creates the account.
         # A returning user's original source must never be overwritten by wherever

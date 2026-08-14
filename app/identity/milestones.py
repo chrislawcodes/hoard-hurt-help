@@ -92,8 +92,22 @@ async def record_milestone(
     *,
     source_match_id: str | None = None,
 ) -> None:
-    """Record one milestone from async request code. Never raises to the caller."""
+    """Record one milestone from async request code. Never raises to the caller.
+
+    Note where the caller's own work is flushed. ``begin_nested()`` takes a
+    snapshot, and taking that snapshot **flushes the session** — so if the caller
+    has pending changes of their own that are going to fail, that failure happens
+    inside this call. Flushing first, outside the guard below, lets the caller's
+    error reach the caller.
+
+    The first version wrapped the whole thing. A duplicate handle, say, was then
+    caught here, logged as "milestone write failed", and the caller was left with
+    an unusable session and a confusing rollback error at some later line — their
+    real bug reported as ours, in the wrong place, with the milestone quietly
+    dropped as well.
+    """
     row = build_row(user_id, milestone, source_match_id=source_match_id)
+    await db.flush()
     try:
         async with db.begin_nested():
             await db.execute(insert(UserMilestone), row)

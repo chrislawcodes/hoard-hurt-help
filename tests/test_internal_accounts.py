@@ -11,6 +11,7 @@ import pytest
 from sqlalchemy import select
 
 from app.engine.bots.seating import get_or_create_bots_user
+from app.config import settings
 from app.identity.internal_accounts import is_internal_email
 from app.models.user import User, UserRole
 from app.routes.auth import sync_google_user
@@ -75,19 +76,46 @@ async def test_the_flag_survives_an_email_rewrite(db) -> None:
 
 
 @pytest.mark.asyncio
-async def test_the_flag_survives_a_role_change(db) -> None:
-    """promote_user / demote_user change the role after the fact."""
+async def test_the_flag_is_decided_once_and_does_not_follow_a_later_role_change(
+    db,
+) -> None:
+    """Write-once is the point; the value written must be right in the first place.
+
+    An earlier version of this test asserted only the write-once half, and in doing
+    so pinned a real bug: the account-creation rule looked at the email domain
+    alone while migration 0053 also flagged admins. No real Google address is on an
+    internal domain, so no admin created after the deploy was ever flagged — they
+    appeared on their own dashboard as a real user, permanently, because the flag
+    is never recomputed.
+    """
     user = await sync_google_user(db, _info("player@gmail.com", sub="sub-role"))
     await db.commit()
     assert user.is_internal is False
 
+    # A later promotion does NOT change it — that half was always right.
     user.role = UserRole.ADMIN
     await db.commit()
     assert user.is_internal is False, "the flag must not follow the role"
 
-    user.role = UserRole.USER
+
+@pytest.mark.asyncio
+async def test_an_admin_is_internal_from_the_moment_they_sign_up(
+    db, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Matching migration 0053, which flags every admin-role account.
+
+    Without this the same person is classified differently depending on which side
+    of the deploy their row was created.
+    """
+    monkeypatch.setattr(settings, "platform_admin_emails", "boss@gmail.com")
+    user = await sync_google_user(db, _info("boss@gmail.com", sub="sub-admin"))
     await db.commit()
-    assert user.is_internal is False
+
+    assert user.role is UserRole.ADMIN
+    assert user.is_internal is True, (
+        "an admin signing up after the deploy must be flagged, like 0053 flags "
+        "the ones that existed before it"
+    )
 
 
 @pytest.mark.asyncio

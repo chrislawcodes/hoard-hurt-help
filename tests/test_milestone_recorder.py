@@ -12,7 +12,6 @@ from __future__ import annotations
 import pytest
 from sqlalchemy import event, func, select
 
-from app.engine.bots.seating import BOTS_USER_SUB
 from app.identity.milestones import build_row, record_milestone
 from app.models.agent import Agent, AgentKind
 from app.models.user import User
@@ -85,12 +84,16 @@ async def test_platform_bot_agents_record_nothing(db) -> None:
 
 @pytest.mark.asyncio
 async def test_the_bots_account_does_not_record_a_signup(db) -> None:
-    db.add(User(google_sub=BOTS_USER_SUB, email="bots@agentludum.local", name="Platform Bots"))
-    await db.commit()
+    """Built through the real helper, not by hand.
 
-    bots_user = (
-        await db.execute(select(User).where(User.google_sub == BOTS_USER_SUB))
-    ).scalar_one()
+    The listener decides this from users.is_internal, which get_or_create_bots_user
+    sets. An earlier version of this test constructed the row itself and left the
+    flag off, so it was asserting against an account the app never creates.
+    """
+    from app.engine.bots.seating import get_or_create_bots_user
+
+    bots_user = await get_or_create_bots_user(db)
+    await db.commit()
     assert await _milestones(db, bots_user.id) == set()
 
 

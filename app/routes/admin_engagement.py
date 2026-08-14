@@ -35,7 +35,10 @@ def _parse_timezone(value: str | None) -> ZoneInfo | timezone:
         return timezone.utc
     try:
         return ZoneInfo(value.strip())
-    except ZoneInfoNotFoundError as exc:
+    except (ZoneInfoNotFoundError, ValueError) as exc:
+        # ZoneInfo raises a plain ValueError for an absolute or ..-containing
+        # key, so catching only the not-found error turned `?tz=../x` into a
+        # 500 and an incident row rather than the 400 it is.
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="tz must be a valid IANA timezone name.",
@@ -84,6 +87,8 @@ async def admin_engagement(
             end + timedelta(days=1), time.min, tzinfo=zone
         ).astimezone(timezone.utc)
 
+    played_after, played_before = signed_up_after, signed_up_before
+
     report = await load_engagement_report(
         db,
         signed_up_after=signed_up_after,
@@ -93,8 +98,12 @@ async def admin_engagement(
     sources = await load_signup_sources(
         db, signed_up_after=signed_up_after, signed_up_before=signed_up_before
     )
+    # Counts turns PLAYED in the window, by anyone. The first version passed the
+    # signup window here, so the three numbers under one heading described three
+    # different groups of people: signups in the window, their play over all time,
+    # and everyone else's play filtered by dates that were never about playing.
     turns = await count_genuine_turns(
-        db, played_after=signed_up_after, played_before=signed_up_before
+        db, played_after=played_after, played_before=played_before
     )
 
     return templates.TemplateResponse(
