@@ -60,8 +60,19 @@ Two notes on what is deliberately absent:
 
 `first_utm_source(120)`, `first_utm_medium(120)`, `first_utm_campaign(120)`,
 `first_referrer_host(255)`, `first_landing_path(255)` — all nullable.
-`first_source_channel(16)` nullable — holds `"mcp"`, kept out of the UTM columns
-so a real `?utm_source=mcp` cannot collide.
+`first_source_channel(16)` nullable — kept out of the UTM columns so a real
+`?utm_source=mcp` cannot collide. It carries **three** values, not one:
+
+| Value | Meaning |
+|---|---|
+| `"mcp"` | created through an MCP sign-in path, no web session existed |
+| `"direct"` | capture **ran** and found no campaign tag and no external referrer |
+| `NULL` | capture never ran — the flag was off, or the row predates this feature |
+
+Without the explicit `"direct"`, AC14 is unwritable: the spec's precedence rule
+(campaign tag → referrer host → `"direct"`) collapses "we looked and they came
+direct" together with "we never looked", which is the exact bug AC14 forbids.
+`NULL` then renders as `"unknown"` and means one unambiguous thing.
 `is_internal` — `Boolean`, `nullable=False`, `server_default=false`.
 
 ### New config keys
@@ -121,20 +132,62 @@ explicit call sites, which run in normal async request context where
 `db.begin_nested()` *does* work.
 
 **Registration at import, not startup** — mirroring the existing
-`install_sqlite_parity_guards` pattern, and bound to the `Session` class rather
-than the async session factory, so it is active in every test fixture too.
+`install_sqlite_parity_guards` pattern, so it is active in every test fixture and
+not only under app startup (which the test client never runs).
 
-### The dev/prod divergence that must be tested for
+**The two event kinds must be bound to different targets. This is a trap.**
 
-A savepoint write **survives a session closed without committing on SQLite, but
-not on Postgres** (measured both in-memory and file-backed). Tests run SQLite;
-production runs Postgres. So a missing commit **passes every test and loses rows
-in production.**
+| Event | Kind | Bind to |
+|---|---|---|
+| `after_insert` | **mapper** event | the model classes — `User`, `Agent`, `Player` |
+| `after_flush_postexec` | **session** event | `Session` |
 
-This lands squarely on `ai_connected` at `connection_activity.mark_seen`, which
-commits itself and is reached from `require_connection` on read-only endpoints.
-Slice 2 must assert from a **fresh session after commit**, never from the writing
-session — otherwise the checkpoint passes against a broken implementation.
+Plan revision 2 said "bound to the `Session` class" for both.
+`event.listen(Session, "after_insert", cb)` is **accepted without raising** — it
+falls into `_MapperEventsHold` — and then **fires zero times**. Green suite,
+permanently empty table: the exact failure mode revision 2 was written to remove,
+reintroduced by the sentence written to remove it. Verified by execution.
+
+**Clear the collection after each flush.** `session.info` must be emptied once its
+rows are written. Measured without it: 66 insert attempts for 2 milestones across
+11 flushes. Revision 2 claimed "the unique constraint short-circuits the rest" —
+it does, but only after 64 wasted round trips.
+
+**No re-entrancy guard.** Revision 2 mandated one against `FlushError` after 100
+flushes. Measured: 150 flushes and 300 milestones run clean in this shape. A guard
+here would be a suppression flag that can silently drop writes — strictly worse
+than nothing.
+
+### The test that cannot fail — the real problem, corrected twice
+
+Revision 2 said savepoint writes survive an uncommitted session on SQLite but not
+Postgres, and mitigated it by asserting "from a fresh session after commit".
+**Both halves were wrong**, and two reviewers independently proved it:
+
+- On **file-backed** SQLite the new shape persists nothing uncommitted. The stated
+  quirk does not exist.
+- The actual defeater is **`StaticPool`**, which SQLAlchemy uses for in-memory
+  SQLite. Every "fresh session" against `reset_db` is the **same underlying
+  connection**, so a writer that never commits is still visible. One reviewer
+  wrote slice 2's must-prove exactly as revision 2 specified and **it passed
+  against an implementation that never commits.**
+
+So the mitigation could not fail, which is worse than having none: it manufactures
+confidence. And CI runs no Postgres, so nothing in the suite exercises the dialect
+production actually uses.
+
+**What slice 2 does instead** — cheapest first, and at least the first is required:
+
+1. **Assert commit ordering with a spy session.** Wrap the session, record the
+   order of `flush` / `commit` / milestone-insert, and assert the insert happens
+   inside a transaction that is subsequently committed. This discriminates on
+   SQLite and needs no new infrastructure.
+2. **A parity guard**, in the style of `app/sqlite_parity.py`, that fails loudly in
+   tests when a milestone write is left uncommitted.
+3. **One real Postgres test**, as its own slice with a CI service container. This
+   is the only thing that exercises the dialect production runs. Currently
+   **`railway.json` makes production the first Postgres exercise of this code** —
+   which is the actual risk, and worth fixing beyond this feature.
 
 ### Mapping
 
@@ -155,6 +208,12 @@ play" is then either of them.
 **The `Player` listener must exclude the house bots user.** `bots/seating.py:151`
 seats bots as `Player(user_id=bots_user.id)`. Plan v1 excluded bot *Agents* only,
 so every bot seat would have recorded a `joined_match` for the house account.
+
+**`bots/seating.py:51` is a third `User`-creation site**, measured to record
+`signed_up` for the house bots account. It is harmless *provided* slice 4 lands
+first, since that account is created `is_internal=True` and every read model
+filters on the flag (AC9). Recorded here because "harmless because something else
+filters it" is exactly the assumption that stops being true later.
 
 **Stated limits:** `after_insert` does not fire for Core bulk inserts (no current
 code does that; slice 2 asserts the events fire so a future bulk insert breaks a
