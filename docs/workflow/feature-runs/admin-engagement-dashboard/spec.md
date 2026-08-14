@@ -56,30 +56,51 @@ present them as independent counts rather than a strict waterfall.
 
 ## Design decisions
 
-### D1 — Durable milestone records replace derived funnel steps
+### D1 — Durable milestones for setup; read-time derivation for play
 
-New append-only table `user_milestones`: one row the **first** time a user reaches
-a milestone. `UNIQUE(user_id, milestone)` makes recording idempotent — a second
-attempt is a no-op, not an error.
+**Revised in revision 4** after round 3 showed a stored summary row throws away
+detail the page needs to re-slice (timezone, smoke-test exclusion), and that
+`AC2` (write once, at event time, often with no browser) and `AC16` (return
+detection in the reader's timezone, chosen at read time) could not both hold.
+
+**Split by what the app actually deletes.**
+
+**Durable — the setup journey**, because this is the evidence the app destroys
+(connection-setup GC, seat release, agent hard-delete, match delete):
 
 | Milestone | Recorded when |
 |---|---|
 | `signed_up` | a `User` row is created |
 | `picked_handle` | `handle_key` first set |
 | `set_up_a_way_to_play` | first `Agent` of kind `ai` **or** `human` |
-| `ai_connected` | `first_connected_at` first stamped on a connection |
+| `ai_connected` | `first_connected_at` first stamped on any connection |
 | `joined_match` | first `Player` row |
-| `played_turn` | first genuine submission (D5) |
-| `returned` | a genuine submission on a second distinct local day |
+| `played_turn` | first genuine submission (D5) — "did they ever play at all" |
 
-Why this fixes both root causes:
-- **Deletion-proof.** The milestone row survives the connection setup being cleaned
-  up, the seat being released, the agent being hard-deleted, the match being
-  deleted. Nothing downstream removes it.
-- **Path-agnostic.** No ordering is assumed. An MCP user who connects before
-  building an agent records both, in whatever order they happen. A human player
-  records `set_up_a_way_to_play` and never records `ai_connected` — and that is
-  correct, not a drop.
+**Derived at read time from `turn_submissions`** — the windowed and
+timezone-sensitive play numbers: turns in the window, users active in the window,
+and `returned` (a genuine submission on two distinct days *in the reader's
+timezone*). These need re-slicing, and `turn_submissions` is durable enough;
+the known cost is that an admin `delete_match` makes them non-reproducible, which
+the page states.
+
+`returned` is therefore **not** a stored milestone. That removes the AC2/AC16
+contradiction entirely.
+
+**Table `user_milestones`:**
+
+| Column | Why |
+|---|---|
+| `user_id`, `milestone` | `UNIQUE(user_id, milestone)` |
+| `reached_at` (UTC) | **Round 3 caught this missing.** Without it no windowed count is possible at all |
+| `agent_kind` (nullable) | Lets `ai_connected` be reported against AI-agent users (AC7). The `agents` row is hard-deleted, so the denominator must be captured here or it is unrecoverable |
+| `source_match_id` (nullable) | Lets smoke-test matches be excluded at read time (AC17). A milestone row carries no match reference otherwise |
+
+Why this still fixes both root causes: the milestone row survives every deletion
+site, and no ordering is assumed — an MCP user who connects before building an
+agent records both in whatever order they happen, and a human player records
+`set_up_a_way_to_play` and never records `ai_connected`, which is correct rather
+than a drop.
 
 ### D2 — Independent counts, not strict nesting
 
@@ -94,30 +115,88 @@ neighbours, but the difference is labelled **"fewer than the step above"**, not
 agent**, not of all signups, so the human-play default does not read as an AI
 setup failure.
 
-### D3 — One recorder module, called from the event sites
+### D3 — Hook the ORM, not a hand-written list of call sites
 
-`app/identity/milestones.py` exposes `record_milestone(db, user_id, milestone)`.
-Every site calls that one function; no site writes the table directly.
+**Revised in revision 4.** Revisions 1–3 named call sites found by text search, and
+every review round found sites the search had missed. Verified misses:
 
-Call sites: user creation (3 places, D8), handle set, agent create, connection
-first-connect (web **and** MCP), player create, submission write.
+| Spec named | Actually also happens at |
+|---|---|
+| `agents_create.py` | `app/engine/human_player.py:101` — **the human agent**, the default new-user path |
+| `web_join.py` | `app/routes/web_play.py:313`, `app/engine/bots/seating.py:151` |
+| `mcp_connection.py` | `app/engine/connection_activity.py:119` (`mark_seen`, the web/runner choke point — it sets the field inside a values dict in one atomic UPDATE, which is why every text search missed it), plus four separate branches inside `mcp_connection.py` |
 
-**Advisory, never blocking.** A milestone write must never break the request that
-triggered it — it is reporting, not game state. Wrapped and commented
-`# fail-open: advisory only`, the one exception the repo's fail-loud rule allows.
+More searching is not the fix. **Row-creation milestones are recorded from
+SQLAlchemy `after_insert` events** on `Agent`, `Player` and `User`, so any code
+path that inserts one — today's, the ones I missed, and ones added later — records
+the milestone without needing to know this feature exists.
 
-### D4 — Backfill is partial, and says so
+Two milestones cannot use ORM events and get explicit calls, because they are
+field updates rather than inserts:
+
+- `picked_handle` — `handle_key` set (`handle_web.py`, and `dev_login.py`).
+- `ai_connected` — `first_connected_at` stamped: `connection_activity.mark_seen`
+  and the four `mcp_connection.py` branches.
+
+`played_turn` also needs explicit calls: round 3 confirmed there is no single
+chokepoint, because `record_player_action` serves human play and scripted bots,
+and `record_submission` serves everything including the defaulter. Two
+request-level hooks are required (D5 defines what counts).
+
+**Limit, stated:** ORM `after_insert` does not fire for Core bulk inserts. No
+current code creates these rows that way; a test asserts the events fire for each
+of the three models.
+
+### D3a — How an advisory write actually stays advisory
+
+Round 3 tested all three obvious implementations against this repo's own
+SQLAlchemy. Two of them **poison the caller's transaction** — a failed analytics
+write would break the user action that triggered it:
+
+| Shape | Result |
+|---|---|
+| `db.add` alone | `IntegrityError` surfaces at the *caller's* commit |
+| `add` + `flush` in a `try` | leaves `PendingRollbackError` |
+| **`db.begin_nested()` savepoint** | **works** — the only shape that does |
+
+So `record_milestone` must wrap its write in `db.begin_nested()`. The repo already
+uses this pattern for collision handling (`mcp_connection.py:267`).
+
+`UNIQUE(user_id, milestone)` **raises; it does not silently no-op.** SQLAlchemy has
+no database-agnostic "insert or ignore", and this repo has no existing use of one.
+So the recorder catches `IntegrityError` **inside the savepoint** and treats it as
+"already recorded". That keeps one code path for SQLite (dev, tests) and Postgres
+(prod) without dialect branching.
+
+Commented `# fail-open: advisory only` — the one exception the repo's fail-loud
+rule allows, and here it is genuinely advisory: reporting, never game state.
+
+### D4 — Backfill is partial in both directions, and says so
 
 The migration backfills milestones from what today's tables can still prove.
-It cannot recover deleted rows, so historical numbers are **floors, not totals**.
 
-The page carries a dated line: *"Milestones before <deploy date> are
-reconstructed from surviving records and undercount abandonment."* Without it the
-first weeks would silently read as unusually healthy.
+**It undercounts** where rows were deleted (setup GC, seat release, agent
+hard-delete, match delete, and `reset_handle`, which NULLs `handle_key` and makes
+`picked_handle` unreconstructable).
+
+**It also overcounts, which revision 3 got backwards.** Autopilot plays for a
+player who walked away, and those rows carry `was_defaulted=False` **and** a real
+`submitted_at` — indistinguishable from a genuine move. The backfill must exclude
+them using `players.autopilot_at`, a field revision 3 never mentioned. Without
+that, backfilled `played_turn` uses a looser definition than live recording, and
+the page shows a step change at the deploy date that the explanatory note would
+not explain.
+
+`players.autopilot_at` marks the seat, not the individual row, so it
+over-excludes: genuine turns played *before* a player went on autopilot are
+dropped. That is the conservative direction and is accepted.
+
+The page carries a dated line: *"Milestones before &lt;deploy date&gt; are
+reconstructed from surviving records and are approximate."*
 
 ### D5 — "Played a turn" means a genuine human-or-agent move
 
-Three kinds of row must not count:
+Four kinds of row must not count:
 
 1. **Missed deadlines.** A missed turn still writes a submission marked
    `was_defaulted=True` ([scoring.py:196](../../../app/games/hoard_hurt_help/scoring.py)) —
@@ -126,7 +205,12 @@ Three kinds of row must not count:
    defaulted ([admin_reports.py:182](../../../app/read_models/admin_reports.py)). Matching
    it keeps the two admin pages from reporting different numbers for one week.
 3. **Autopilot.** `bots/service.py` auto-plays for a player who left, and those
-   rows are not marked defaulted. An abandoner must not clear "played a turn".
+   rows are **not** marked defaulted and carry a real timestamp. An abandoner must
+   not clear "played a turn". Identified by `players.autopilot_at`.
+4. **Connector fallbacks.** `was_defaulted` now also marks connector-fallback
+   moves, so the 4,614-row figure above covers two different situations, not one.
+   Both are correctly excluded, but the rationale must not claim they are all
+   missed deadlines.
 
 Because the milestone is recorded at write time (D3), the recorder simply is not
 called on those paths — no read-time filter to get wrong.
@@ -176,10 +260,23 @@ Facts that matter, all confirmed:
   capture time**, before it enters the cookie.
 - **The site has no privacy policy and no cookie notice.** Nothing in `app/`.
 
-> **OPEN OBLIGATION — must be resolved before this reaches production.** This
-> feature adds a persistent tracking cookie to a site with no disclosure surface.
-> Building it is fine; shipping it to real users without a privacy note is a
-> decision Chris has to make deliberately. Raised again at the PR.
+> **OPEN OBLIGATION — and it needs a real gate, not a note.**
+>
+> Revision 3 said "raised again at the PR". Round 3 showed that is meaningless
+> here: `docs/deploy-railway.md:87` confirms **push to `main` auto-deploys**, so
+> merging the PR *is* shipping to production. There is no moment in between at
+> which Chris could decide.
+>
+> **Therefore first-touch capture ships behind a setting,
+> `FIRST_TOUCH_CAPTURE_ENABLED`, defaulting to `false`.** With it off the
+> middleware returns immediately, writes nothing, and sets no cookie — the site
+> behaves exactly as it does today. Everything else in this feature (milestones,
+> the page, the exclusion flag) works with it off; only the source table is empty,
+> and it says so.
+>
+> Turning it on is then a deliberate, separate act Chris takes once the site has a
+> privacy note. That is the gate. A test asserts that with the flag off, a request
+> carrying `?utm_source=` sets no cookie and stores nothing.
 
 ### D9 — Source is derived, stored raw, length-capped
 
@@ -275,9 +372,18 @@ have a period-over-period comparison, since the rows are hard-deleted.
    `is_internal`, the new table, and the two backfills (milestones D4,
    internal flag D10). Additive, reversible, `op.batch_alter_table` for constraint
    operations (SQLite dev DB).
-6. Recorder calls at the event sites: `auth.py` (+ the two MCP callers in
-   `mcp_server/`), `handle_web.py`, `agents_create.py`, `mcp_connection.py`,
-   `web_join.py`, and the submission path.
+6. Milestone recording (D3):
+   - **ORM `after_insert` listeners** on `User`, `Agent`, `Player` — covering
+     `auth.py` + the two MCP callers, `agents_create.py:184`,
+     **`human_player.py:101`**, `bots/seating.py:151`/`:123`,
+     `match_bots_web.py:150`, `web_join.py:339`, **`web_play.py:313`**, and any
+     future site, without naming them.
+   - **Explicit calls** for the update-driven ones: `handle_web.py` and
+     `dev_login.py` (`picked_handle`); **`connection_activity.mark_seen`** plus
+     the four `mcp_connection.py` branches (`ai_connected`); and two request-level
+     hooks for `played_turn`.
+   - `app/config.py` — `FIRST_TOUCH_CAPTURE_ENABLED`, default `false` (D8), and
+     the internal-domain list as a real config key (D10).
 7. `app/read_models/engagement_milestones.py` — counts per milestone over a signup
    cohort, plus the stuck list (users and their furthest milestone; handle-less
    users shown by email; capped at 50 with a remainder count).
@@ -305,8 +411,20 @@ period" is undefined there.
 Authoritative list lives in `state.json`, kept in lockstep with this revision.
 Every criterion has a matching test in the plan below.
 
-1. `/admin/engagement` exists, is in the Platform admin submenu, 403s for a
-   non-admin.
+0. **With `FIRST_TOUCH_CAPTURE_ENABLED=false` (the default), a request carrying
+   `?utm_source=` sets no cookie and stores nothing.** The rest of the page works;
+   the source table is empty and says why. (D8's gate — the deploy is automatic,
+   so this flag is the only thing standing between merging and tracking real
+   visitors.)
+1. `/admin/engagement` exists and is in the Platform admin submenu. A signed-in
+   non-admin gets **403**; an anonymous visitor gets **401**
+   (`deps.py:38` raises `NOT_SIGNED_IN`, not a forbidden).
+1a. Each of the three summary numbers states its window, its population, and that
+   it excludes internal users — and each has a test. (Round 2 and round 3 both
+   found the summary numbers had no criterion at all.)
+1b. Shares and period-over-period comparisons are **suppressed below 20 users**,
+   showing raw counts instead. The non-goal rejecting a retention grid as "noise
+   at 10–20 users" applies equally to every percentage on this page.
 2. A milestone row is written exactly once per user per milestone; a second
    attempt is a silent no-op.
 3. A milestone survives deletion of the row that caused it — setup GC, seat
@@ -416,9 +534,38 @@ are hard-deleted; the cleanup job is unscheduled so the "24-hour snapshot" tile 
 meaningless; the session cookie is persistent for 14 days; the site has no privacy
 disclosure at all.
 
+**Round 3 (51 findings, 19 HIGH)** produced revision 4. Crucially, **no round-3
+finding said the milestone design was wrong** — the design converged. What round 3
+found was:
+
+1. *My map of the codebase was wrong.* Human agents are created in a file I never
+   opened; players are seated in three places, not one; connections go live in six,
+   not one — including one that sets the field inside a values dict, invisible to
+   every text search I ran. **Fixed structurally in D3 by hooking the ORM instead
+   of maintaining a hand-written list.**
+2. *"Advisory" had no mechanism.* A reviewer empirically ran all three shapes
+   against this repo's SQLAlchemy: two poison the caller's transaction. Only a
+   savepoint works, and the unique constraint raises rather than no-opping.
+   **Fixed in D3a.**
+3. *The backfill overcounted, not undercounted* — autopilot rows are
+   indistinguishable from real plays. **Fixed in D4 via `players.autopilot_at`.**
+4. *Two acceptance criteria contradicted each other* — write-once-at-event-time
+   versus read-time timezone. **Fixed in D1 by splitting durable setup milestones
+   from derived play metrics.**
+5. *The privacy gate did not exist.* Push to `main` auto-deploys, so "decide before
+   production" and "merge the PR" are the same instant. **Fixed in D8 with a
+   default-off setting.**
+
 **Escalated to Chris and decided by him:** (1) the anonymous-visitor cookie — full
 attribution chosen, D8; (2) the funnel shape — durable milestones with independent
 counts chosen over patching strict nesting, D1/D2.
+
+**Recommendation recorded at the end of round 3:** stop reviewing the spec. Rounds
+1 and 2 found design errors; round 3 found implementation mechanics — savepoints,
+dialect behaviour, which hook fires where. Those are settled faster and more
+reliably by writing code and running tests than by another reviewer reading a
+document. The remaining known gaps are carried into the plan and tasks stages as
+explicit work items rather than another spec round.
 
 **Verified correct across all three reviewers, not findings:** D7's middleware
 ordering; `was_defaulted` being NOT NULL with a `false` server default;

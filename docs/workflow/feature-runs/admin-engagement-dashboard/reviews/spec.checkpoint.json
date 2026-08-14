@@ -12,9 +12,8 @@
       "path": "docs/workflow/feature-runs/admin-engagement-dashboard/reviews/spec.claude.feasibility-adversarial.review.md",
       "context_paths": [
         "app/models/user.py",
-        "tests/test_migrations.py",
-        "app/routes/auth.py",
-        "app/routes/admin_web.py"
+        "app/services/admin_user_actions.py",
+        "tests/test_mcp.py"
       ],
       "model": "claude-opus-4-8"
     },
@@ -25,9 +24,8 @@
       "path": "docs/workflow/feature-runs/admin-engagement-dashboard/reviews/spec.claude.requirements-adversarial.review.md",
       "context_paths": [
         "app/models/user.py",
-        "tests/test_migrations.py",
-        "app/routes/auth.py",
-        "app/routes/admin_web.py"
+        "app/services/admin_user_actions.py",
+        "tests/test_mcp.py"
       ],
       "model": "claude-opus-4-8"
     },
@@ -38,9 +36,8 @@
       "path": "docs/workflow/feature-runs/admin-engagement-dashboard/reviews/spec.claude.completeness-adversarial.review.md",
       "context_paths": [
         "app/models/user.py",
-        "tests/test_migrations.py",
-        "app/routes/auth.py",
-        "app/routes/admin_web.py"
+        "app/services/admin_user_actions.py",
+        "tests/test_mcp.py"
       ],
       "model": "claude-opus-4-8"
     }
