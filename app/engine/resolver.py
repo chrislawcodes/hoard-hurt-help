@@ -5,7 +5,9 @@ talk-phase materialization, round-win awarding, and end-of-game ranking. The
 PD-specific per-turn scoring moved to app/games/hoard_hurt_help/scoring.py.
 """
 
+from collections.abc import Mapping
 from datetime import datetime, timezone
+from typing import TypeVar
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,6 +16,8 @@ from app.engine.state_machine import assert_transition
 from app.models.match import Match, GameState
 from app.models.player import Player
 from app.models.turn import Turn, TurnMessage
+
+_Key = TypeVar("_Key")
 
 
 async def finalize_talk_phase(db: AsyncSession, turn: Turn) -> None:
@@ -54,10 +58,35 @@ async def finalize_talk_phase(db: AsyncSession, turn: Turn) -> None:
     await db.commit()
 
 
+def round_award(round_scores: Mapping[_Key, int]) -> tuple[list[_Key], float]:
+    """Who wins a round, and what share of the win each winner takes.
+
+    The whole round-award rule, with no database in it: the highest in-round
+    score wins, everyone level with it ties, and a tie splits one win evenly
+    (two winners take 0.5 each, three take 1/3). ``award_round_winners`` applies
+    it to live play; the replay's per-turn standings apply it to history (see
+    ``app/games/replay_standings.py``), so the rail can never invent a different
+    rule than the one the match was actually scored by.
+
+    Edge cases are the ones the DB version has always had: no players means no
+    winners and a zero share, and an all-zero round still has winners — every
+    seat is level on 0, so they all split the round.
+
+    Keys are opaque (player id, seat name, …); only the caller reads them back.
+    """
+    top = max(round_scores.values(), default=0)
+    winners = [key for key, score in round_scores.items() if score == top]
+    share = 1.0 / len(winners) if winners else 0.0
+    return winners, share
+
+
 async def award_round_winners(db: AsyncSession, game: Match, round_num: int) -> None:
     """At end of a round, award fractional round-wins to the top scorers.
 
-    Updates total_round_wins and total_round_score on each player.
+    Updates total_round_wins and total_round_score on each player. Who wins and
+    what each winner's share is comes from :func:`round_award` — the same
+    function the replay's standings rail runs over history, so the two can't
+    drift apart.
 
     Idempotent: a mid-game restart resumes the loop at the last turn of the
     round it died on, re-opens that already-resolved turn, and would call this
@@ -74,13 +103,12 @@ async def award_round_winners(db: AsyncSession, game: Match, round_num: int) -> 
         .all()
     )
 
-    top = max((p.current_round_score for p in players), default=0)
-    winners = [p for p in players if p.current_round_score == top]
-    share = 1.0 / len(winners) if winners else 0
+    winner_ids, share = round_award({p.id: p.current_round_score for p in players})
+    winners = set(winner_ids)
 
-    for w in winners:
-        w.total_round_wins += share
     for p in players:
+        if p.id in winners:
+            p.total_round_wins += share
         p.total_round_score += p.current_round_score
 
     game.rounds_awarded = round_num
