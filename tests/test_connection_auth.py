@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import secrets
 from collections.abc import AsyncIterator
 from datetime import datetime, timezone
@@ -214,6 +215,45 @@ async def test_missing_and_invalid_key_reject(
     )
     assert invalid.status_code == 401
     assert invalid.json()["detail"]["error"]["code"] == "INVALID_KEY"
+
+
+async def test_rejected_key_is_named_in_the_log_but_never_disclosed(
+    client: AsyncClient,
+    session_factory: async_sessionmaker[AsyncSession],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A failed auth may identify the key it rejected; it may not leak any of it.
+
+    Both rejection branches used to log ``x_connection_key[:11]``. ``sk_conn_`` is
+    a fixed 8 characters, so that published three characters of the live secret on
+    every failed attempt while telling the reader nothing the fixed prefix hadn't
+    already. Only the last 4 may appear — the same hint stored on the connection
+    and shown to its owner, which is what lets someone match a log line to a key
+    they can actually see.
+    """
+    await _seed_connection(session_factory)
+    # Deterministic bodies. The secret half of each key is one repeated character,
+    # so "a fragment of the secret" can be asserted without a random hex run
+    # colliding with an ordinary English word in the log message.
+    bad_prefix_key = "sk_xxxx_" + "c" * 44 + "beef"
+    unknown_key = "sk_conn_" + "a" * 44 + "d0d0"
+
+    for key in (bad_prefix_key, unknown_key):
+        caplog.clear()
+        with caplog.at_level(logging.WARNING, logger="app.deps"):
+            response = await client.get(
+                "/api/agent/next-turn", headers={"X-Connection-Key": key}
+            )
+        assert response.status_code == 401
+
+        secret = key[8:-4]  # between the fixed prefix and the public 4-char hint
+        logged = "\n".join(record.getMessage() for record in caplog.records)
+        assert logged, "a rejected key should still be logged"
+        assert key not in logged
+        assert key[:11] not in logged  # the exact bug: prefix + 3 secret characters
+        assert secret not in logged
+        assert secret[:3] not in logged
+        assert key[-4:] in logged  # still identifiable by its non-secret hint
 
 
 async def test_paused_connection_rejected(

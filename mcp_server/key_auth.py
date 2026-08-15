@@ -44,7 +44,7 @@ from fastmcp.server.auth.auth import AccessToken
 from sqlalchemy import select
 
 from app.db import SessionLocal
-from app.engine.tokens import bot_key_hint, bot_key_lookup
+from app.engine.tokens import bot_key_lookup, connection_key_log_hint
 from app.models.connection import Connection
 
 logger = logging.getLogger(__name__)
@@ -96,12 +96,12 @@ async def verify_connection_key(
         ).scalar_one_or_none()
 
     if connection is None:
-        # Logs the last 4 chars via the same helper the UI uses, never a prefix
-        # slice: `sk_conn_` is a fixed 8 chars, so `raw_key[:11]` would put three
-        # characters of the live secret into the log on every rejected attempt.
+        # Redacted through the one shared helper (`connection_key_log_hint`), which
+        # both this and the HTTP agent API now use — see its docstring for why a
+        # leading slice is the wrong shape here.
         logger.warning(
             "mcp key auth failed: no live connection for key ending %s",
-            bot_key_hint(raw_key),
+            connection_key_log_hint(raw_key),
         )
         return None
     if not connection.mcp_key_signin_enabled:
