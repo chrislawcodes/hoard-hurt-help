@@ -23,9 +23,11 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from app.config import Settings
 from app.engine import agent_idle
 from app.engine.agent_idle import POLL_IN_PLAY_SECONDS, IdleStatus, pace_idle
 from app.engine.connection_activity import mark_still_holding
+from app.engine.connection_health_badge import LOOP_RUNNING_WINDOW_SECONDS
 from app.models import Base
 from app.models.connection import Connection
 from tests.factories import make_connection, make_user
@@ -125,3 +127,18 @@ async def test_holding_refreshes_liveness_without_counting_a_second_call(
         )).total_seconds() < 30
         # The cost signal is untouched.
         assert refreshed.api_call_count == 7
+
+
+def test_loop_running_window_exceeds_the_default_long_poll_hold() -> None:
+    """``LOOP_RUNNING_WINDOW_SECONDS`` must comfortably outlast one hold-and-
+    return cycle, or a busy agent polling right at the hold's edge reads as
+    stopped — see the comment above ``LOOP_RUNNING_WINDOW_SECONDS`` in
+    app/engine/connection_health_badge.py.
+
+    Checks DEFAULTS only: ``agent_long_poll_hold_seconds`` can be raised per
+    deployment (production runs 90) without this test moving, so this pins the
+    baseline relationship and documents it for whoever next tunes the setting —
+    if the margin gets too tight, widen the window too.
+    """
+    default_hold_seconds = Settings.model_fields["agent_long_poll_hold_seconds"].default
+    assert LOOP_RUNNING_WINDOW_SECONDS > default_hold_seconds

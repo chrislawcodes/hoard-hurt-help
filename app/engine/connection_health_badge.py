@@ -26,8 +26,15 @@ from app.models.turn import Turn, TurnSubmission
 LIVE_WINDOW_SECONDS = 90
 _HEARTBEAT_THROTTLE_SECONDS = 10
 # How recently the AI must have polled get_next_turn to count as "loop running".
-# Generous: covers the ~25s long-poll hold PLUS an LLM's think-and-submit gap
-# between polls, so a busy agent is never mistaken for a stopped one.
+# Must comfortably exceed the CONFIGURED long-poll hold — see
+# `agent_long_poll_hold_seconds` in app/config.py, read into
+# `agent_idle.LONG_POLL_HOLD_SECONDS` (40 by default, 90 in production) — plus
+# an LLM's think-and-submit gap between polls, so a busy agent polling right at
+# the hold's edge is never mistaken for a stopped one.
+# tests/test_hold_measurement_settings.py pins that this window beats the
+# setting's default. This used to hardcode "the ~25s long-poll hold" — exactly
+# the kind of second, independently-drifting copy this fix removes (see
+# mcp_server/mcp_tools.py for the same fix applied to the tool description).
 LOOP_RUNNING_WINDOW_SECONDS = 120
 
 
