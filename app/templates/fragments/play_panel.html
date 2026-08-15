@@ -56,7 +56,7 @@
                      {% if play_action == "HELP" %}checked{% endif %}>
               <span class="ac-name">Help</span>
               <span class="ac-payoff">+4 them</span>
-              <span class="ac-payoff ac-mutual">+8 mutual</span>
+              <span class="ac-payoff ac-mutual">+{{ play_mutual_help_value }} mutual</span>
             </label>
             <label class="action-card action-card-hurt">
               <input type="radio" name="action" value="HURT"

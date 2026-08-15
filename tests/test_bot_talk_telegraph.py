@@ -22,6 +22,7 @@ from app.engine.bots import (
 from app.engine.bots.phrases import PHRASES, VARIANTS_PER_BUCKET
 from app.engine.bots.signals import _LEADER_WORDS, _OFFER_WORDS, _THREAT_WORDS
 from app.engine.game_records import ActionRecord
+from app.games.hoard_hurt_help.rules import DEFAULT_MUTUAL_HELP_MODE, mutual_help_value
 from app.schemas.agent import ScoreboardRow, TalkMessage
 
 HELP_INTENTS = {"offer_help", "keep_ally", "repay_help", "mend_fences"}
@@ -33,6 +34,12 @@ RALLY_HURT_INTENTS = {"curb_leader"}  # rally the table — carry a leader word
 # A target token that contains none of the signal keywords, so the assertions
 # below test the phrase wording itself rather than the name.
 TOKEN = "Zed"
+# A couple of honest offer_help lines also carry a `{mutual_value}` placeholder
+# (rendered from the match's real mode by `render_phrase`). These tests format
+# the raw templates directly rather than going through `render_phrase`, so they
+# supply a stand-in value themselves — today's platform default, so it stays
+# meaningful rather than an arbitrary filler number.
+MUTUAL_VALUE = mutual_help_value(DEFAULT_MUTUAL_HELP_MODE, 0)
 
 
 def _has(text: str, words: tuple[str, ...]) -> bool:
@@ -83,7 +90,7 @@ def test_every_bucket_has_eight_distinct_variants() -> None:
             assert len(lines) == VARIANTS_PER_BUCKET, (intent, mode, len(lines))
             assert len(set(lines)) == len(lines), f"duplicate line in {intent}/{mode}"
             for template in lines:
-                rendered = template.format(target_name=TOKEN)
+                rendered = template.format(target_name=TOKEN, mutual_value=MUTUAL_VALUE)
                 assert "{" not in rendered and "}" not in rendered, (intent, mode, rendered)
                 assert 0 < len(rendered) <= 200, (intent, mode, rendered)
 
@@ -95,7 +102,7 @@ def test_help_lines_read_as_cooperation() -> None:
     for intent in HELP_INTENTS:
         for mode in ("honest",):
             for template in PHRASES[intent][mode]:
-                text = template.format(target_name=TOKEN)
+                text = template.format(target_name=TOKEN, mutual_value=MUTUAL_VALUE)
                 assert _has(text, _OFFER_WORDS), (intent, mode, text)
                 assert not _has(text, _THREAT_WORDS), (intent, mode, text)
 

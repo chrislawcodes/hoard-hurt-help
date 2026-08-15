@@ -19,6 +19,8 @@ number of distinct lines (the last is a wry robot-pun / dad-joke variant); see
 
 from __future__ import annotations
 
+from app.games.hoard_hurt_help.rules import DEFAULT_MUTUAL_HELP_MODE, mutual_help_value
+
 # The intent every fallback path lands on; it has both modes.
 FALLBACK_INTENT = "play_own_game"
 
@@ -29,12 +31,12 @@ VARIANTS_PER_BUCKET = 9
 PHRASES: dict[str, dict[str, list[str]]] = {
     "offer_help": {
         "honest": [
-            "{target_name}, I'm helping you this turn. Help me back and we both jump +8.",
+            "{target_name}, I'm helping you this turn. Help me back and we both jump +{mutual_value}.",
             "{target_name}, let's pair up — my help lands on you. Match it and we both win.",
             "{target_name}, my help goes to you this turn. Return it and we run this together.",
             "{target_name}, I'm backing you with a help. Send one my way and we're a team.",
             "{target_name}, want a deal? I help you now, you help me next. We both climb.",
-            "{target_name}, you and me — mutual help this turn. +8 each beats hoarding alone.",
+            "{target_name}, you and me — mutual help this turn. +{mutual_value} each beats hoarding alone.",
             "{target_name}, I'm offering a straight trade: my help for yours. Take it?",
             "{target_name}, partner with me this turn. My help's already pointed your way.",
             "{target_name}, team up with me — I help you, you help me. Even a robot can do that math.",
@@ -228,9 +230,20 @@ def render_phrase(
     *,
     seed: int,
     target_name: str | None = None,
+    mutual_value: int | None = None,
 ) -> str:
-    """Render one canonical phrase for an intent and truth mode."""
+    """Render one canonical phrase for an intent and truth mode.
+
+    ``mutual_value`` is what a mutual HELP actually pays each side in the
+    caller's match (``mutual_help_value(context.mutual_help_mode, 0)``). Only
+    a couple of honest ``offer_help`` lines use it; every other phrase ignores
+    the kwarg. Callers that don't know the match's mode (e.g. tests exercising
+    a line's wording) get today's platform default rather than a literal
+    "None" leaking into the rendered line.
+    """
     phrases = PHRASES.get(intent, PHRASES[FALLBACK_INTENT])
     variants = phrases.get(truth_mode, phrases["honest"])
     phrase = variants[seed % len(variants)]
-    return phrase.format(target_name=target_name or "someone")
+    if mutual_value is None:
+        mutual_value = mutual_help_value(DEFAULT_MUTUAL_HELP_MODE, 0)
+    return phrase.format(target_name=target_name or "someone", mutual_value=mutual_value)

@@ -31,7 +31,11 @@ from app.engine.game_records import ActionRecord
 from app.engine.match_creation import create_match
 from app.games import get as get_game_module
 from app.games.hoard_hurt_help.game import HoardHurtHelp
-from app.games.hoard_hurt_help.rules import DEFAULT_MUTUAL_HELP_MODE, MutualHelpMode
+from app.games.hoard_hurt_help.rules import (
+    DEFAULT_MUTUAL_HELP_MODE,
+    MutualHelpMode,
+    mutual_help_value,
+)
 from app.games.hoard_hurt_help.scoring import current_pact_values, resolve_turn
 from app.models import GameState, Match, Player, Turn, TurnSubmission, User
 from app.models.user import UserRole
@@ -251,6 +255,30 @@ async def test_pact_note_off_has_no_decay_words(db):
     assert "decays" in on_state["pact_values_note"].lower()
 
 
+async def test_pact_note_matches_the_payout_for_every_flat_mode(db):
+    """The AC4 note's number must equal mutual_help_value(mode, 0) — not just
+    coincidentally under flat_8 (where the old hardcoded 8 happened to be
+    right), but under every flat mode, including today's default flat_6."""
+    module = get_game_module("hoard-hurt-help")
+
+    for i, mode in enumerate((MutualHelpMode.FLAT_6, MutualHelpMode.FLAT_7)):
+        want = mutual_help_value(mode, 0)
+        game, [a, b] = await _make_match(
+            db, 2, mutual_help_mode=mode.value, match_id=f"G_FLATNOTE_{i}"
+        )
+        t = await _open_turn(db, game, 1)
+        await _submit(db, t, a, "HELP", target=b)
+        await _submit(db, t, b, "HELP", target=a)
+        await resolve_turn(db, t)
+        state = await module.private_state_for(db, game, a)
+        assert state["pact_values"] == {b.seat_name: want}
+        note = state["pact_values_note"]
+        assert f"+{want}" in note, (mode, note)
+        # Guard against the old hardcoded 8 surviving for a mode that isn't 8.
+        if want != 8:
+            assert f"+{8}" not in note, (mode, note)
+
+
 # --- AC3/AC4: bot logic parity (partner fatigue mirrors the scoring decay) ---
 
 
@@ -458,14 +486,19 @@ async def test_legend_on_a_default_rule_match_states_the_default_payout(client, 
     assert "bonus decays each round" not in r.text
 
 
-def test_legend_defaults_to_decay_when_unset():
-    """Match-less/demo pages render the robot-circle markup with no
-    rc_mutual_help_legend — `| default(true)` must keep the ON legend."""
+def test_legend_markup_requires_the_legend_to_be_supplied():
+    """Every include site must pass rc_mutual_help_legend.
+
+    The old `| default("mutual +8 each, bonus decays each round")` fallback
+    quietly lied whenever a render path forgot to wire the variable in — it
+    is gone now, so a missing value must fail the render loudly instead."""
+    import pytest
+    from jinja2 import UndefinedError
+
     from app.templating import templates
 
-    html = templates.env.get_template("fragments/robot_circle/_markup.html").render()
-    assert "mutual +8 each, bonus decays each round" in html
-    assert "every time" not in html
+    with pytest.raises(UndefinedError):
+        templates.env.get_template("fragments/robot_circle/_markup.html").render()
 
 
 def test_legend_markup_off_renders_flat():
@@ -480,17 +513,18 @@ def test_legend_markup_off_renders_flat():
     assert "bonus decays each round" not in html
 
 
-def test_move_legend_is_setting_neutral():
+def test_move_legend_derives_from_the_default_mode():
     """The lobby's general move legend is shown above a showcase replay that may be
-    an OFF match (its own compact legend is CSS-hidden), and above a marquee of
-    live games that can each differ — so it must not promise decay. It states the
-    +8 headline only, correct under both settings."""
+    a different match's own mode, and above a marquee of live games that can each
+    differ — so it has no one match to read a mode from. It states what a NEW
+    match plays (DEFAULT_MUTUAL_HELP_MODE), rendered through mutual_help_legend
+    rather than a hand-typed number that can drift from the real default."""
+    from app.games.hoard_hurt_help.rules import mutual_help_legend
     from app.templating import templates
 
     html = templates.env.get_template("fragments/move_legend.html").render()
-    assert "mutual +8 each" in html
-    assert "decays" not in html
-    assert "every time" not in html
+    assert mutual_help_legend(DEFAULT_MUTUAL_HELP_MODE) in html
+    assert "mutual +8 each" not in html
 
 
 async def test_showcase_mutual_help_mode_helper(db):
@@ -504,6 +538,18 @@ async def test_showcase_mutual_help_mode_helper(db):
     assert await showcase_mutual_help_mode(db, on_game.id) == "decay"
     assert await showcase_mutual_help_mode(db, off_game.id) == "flat_8"
     assert await showcase_mutual_help_mode(db, "G_MISSING") == "decay"  # missing row → default
+
+
+async def test_lobby_showcase_supplies_the_robot_circle_legend(client, reset_db):
+    """The per-game lobby's showcase robot-circle (no live game — the front
+    page's sibling render path) must pass rc_mutual_help_legend the same way
+    web_front_page.py already does. This was the audit's "known gap"
+    (web_lobby.py passed rc_data but not the legend) — now that the markup's
+    `| default(...)` fallback is gone, a missed context key would 500 the
+    whole lobby instead of quietly showing a stale number."""
+    r = await client.get("/games/hoard-hurt-help")
+    assert r.status_code == 200
+    assert "mutual +" in r.text and "each" in r.text
 
 
 # --- The modes added alongside decay/flat_8 -----------------------------------
@@ -752,3 +798,23 @@ async def test_admin_form_preselects_the_default_mode(client, reset_db):
         if f'value="{mode.value}" selected' in r.text
     ]
     assert selected == [DEFAULT_MUTUAL_HELP_MODE.value]
+
+
+async def test_admin_form_offers_every_mode(client, reset_db):
+    """The picker's options come from iterating MutualHelpMode (matches_user.py
+    `_mutual_help_choices`), not a hand-typed list — so every current member is
+    offered, and a future member would appear with no template edit. The
+    preselect test above only checks that exactly one option is selected; this
+    checks the full option set is actually there to select from."""
+    admin = await _seed_form_user(reset_db, i=93, role=UserRole.ADMIN)
+    r = await client.get(
+        "/games/hoard-hurt-help/matches/new",
+        cookies=_form_cookies(admin.id),
+    )
+    assert r.status_code == 200
+
+    for mode in MutualHelpMode:
+        assert f'value="{mode.value}"' in r.text, mode
+        # Each option's label states its own real payout (mutual_help_legend),
+        # not a hand-typed number that could drift from it.
+        assert f"+{mutual_help_value(mode, 0)}" in r.text, mode

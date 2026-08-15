@@ -6,6 +6,7 @@ from dataclasses import replace
 from typing import Sequence
 
 from app.engine.bots.signals import TalkSignal
+from app.games.hoard_hurt_help.rules import mutual_help_value
 from app.models.agent import Agent, AgentKind
 from app.schemas.agent import ScoreboardRow
 
@@ -133,6 +134,7 @@ def choose_bot_talk_decision(context: BotContext, profile: BotProfile) -> BotTal
         truth_mode,
         seed=_seed_int(profile, context, talk_intent),
         target_name=target,
+        mutual_value=mutual_help_value(context.mutual_help_mode, 0),
     )
     thinking = _thinking(profile, context, plan, truth_mode, trust_map)
     return BotTalkDecision(

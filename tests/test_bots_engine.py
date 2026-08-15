@@ -87,6 +87,25 @@ def test_render_phrase_without_target_falls_back_to_someone() -> None:
     assert len(message) > 0
 
 
+def test_render_phrase_templates_the_mutual_value() -> None:
+    # seed=0 and seed=5 pick the two honest offer_help lines that state the
+    # mutual-pact payout (phrases.py, PR #669 follow-up) — they must show the
+    # caller's real number, never a leftover "None" or a stale hardcoded 8.
+    for seed in (0, 5):
+        message = render_phrase("offer_help", "honest", seed=seed, mutual_value=6)
+        assert "+6" in message
+        assert "None" not in message
+        assert "+8" not in message
+
+
+def test_render_phrase_defaults_the_mutual_value_when_omitted() -> None:
+    # A caller that doesn't know the match's mode (e.g. a test exercising a
+    # line's wording) must still get a real number, not a leaked "None".
+    message = render_phrase("offer_help", "honest", seed=0)
+    assert "None" not in message
+    assert "+6" in message  # today's platform default (flat_6)
+
+
 def test_telegraph_lines_name_the_target() -> None:
     # Honest lines that address a specific player name them. HELP invites the
     # target, hit_back/block_rival warn them, and curb_leader names the leader

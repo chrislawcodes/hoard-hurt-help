@@ -20,6 +20,7 @@ from app.aware_datetime import ensure_aware
 from app.deps import DbSession, get_current_user
 from app.engine.user_match_start import viewer_start_eligibility
 from app.games import get as get_game_module
+from app.games.hoard_hurt_help.rules import mutual_help_value
 from app.models.agent import Agent, AgentKind
 from app.models.agent_version import AgentVersion
 from app.models.match import GameState, Match, MatchKind
@@ -545,6 +546,11 @@ async def _build_human_play_context(
         "play_last_label": None,
         "waiting_on": None,
         "message_max": MESSAGE_MAX_LENGTH,
+        # The Help action card's "+N mutual" hint. Always this match's own
+        # mode (not the platform default) — a per-match setting, so it comes
+        # from `match.mutual_help_mode`, computed unconditionally since it
+        # doesn't depend on any turn being open.
+        "play_mutual_help_value": mutual_help_value(match.mutual_help_mode, 0),
     }
     if match.state != GameState.ACTIVE:
         return base
