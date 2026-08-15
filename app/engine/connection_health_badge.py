@@ -79,18 +79,26 @@ class ConnectionHealth(str, enum.Enum):
     DISCONNECTED = "disconnected"
 
 
-_HEALTH_PRESENTATION: dict[ConnectionHealth, tuple[str, str, bool]] = {
-    ConnectionHealth.PAUSED: ("Paused", "badge-done", False),
-    ConnectionHealth.STALLED: ("Stalled", "badge-alert", True),
-    ConnectionHealth.LIVE: ("Live", "badge-ok", True),
-    ConnectionHealth.READY: ("Ready", "badge-ok", False),
-    ConnectionHealth.DISCONNECTED: ("Disconnected", "badge-alert", False),
+# (label, badge_class, pulse, still_dot) per state. ``pulse`` animates the dot;
+# ``still_dot`` shows a steady one. Both are decided here, in Python, because a
+# template that re-derived "is this the steady-dot state?" from the state value
+# is exactly how the badge drifted between pages.
+_HEALTH_PRESENTATION: dict[ConnectionHealth, tuple[str, str, bool, bool]] = {
+    ConnectionHealth.PAUSED: ("Paused", "badge-done", False, False),
+    ConnectionHealth.STALLED: ("Stalled", "badge-alert", True, False),
+    ConnectionHealth.LIVE: ("Live", "badge-ok", True, False),
+    ConnectionHealth.READY: ("Ready", "badge-ok", False, True),
+    ConnectionHealth.DISCONNECTED: ("Disconnected", "badge-alert", False, False),
 }
 
 
 @dataclass(frozen=True)
 class ConnectionHealthStatus:
-    """Resolved connection health plus the metadata rendered in the badge."""
+    """Resolved connection health plus the metadata rendered in the badge.
+
+    ``pulse`` and ``still_dot`` are the badge's two dot modes, decided here so
+    ``app/templates/fragments/_badge.html`` only ever renders fields.
+    """
 
     state: ConnectionHealth
     label: str
@@ -100,6 +108,7 @@ class ConnectionHealthStatus:
     never_connected: bool
     last_connected_at: datetime | None
     last_connected_human: str | None
+    still_dot: bool = False
     match_id: str | None = None
     game_name: str | None = None
     agent_count: int = 0
@@ -127,13 +136,25 @@ class CalmConnectionStatus:
 def calm_connection_status(
     state: ConnectionHealth, *, is_mcp: bool, never_connected: bool = False
 ) -> CalmConnectionStatus:
-    """Calm, type-aware presentation for one connection on the inventory list.
+    """Calm, type-aware presentation for one connection — the ONLY one.
 
     MCP (the AI chat app) rests as "Idle" — normal, grey, no nudge to fix. A
     machine helper rests as "Asleep" with a gentle restart nudge, because a
     background service meant to run 24/7 being off IS worth acting on. A
     connection that never finished connecting reads as a neutral "Not connected
     yet". Only a genuinely stalled connection shows red.
+
+    This used to dress only the inventory *list*, while the connection detail
+    page and its 15s badge poll rendered the raw ``_HEALTH_PRESENTATION`` words
+    straight from ``compute_connection_health``. The same connection therefore
+    read two ways depending on which page you were on — clearest in the
+    never-connected case, where the list said a grey "Not connected yet" and the
+    detail page an amber "Waiting to connect" (and then repeated the phrase in
+    the meta line beside it), but present at every idle state too ("Idle" vs a
+    red "Disconnected"). The detail page now maps through here as well, so a
+    state can only look one way. The calm wording won because it is the
+    deliberate, documented design: the raw badge's red for a normally-idle MCP
+    client misreads as a fault, and red is reserved for a real problem.
     """
     if never_connected:
         return CalmConnectionStatus(
@@ -221,7 +242,7 @@ async def compute_connection_health(
         agent_count: int = 0,
         needs_reconnect: bool = False,
     ) -> ConnectionHealthStatus:
-        label, badge_class, pulse = _HEALTH_PRESENTATION[state]
+        label, badge_class, pulse, still_dot = _HEALTH_PRESENTATION[state]
         return ConnectionHealthStatus(
             state=state,
             label=label,
@@ -231,6 +252,7 @@ async def compute_connection_health(
             never_connected=never_connected,
             last_connected_at=last_connected_at,
             last_connected_human=last_connected_human,
+            still_dot=still_dot,
             match_id=game.id if game else None,
             game_name=game.name if game else None,
             agent_count=agent_count,

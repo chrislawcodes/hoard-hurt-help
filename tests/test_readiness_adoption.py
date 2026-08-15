@@ -6,8 +6,9 @@ Covers:
     the page-load (GET /me/connections) and the poll (GET /me/connections/live-status)
     paths; NO_MCP_CONNECTION does NOT auto-forward.
   - agents_list badge: stale/absent mcp_connected_at → "no live connection";
-    recent-but-not-seen mcp_connected_at → also "no live connection"; only a
-    live connection (SEEN_NOT_POLLING or better) → "ready".
+    recent-but-not-seen mcp_connected_at → also "no live connection";
+    seen-but-not-polling → "not playing yet"; only a running play loop (LIVE)
+    → "ready".
   - agents_detail: readiness reflects the signal for live / set-up /
     needs-connecting states.
   - confirm_seat_if_live ↔ resolver LIVE parity: across all four ProviderReadiness
@@ -329,7 +330,13 @@ async def test_connections_poll_no_forward_when_no_mcp_connection(
 # Stale/absent mcp_connected_at (100+ days) → NO_MCP_CONNECTION → "no live connection".
 # Recent mcp_connected_at but never seen live → CONNECTED_NOT_LIVE → also
 # "no live connection".
-# Recent mcp_connected_at and seen inside the live window → SEEN_NOT_POLLING → "ready".
+# Recent mcp_connected_at and seen inside the live window → SEEN_NOT_POLLING →
+# "not playing yet" (amber). CHANGED: this rung used to badge a green "Ready".
+# It is the split the badge-vs-join-picker unification resolved — the join
+# picker already ranked the same provider below ready as "idle", and every gate
+# that decides whether play can happen (seat_hold.confirm_seat_if_live, the join
+# seat gate, the seat-connect wait page, the nav resolver) refuses this rung.
+# Only a running play loop (LIVE) is "ready" now.
 #
 # These three tests used to restate the list page's own badge formula inline
 # (`needs_connecting = readiness == NO_MCP_CONNECTION`) instead of calling the
@@ -397,10 +404,21 @@ async def test_agents_list_badge_needs_connecting_when_connected_not_live(
     assert status.needs_reconnect is True
 
 
-async def test_agents_list_badge_ready_when_seen_not_polling(
+async def test_agents_list_badge_not_playing_yet_when_seen_not_polling(
     db_session: AsyncSession,
 ) -> None:
-    """Agent with recent mcp_connected_at and recent last_seen_at → SEEN_NOT_POLLING → ready."""
+    """Recent mcp_connected_at + recent last_seen_at → SEEN_NOT_POLLING → not ready.
+
+    CHANGED (was ``..._ready_when_seen_not_polling``, asserting READY /
+    needs_reconnect False). The rung means "signed in, play loop not running":
+    ``last_seen_at`` is bumped by any authenticated call including a bare
+    handshake, while ``last_polled_at`` — the stamp LIVE keys on — only advances
+    while the AI is polling for turns. A turn is only handed out inside a poll,
+    so nothing picks this agent's turn up, and
+    ``seat_hold.confirm_seat_if_live`` (below in this file) already refuses to
+    confirm a seat here. The badge said "Ready" anyway, which is the split this
+    encodes the resolution of.
+    """
     user = await make_user(db_session, 202)
     await _make_mcp_connection(
         db_session,
@@ -415,8 +433,11 @@ async def test_agents_list_badge_ready_when_seen_not_polling(
     readiness = await provider_readiness(db_session, user.id, ConnectionProvider.CLAUDE)
     assert readiness == ProviderReadiness.SEEN_NOT_POLLING
     status = readiness_health_status(readiness, AgentStatus.ACTIVE)
-    assert status.state == ConnectionHealth.READY
-    assert status.needs_reconnect is False
+    assert status.state == ConnectionHealth.DISCONNECTED
+    # Its own amber words, not the red pair's "No live connection": at this rung
+    # the client genuinely IS connected — it just isn't playing.
+    assert status.label == "Not playing yet"
+    assert status.badge_class == "badge-soon"
 
 
 # ---------------------------------------------------------------------------
@@ -454,10 +475,15 @@ async def test_agents_detail_ready_when_live(
     assert health["needs_reconnect"] is False
 
 
-async def test_agents_detail_ready_when_seen_not_polling(
+async def test_agents_detail_not_playing_yet_when_seen_not_polling(
     db_session: AsyncSession,
 ) -> None:
-    """SEEN_NOT_POLLING provider → health.state == READY on detail page."""
+    """SEEN_NOT_POLLING provider → not READY on the detail page either.
+
+    CHANGED (was ``..._ready_when_seen_not_polling``, asserting READY). The
+    detail page reads the same mapping as the list, so it moves with it — see
+    the list-side test above for why the rung is not ready.
+    """
     user = await make_user(db_session, 301)
     await _make_mcp_connection(
         db_session,
@@ -478,8 +504,8 @@ async def test_agents_detail_ready_when_seen_not_polling(
     ctx = await _build_agent_detail_context(db_session, mock_request, user, agent)
     health = ctx["health"]
     assert isinstance(health, dict)
-    assert health["state"] == ConnectionHealth.READY
-    assert health["needs_reconnect"] is False
+    assert health["state"] == ConnectionHealth.DISCONNECTED
+    assert health["label"] == "Not playing yet"
 
 
 async def test_agents_detail_disconnected_when_connected_not_live(

@@ -1,0 +1,19 @@
+{#- The ONE readiness/health badge element. Every page that shows a connection's
+    or an agent's status renders through this partial, so a given state can only
+    ever look one way. Include it with the presenter object bound to `badge`:
+
+      {% with badge = row.health %}{% include "fragments/_badge.html" %}{% endwith %}
+
+    `badge` needs four fields — `label`, `badge_class`, `pulse`, `still_dot` —
+    which every readiness presenter supplies (ConnectionHealthStatus, its plain
+    -dict form from `health_view`, and CalmConnectionStatus).
+
+    `pulse` (animated dot) and `still_dot` (steady dot) are PRESENTER fields on
+    purpose. A template must never work them out from a state value: doing that
+    in two places is how the agent list and the agent detail page ended up
+    rendering the same agent differently. Same for the `badge` base class — it is
+    hard-coded here so no caller can forget it, as `agents/_status.html` did.
+
+    The pulse is the existing `.dot` animation (`hhh-pulse` in app/static/style.css);
+    there is no second one. -#}
+<span class="badge {{ badge.badge_class }}">{% if badge.pulse %}<span class="dot"></span>{% elif badge.still_dot %}<span class="dot dot-still"></span>{% endif %}{{ badge.label }}</span>

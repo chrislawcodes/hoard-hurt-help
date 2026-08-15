@@ -17,7 +17,9 @@ from app.deps import DbSession
 from app.engine.connection_health import (
     ConnectionHealth,
     ConnectionHealthStatus,
+    PlayVerdict,
     ProviderReadiness,
+    play_verdict,
 )
 from app.models.agent import Agent, AgentStatus
 from app.models.agent_version import AgentVersion
@@ -39,16 +41,35 @@ def readiness_health_status(
     detail page — the list telling the user their agent would play when nothing
     could pick up its turn.
 
+    The ready / not-ready call is not made here: it is
+    ``play_verdict(readiness)``, the one verdict the join picker
+    (``app/routes/web_join.py``) reads too, so the same provider can no longer be
+    "Ready" on ``/me/agents`` and ranked below ready on the join screen. Only
+    ``PlayVerdict.READY`` (i.e. ``ProviderReadiness.LIVE``) is green.
+
+    **``SEEN_NOT_POLLING`` is not "Ready" any more.** It means the client has
+    been *seen* — any authenticated call, a bare sign-in handshake included —
+    but has not polled for a turn. A turn is only ever handed out inside a poll,
+    so nothing picks one up at this rung. Every gate that decides whether play
+    can happen already agrees: a seat joined at this rung is *held*, not
+    confirmed, and is deleted when the hold expires
+    (``app/engine/seat_hold.py``); the seat-connect screen keeps it on the
+    "start your AI" wait page; the nav resolver maps it to ``NEEDS_LIVE``. See
+    ``play_verdict`` for the full derivation.
+
+    The badge words, per rung:
+
     - A ``PAUSED`` agent shows "Paused" regardless of readiness, so the detail
       page's dedicated paused card keeps owning that state.
-    - ``NO_MCP_CONNECTION`` and ``CONNECTED_NOT_LIVE`` both read as
-      "No live connection". ``CONNECTED_NOT_LIVE`` means the provider has a
-      current MCP or machine setup but has not been *seen* live — the same rung
-      the seat-hold page (``app/routes/web_seat_connect.py``), the join gate
-      (``app/routes/web_join.py``), and the nav play-setup resolver
-      (``app/routes/nav_context.py``) all already refuse to treat as ready.
-    - ``SEEN_NOT_POLLING`` and ``LIVE`` are "Ready": a live connection covers the
-      provider, so a turn can actually be served.
+    - ``NO_MCP_CONNECTION`` and ``CONNECTED_NOT_LIVE`` read "No live connection"
+      in red — unchanged from PR #644.
+    - ``SEEN_NOT_POLLING`` reads "Not playing yet" in amber. It gets its own
+      words rather than joining the red pair, because at this rung the client
+      genuinely *is* connected — the connect page says so and moves the user on
+      — so "No live connection" would be a fresh lie in the other direction.
+      Amber is the repo's existing "needs a nudge, not broken" colour.
+    - ``LIVE`` reads "Ready" in green with a steady dot: an AI is looping, so a
+      turn gets picked up now.
     """
     if agent_status == AgentStatus.PAUSED:
         return ConnectionHealthStatus(
@@ -60,31 +81,42 @@ def readiness_health_status(
             never_connected=False,
             last_connected_at=None,
             last_connected_human=None,
+            still_dot=False,
         )
-    if readiness in (
-        ProviderReadiness.NO_MCP_CONNECTION,
-        ProviderReadiness.CONNECTED_NOT_LIVE,
-    ):
+    if play_verdict(readiness) is PlayVerdict.READY:
         return ConnectionHealthStatus(
-            state=ConnectionHealth.DISCONNECTED,
-            label="No live connection",
-            badge_class="badge-alert",
+            state=ConnectionHealth.READY,
+            label="Ready",
+            badge_class="badge-ok",
             pulse=False,
-            needs_reconnect=True,
-            never_connected=True,
+            needs_reconnect=False,
+            never_connected=False,
             last_connected_at=None,
             last_connected_human=None,
+            still_dot=True,
         )
-    # SEEN_NOT_POLLING or LIVE → ready to accept matches.
+    if readiness is ProviderReadiness.SEEN_NOT_POLLING:
+        return ConnectionHealthStatus(
+            state=ConnectionHealth.DISCONNECTED,
+            label="Not playing yet",
+            badge_class="badge-soon",
+            pulse=False,
+            needs_reconnect=True,
+            never_connected=False,
+            last_connected_at=None,
+            last_connected_human=None,
+            still_dot=False,
+        )
     return ConnectionHealthStatus(
-        state=ConnectionHealth.READY,
-        label="Ready",
-        badge_class="badge-ok",
+        state=ConnectionHealth.DISCONNECTED,
+        label="No live connection",
+        badge_class="badge-alert",
         pulse=False,
-        needs_reconnect=False,
-        never_connected=False,
+        needs_reconnect=True,
+        never_connected=True,
         last_connected_at=None,
         last_connected_human=None,
+        still_dot=False,
     )
 
 
@@ -102,6 +134,7 @@ def health_view(status: ConnectionHealthStatus) -> dict[str, object]:
         "label": status.label,
         "badge_class": status.badge_class,
         "pulse": status.pulse,
+        "still_dot": status.still_dot,
         "needs_reconnect": status.needs_reconnect,
         "never_connected": status.never_connected,
         "last_connected_at": status.last_connected_at,

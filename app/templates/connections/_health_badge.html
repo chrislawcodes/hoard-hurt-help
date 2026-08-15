@@ -1,6 +1,13 @@
-{# Connection operational-health badge. #}
-{% if connection.status.value == 'pending' and health.never_connected %}
-<span class="badge badge-soon"><span class="dot dot-still"></span>Waiting to connect</span><span class="bot-health-meta"> · waiting to connect</span>
-{% else %}
-<span class="badge {{ health.badge_class }}">{% if health.pulse %}<span class="dot"></span>{% elif health.state.value == 'ready' %}<span class="dot dot-still"></span>{% endif %}{{ health.label }}</span><span class="bot-health-meta">{% if health.never_connected %} · never connected{% else %} · last seen <time datetime="{{ health.last_connected_at.isoformat() }}" title="{{ health.last_connected_at.strftime('%Y-%m-%d %H:%M:%S UTC') }}">{{ health.last_connected_human }}</time>{% endif %}</span>
-{% endif %}
+{# Connection health badge + its "last seen" meta. `badge` is the calm status the
+   route resolved (app/engine/connection_health_badge.py: calm_connection_status)
+   — the SAME presenter the connections list uses, so a connection reads the same
+   on both pages. This fragment used to render the raw health words instead, and
+   special-cased "never connected" into an amber "Waiting to connect" that the
+   list showed as a grey "Not connected yet". `health` is still read, for the
+   timestamps only.
+
+   A connection that has never connected gets no meta line: the badge already
+   says so, and printing " · never connected" straight after "Not connected yet"
+   just said it twice — which is what the old "Waiting to connect · waiting to
+   connect" row did. The list page already omitted it here too. #}
+{% include "fragments/_badge.html" %}{% if not health.never_connected %}<span class="bot-health-meta"> · last seen <time datetime="{{ health.last_connected_at.isoformat() }}" title="{{ health.last_connected_at.strftime('%Y-%m-%d %H:%M:%S UTC') }}">{{ health.last_connected_human }}</time></span>{% endif %}

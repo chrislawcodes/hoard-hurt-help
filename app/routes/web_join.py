@@ -14,6 +14,7 @@ from app.config import settings
 from app.deps import DbSession, get_current_user, require_user_with_handle
 from app.engine.connection_health import (
     ProviderReadiness,
+    play_verdict,
     provider_readiness,
     providers_busy_for_user,
 )
@@ -65,6 +66,9 @@ async def _build_ai_options(
 
     States: ``ready`` (live, plays now), ``idle`` (connected but not running yet),
     and ``not_connected`` (no MCP connection — picking routes to set it up).
+    They come from ``play_verdict`` — the one readiness→verdict mapping the agent
+    pages read too, so the same AI can't be "Ready" on ``/me/agents`` and ranked
+    below ready here. The grouping is unchanged; it just isn't restated locally.
 
     Already holding a seat is *not* a state, and is deliberately not shown. One AI
     can field several agents at once (the client runs a play loop per ``agent_id``,
@@ -79,15 +83,7 @@ async def _build_ai_options(
         if value not in _ACTIVE:
             continue
         readiness = await provider_readiness(db, user_id, ConnectionProvider(value))
-        if readiness == ProviderReadiness.LIVE:
-            state = "ready"
-        elif readiness in (
-            ProviderReadiness.SEEN_NOT_POLLING,
-            ProviderReadiness.CONNECTED_NOT_LIVE,
-        ):
-            state = "idle"
-        else:
-            state = "not_connected"
+        state = play_verdict(readiness).value
         options.append(
             {
                 "provider": value,

@@ -1055,8 +1055,15 @@ async def test_detail_shows_when_connection_last_connected(
 async def test_never_connected_shows_no_last_connected_time(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
-    """A connection that has never checked in reads 'never connected', not a
-    bogus timestamp."""
+    """A connection that has never checked in says so, without a bogus timestamp.
+
+    CHANGED: the assertion was ``"never connected" in r.text`` — a meta line the
+    badge printed straight after itself. The detail badge used to read an amber
+    "Waiting to connect · waiting to connect" while the connections LIST showed
+    the same connection a calm grey "Not connected yet". Both pages now render
+    the one calm presenter, and it says it once. The point of the test is
+    unchanged: never-connected is stated, and no fake "last seen" time appears.
+    """
     async with session_factory() as db:
         user = await make_user(db)
         connection, _ = await make_connection(db, user, provider=ConnectionProvider.CLAUDE)
@@ -1069,8 +1076,9 @@ async def test_never_connected_shows_no_last_connected_time(
         f"/me/connections/{conn_id}", cookies=_signed_in_cookies(user.id)
     )
     assert r.status_code == 200
-    assert "never connected" in r.text
+    assert "Not connected yet" in r.text
     assert "Last seen" not in r.text  # the precise status-card line is hidden
+    assert "last seen" not in r.text  # ...and no relative time in the badge meta
 
 
 async def test_ready_status_copy_is_honest_about_staleness(

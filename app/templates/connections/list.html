@@ -117,7 +117,7 @@
             {% for ai in mcp_providers %}
             <li>
                 <a class="connection-ai-name" href="/me/connections/{{ ai.connection_id }}">{{ ai.label }}</a>
-                <span class="badge {{ ai.status.badge_class }}">{% if ai.status.pulse %}<span class="dot"></span>{% elif ai.status.still_dot %}<span class="dot dot-still"></span>{% endif %}{{ ai.status.label }}</span>
+                {% with badge = ai.status %}{% include "fragments/_badge.html" %}{% endwith %}
                 <span class="meta">{% if ai.status.note %}{{ ai.status.note }}{% if not ai.health.never_connected %} · {% endif %}{% endif %}{% if not ai.health.never_connected %}last seen {{ ai.health.last_connected_human }}{% endif %}</span>
             </li>
             {% endfor %}
@@ -134,7 +134,7 @@
                 {% if m.available_ais %}AIs ready here: <strong>{{ m.available_ais | join(', ') }}</strong>{% else %}No AIs detected on this machine yet.{% endif %}
             </p>
             <p class="meta" style="margin:0;">
-                <span class="badge {{ m.status.badge_class }}">{% if m.status.pulse %}<span class="dot"></span>{% elif m.status.still_dot %}<span class="dot dot-still"></span>{% endif %}{{ m.status.label }}</span>
+                {% with badge = m.status %}{% include "fragments/_badge.html" %}{% endwith %}
                 {% if m.status.note %} {{ m.status.note }}{% endif %}{% if not m.health.never_connected %} · last seen {{ m.health.last_connected_human }}{% endif %}
             </p>
         </div>

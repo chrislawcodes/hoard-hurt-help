@@ -50,9 +50,12 @@ from app.engine.join_gate_capacity import (
 from app.engine.provider_readiness import (
     MCP_CONNECTION_PROVIDERS,
     MCP_CONNECTION_VALID_DAYS,
+    READINESS_RANK,
+    PlayVerdict,
     ProviderReadiness,
     _provider_connections_query,
     enabled_provider_values,
+    play_verdict,
     provider_enabled_on_any_connection,
     provider_has_current_setup,
     provider_has_live_current_setup,
@@ -94,6 +97,9 @@ __all__ = [
     "provider_loop_running",
     "ProviderReadiness",
     "provider_readiness",
+    "READINESS_RANK",
+    "PlayVerdict",
+    "play_verdict",
     "enabled_provider_values",
     "user_play_readiness",
     # Join-gate capacity.

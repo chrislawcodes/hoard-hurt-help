@@ -118,11 +118,19 @@ async def _make_connection(
     max_concurrent_games: int = 3,
     last_seen_at: datetime | None = None,
     first_connected_at: datetime | None = None,
+    last_polled_at: datetime | None = None,
 ) -> Connection:
     """Seed a connection, deriving `mcp_connected_at` the way a real MCP sign-in
     would: set for the providers that only connect via MCP, left null otherwise.
     `tests.factories.make_connection` has no opinion on that derivation, so it
-    stays a thin wrapper here rather than a plain re-export."""
+    stays a thin wrapper here rather than a plain re-export.
+
+    `last_polled_at` defaults to `last_seen_at`: this file's "warm" fixtures mean
+    an agent that can actually play, and since the badge stopped calling
+    SEEN_NOT_POLLING "Ready", that takes the play-loop heartbeat and not just a
+    recent sighting. A cold `last_seen_at` stays cold, so the not-live fixtures
+    below are unaffected. Pass it explicitly to seed seen-but-not-polling.
+    """
     mcp_connected_at = (
         (first_connected_at or last_seen_at)
         if provider in {ConnectionProvider.CLAUDE, ConnectionProvider.OPENAI, ConnectionProvider.GEMINI}
@@ -138,6 +146,8 @@ async def _make_connection(
         first_connected_at=first_connected_at,
         mcp_connected_at=mcp_connected_at,
     )
+    connection.last_polled_at = last_polled_at or last_seen_at
+    await db.flush()
     return connection
 
 

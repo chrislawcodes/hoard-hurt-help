@@ -20,7 +20,10 @@ from app.config import PROVIDER_MODELS, settings
 from app.deps import DbSession, require_user_with_handle
 from app.game_types import DEFAULT_GAME_TYPE
 from app.engine.connection_health import (
+    CalmConnectionStatus,
+    ConnectionHealthStatus,
     ProviderReadiness,
+    calm_connection_status,
     compute_connection_health,
     provider_readiness,
 )
@@ -58,6 +61,25 @@ _PROVIDER_CLIENT_IDS = {
     ConnectionProvider.GEMINI.value: "gemini",
     ConnectionProvider.OPENAI.value: "codex",
 }
+
+
+def _connection_badge(
+    connection: Connection, health: ConnectionHealthStatus
+) -> CalmConnectionStatus:
+    """The badge presenter for one connection, on every page that shows it.
+
+    The connections list already dressed its rows with ``calm_connection_status``
+    while the detail page and its 15s badge poll rendered the raw health words —
+    so the same connection read two ways depending on the page. All three go
+    through here now. An MCP connection is one that signed in over OAuth
+    (``mcp_connected_at`` set); anything else is a machine helper, and the calm
+    wording differs between the two.
+    """
+    return calm_connection_status(
+        health.state,
+        is_mcp=connection.mcp_connected_at is not None,
+        never_connected=health.never_connected,
+    )
 
 
 def _normalized_provider_hint(provider: str | None) -> str | None:
@@ -308,6 +330,7 @@ async def connection_detail(
             "connection": connection,
             "display_name": _connection_display_name(connection),
             "health": health,
+            "badge": _connection_badge(connection, health),
             "fresh_key": fresh_key,
             "setup_message": setup_message,
             "attached_agents": attached_agents,
@@ -337,13 +360,15 @@ async def connection_status_fragment(
     user: Annotated[User, Depends(require_user_with_handle)],
 ) -> Response:
     connection = await _load_owned_connection(db, user, connection_id)
+    health = await compute_connection_health(db, connection)
     return templates.TemplateResponse(
         request,
         "connections/_status.html",
         {
             "connection": connection,
             "display_name": _connection_display_name(connection),
-            "health": await compute_connection_health(db, connection),
+            "health": health,
+            "badge": _connection_badge(connection, health),
             "agent_count": len(await _load_attached_agents(db, connection)),
         },
     )
@@ -357,11 +382,13 @@ async def connection_health_badge_fragment(
     user: Annotated[User, Depends(require_user_with_handle)],
 ) -> Response:
     connection = await _load_owned_connection(db, user, connection_id)
+    health = await compute_connection_health(db, connection)
     return templates.TemplateResponse(
         request,
         "connections/_health_badge.html",
         {
             "connection": connection,
-            "health": await compute_connection_health(db, connection),
+            "health": health,
+            "badge": _connection_badge(connection, health),
         },
     )
