@@ -3,8 +3,10 @@
 A grounded reference for the `game-design` skill. Every game, designer, and term
 is drawn from cited sources — nothing invented. Target game context: 4-player
 (or up to ~20), simultaneous-reveal, repeated Prisoner's Dilemma. 10 rounds × 10
-turns. Moves: HOARD (+2 self), HELP (+4 to target, +8 mutual), HURT (-4 to
-target, +0 to attacker). Round won by sole high score; ties split the win.
+turns. Moves: HOARD (+2 self), HELP (+4 to target; mutual pact pays +6 under
+today's default rule, up to +8 under the other selectable modes — see
+`MutualHelpMode` in `app/games/hoard_hurt_help/rules.py`), HURT (-4 to target,
++0 to attacker). Round won by sole high score; ties split the win.
 
 ---
 
@@ -24,7 +26,8 @@ to make the win prize *scarce* — only one player can hold it.
   growth is literally another's loss.
 
 **Lesson for HHH:** The scarce prize already exists (sole round-win). The problem
-is that mutual-HELP lets two pairs *share* the ceiling (80/80/80/80 tie). The fix
+is that mutual-HELP lets two pairs *share* the ceiling — both pairs bank the same
+per-turn pact payout every turn, so they finish a round exactly tied. The fix
 is either (a) make the ceiling unreachable by both pairs simultaneously (scarcity
 / decay), or (b) make the solo win so valuable that breaking from the cooperating
 pack is worth the risk.
@@ -161,9 +164,10 @@ vote — instability is the entertainment.
   be re-evaluated constantly; no alliance can verify itself into permanence.
 
 **Lesson for HHH:** You already own Diplomacy's core lever (TALK then simultaneous
-ACT). The risk: if mutual-HELP (+8/+8) is too dominant, alliances freeze because
-breaking costs too much. The fix is raising the expected value of betrayal (closer
-payoffs between cooperation and solo play), not adding new betrayal mechanics.
+ACT). The risk: if mutual-HELP (+6/+6 under today's default rule, historically
++8/+8) is too dominant, alliances freeze because breaking costs too much. The fix
+is raising the expected value of betrayal (closer payoffs between cooperation and
+solo play), not adding new betrayal mechanics.
 
 ---
 
@@ -188,8 +192,9 @@ rises (more spectators per deciding vote).
   nation* with different starting positions, so the count IS the game.
 
 **For HHH specifically:**
-- At **4 players**: exactly 2 mutual-HELP pairs fit. Both can reach 80/turn. Result:
-  ceiling ties. Scarcity of the win is the whole problem.
+- At **4 players**: exactly 2 mutual-HELP pairs fit. Both pairs reach the same
+  per-round ceiling every round. Result: ceiling ties. Scarcity of the win is the
+  whole problem.
 - At **8–10 players**: 4–5 pairs could form, but targeting is single-player, so
   HELP pairs still dominate AND there are more targets for HURT (more interesting).
   HURT becomes relevant because knocking down one co-leader might let you solo.

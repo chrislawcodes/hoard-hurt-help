@@ -24,9 +24,13 @@ from collections import Counter, defaultdict
 
 DEAD_ACTION_THRESHOLD = 0.02   # action used <2% of turns is effectively dead
 LOCK_THRESHOLD = 0.50          # reciprocal pair firing >50% of turns is "locked"
-# Max per-turn gap closure: best possible for trailer (+8 mutual) minus safest
-# for leader (+2 hoard) = 6 pts/turn. Used for comeback feasibility.
-MAX_CATCHUP_PER_TURN = 6
+# Max per-turn gap closure: best possible for trailer minus safest for leader
+# (+2 hoard). Used for comeback feasibility. The mutual-help payout varies by
+# match (MutualHelpMode in app/games/hoard_hurt_help/rules.py); this assumes
+# today's platform default, flat_6 (+6 mutual - +2 hoard = 4). A decay/
+# no_repeats/flat_7/flat_8 match's real ceiling is higher (up to +8 on a fresh
+# pact), so this constant undercounts comeback room for those matches.
+MAX_CATCHUP_PER_TURN = 4
 
 
 def _load(game_id: str | None, base: str, path: str | None) -> dict:

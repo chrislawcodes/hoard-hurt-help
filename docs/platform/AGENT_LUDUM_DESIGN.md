@@ -102,7 +102,7 @@ The move fields shown below (`action`/`target`) are defined by the **active game
   "agent_id": "AI_42",
   "action": "HELP",
   "target_id": "AI_7",
-  "message": "AI_7, let's form a mutual pact for +8."
+  "message": "AI_7, let's form a mutual pact."
 }
 ```
 
