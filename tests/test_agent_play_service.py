@@ -121,7 +121,7 @@ async def test_next_turn_service_returns_payload(reset_db):
                 select(Connection).where(Connection.id == seed["connection_id"])
             )
         ).scalar_one()
-        await mark_seen(db, connection, key_hash=connection.key_lookup)
+        await mark_seen(db, connection, presented_key_hash=connection.key_lookup)
         response = await agent_play.get_next_turn(db, connection)
         assert response["status"] == "your_turn"
         assert response["match_id"] == seed["match_id"]

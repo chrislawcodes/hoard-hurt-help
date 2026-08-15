@@ -8,8 +8,10 @@ agent offline.
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from fastmcp.server.auth.auth import AccessToken
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
+from sqlalchemy.orm import joinedload
 
 from app.engine.tokens import bot_key_hint, bot_key_lookup, generate_connection_key
 from app.main import app
@@ -96,6 +98,133 @@ async def test_graceful_overlap_old_key_works_until_new_used(client, reset_db):
     async with reset_db() as db:
         connection = (await db.execute(select(Connection).where(Connection.id == connection_id))).scalar_one()
         assert connection.prev_key_lookup is None  # retired after the new key was used
+
+
+async def _rotate_with_overlap(reset_db, connection_id: int, new_key: str, old_key: str) -> None:
+    """Put a connection mid-rotation: current = `new_key`, previous = `old_key`."""
+    async with reset_db() as db:
+        connection = (
+            await db.execute(select(Connection).where(Connection.id == connection_id))
+        ).scalar_one()
+        connection.key_lookup = bot_key_lookup(new_key)
+        connection.key_hint = bot_key_hint(new_key)
+        connection.prev_key_lookup = bot_key_lookup(old_key)
+        await db.commit()
+
+
+def _oauth_token() -> AccessToken:
+    """A Google sign-in token: no connection key anywhere in it."""
+    return AccessToken(
+        token="mcp-jwt-not-a-connection-key",
+        client_id="sub-rotation",
+        scopes=["openid", "email", "profile"],
+        subject="sub-rotation",
+        claims={"sub": "sub-rotation", "email": "rotator@example.com", "name": "Rot"},
+    )
+
+
+async def _prev_key_lookup(reset_db, connection_id: int) -> str | None:
+    async with reset_db() as db:
+        connection = (
+            await db.execute(select(Connection).where(Connection.id == connection_id))
+        ).scalar_one()
+        return connection.prev_key_lookup
+
+
+async def test_mcp_oauth_call_leaves_the_rotation_grace_period_alone(
+    client, reset_db, monkeypatch
+):
+    """A keyless /mcp call must not retire a still-valid previous key.
+
+    The regression this pins: ``_resolve_oauth_connection`` used to hand
+    ``mark_seen`` the connection's own stored ``key_lookup``, which made the
+    cutover test true by construction. One OAuth tool call — which presents a JWT
+    and no key at all — then retired the previous key, and a connector still
+    running on it started 401ing mid-match and silently idled.
+
+    Runs the real ``_resolve_oauth_connection``, because the bug lived in what
+    that function passes, not in ``mark_seen``'s arithmetic.
+    """
+    from mcp_server import connection_identity
+
+    key_a = generate_connection_key()
+    key_b = generate_connection_key()
+    connection_id = await _bot_in_active_game(reset_db, key_a)
+    await _rotate_with_overlap(reset_db, connection_id, new_key=key_b, old_key=key_a)
+
+    async def fake_sync_google_user(db, userinfo, **_kwargs):
+        connection = (
+            await db.execute(
+                select(Connection)
+                .options(joinedload(Connection.user))
+                .where(Connection.id == connection_id)
+            )
+        ).scalar_one()
+        return connection.user
+
+    async def fake_mcp_connection_for(db, user, *, provider=None, oauth_client_id=None):
+        # The user's MCP connection is this same row — an OAuth client and a
+        # running connector share one connection, which is what makes the two
+        # credential paths collide.
+        return (
+            await db.execute(
+                select(Connection)
+                .options(joinedload(Connection.user))
+                .where(Connection.id == connection_id)
+            )
+        ).scalar_one()
+
+    monkeypatch.setattr(connection_identity, "sync_google_user", fake_sync_google_user)
+    monkeypatch.setattr(connection_identity, "mcp_connection_for", fake_mcp_connection_for)
+
+    async with reset_db() as db:
+        await connection_identity._resolve_oauth_connection(db, _oauth_token())
+
+    # The grace period survives, so the connector on the old key keeps working.
+    assert await _prev_key_lookup(reset_db, connection_id) == bot_key_lookup(key_a)
+    still_ok = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key_a})
+    assert still_ok.status_code == 200
+
+    # And the thing that DOES end it still does: presenting the new key.
+    used_new = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key_b})
+    assert used_new.status_code == 200
+    assert await _prev_key_lookup(reset_db, connection_id) is None
+    dead = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key_a})
+    assert dead.status_code == 401
+    assert dead.json()["detail"]["error"]["code"] == "INVALID_KEY"
+
+
+async def test_mcp_key_signin_with_the_new_key_ends_the_grace_period(client, reset_db):
+    """The other half of the contract: a /mcp call that DOES present a key.
+
+    Key sign-in presents a real ``sk_conn_`` key as the bearer, so first use of a
+    freshly issued key over /mcp has to retire the old one exactly as it does over
+    HTTP. Guards against over-correcting the OAuth bug by making every /mcp call
+    keyless.
+    """
+    from mcp_server import connection_identity, key_auth
+
+    key_a = generate_connection_key()
+    key_b = generate_connection_key()
+    connection_id = await _bot_in_active_game(reset_db, key_a)
+    await _rotate_with_overlap(reset_db, connection_id, new_key=key_b, old_key=key_a)
+
+    # What key_auth mints once it has verified key_b: the raw key IS the token,
+    # and the claim names the connection it authenticated as.
+    key_token = AccessToken(
+        token=key_b,
+        client_id=f"connection-key:{connection_id}",
+        scopes=["openid", "email", "profile"],
+        subject="sub-rotation",
+        claims={key_auth.CONNECTION_ID_CLAIM: connection_id},
+    )
+
+    async with reset_db() as db:
+        await connection_identity._resolve_oauth_connection(db, key_token)
+
+    assert await _prev_key_lookup(reset_db, connection_id) is None
+    dead = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key_a})
+    assert dead.status_code == 401
 
 
 async def test_rotate_route_is_graceful_and_double_safe(client, reset_db):

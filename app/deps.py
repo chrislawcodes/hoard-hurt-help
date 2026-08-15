@@ -208,7 +208,11 @@ async def require_connection(
         ).scalar_one()
     assert_connection_usable(connection)
 
-    await mark_seen(db, connection, key_hash=key_hash)
+    # The hash of the key this caller actually presented — which may be the
+    # still-valid previous key mid-rotation. `mark_seen` retires the previous key
+    # only when the CURRENT one is presented, so this must not be the connection's
+    # stored `key_lookup`.
+    await mark_seen(db, connection, presented_key_hash=key_hash)
     return connection
 
 

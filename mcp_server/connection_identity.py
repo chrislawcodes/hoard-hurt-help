@@ -30,6 +30,7 @@ from app.deps import assert_connection_usable, require_agent_player
 from app.engine.connection_activity import mark_seen
 from app.engine.mcp_client_identity import provider_from_client_name
 from app.engine.mcp_connection import mcp_connection_for
+from app.engine.tokens import bot_key_lookup
 from app.models.connection import Connection, ConnectionProvider
 from app.models.player import Player
 from app.identity.first_touch import CHANNEL_MCP
@@ -199,6 +200,26 @@ async def _connection_from_token(
     return access_token, userinfo, connection
 
 
+def _presented_key_hash(access_token: AccessToken) -> str | None:
+    """Hash of the connection key this /mcp request presented, or None for OAuth.
+
+    Only one of the two ways into /mcp presents a credential of ours: on the
+    opt-in key sign-in path ``key_auth`` verified an ``sk_conn_`` bearer and
+    stamped the connection id into the claims, and the raw key *is* the token, so
+    its hash is what the caller sent. A Google sign-in presents a JWT and no key
+    at all — that is what ``None`` tells ``mark_seen``, and it is the difference
+    between "the new key is now in use" and "someone made an unrelated call".
+
+    Handing ``mark_seen`` the connection's stored ``key_lookup`` instead would
+    make its cutover test true by construction, so any OAuth tool call would
+    retire a still-live rotated-out key and 401 an agent running on it.
+    """
+    claims = access_token.claims or {}
+    if not isinstance(claims.get(key_auth.CONNECTION_ID_CLAIM), int):
+        return None
+    return bot_key_lookup(access_token.token)
+
+
 async def _resolve_oauth_connection(
     db: AsyncSession,
     token: object,
@@ -212,7 +233,7 @@ async def _resolve_oauth_connection(
     access_token, userinfo, connection = await _connection_from_token(
         db, token, provider=None, oauth_client_id=oauth_client_id
     )
-    await mark_seen(db, connection, key_hash=connection.key_lookup)
+    await mark_seen(db, connection, presented_key_hash=_presented_key_hash(access_token))
     return access_token, userinfo, connection
 
 
