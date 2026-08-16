@@ -9,10 +9,15 @@ def make_game_rules_text(
     dice_per_player: int,
     min_players: int,
     max_players: int,
-    total_rounds: int = 7,
-    turns_per_round: int = 7,
+    total_rounds: int,
+    turns_per_round: int,
 ) -> str:
-    """Return semantic game rules with actual round/turn counts and settings."""
+    """Return semantic game rules with actual round/turn counts and settings.
+
+    The counts are required: this text tells an agent how long the match is, and a
+    default here would be a second opinion about that, competing with the game
+    module's `config_defaults()`. The caller passes what its match actually runs.
+    """
     wild_section = (
         "**1s are wild.** When you bid on any face (2–6), 1s count as that face. "
         "When you bid on 1s, only 1s count (not double-counted). This makes ace bids "
@@ -88,8 +93,8 @@ def make_rules_text(
     dice_per_player: int,
     min_players: int,
     max_players: int,
-    total_rounds: int = 7,
-    turns_per_round: int = 7,
+    total_rounds: int,
+    turns_per_round: int,
 ) -> str:
     """Return semantic game rules (kept for backward compatibility)."""
     return make_game_rules_text(

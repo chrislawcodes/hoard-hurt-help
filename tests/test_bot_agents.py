@@ -149,6 +149,7 @@ async def test_bot_play_is_deterministic_without_connection_or_key(reset_db) -> 
             ],
             current_talk_messages=[],
             turns_per_round=5,
+            mutual_help_mode="decay",
         )
 
         first = choose_bot_action_decision(context, profile)

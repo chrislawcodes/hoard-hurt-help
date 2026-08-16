@@ -16,9 +16,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.games.hoard_hurt_help.rules import (
     BETRAYAL_BONUS,
     DEFAULT_MISSED_MESSAGE,
+    DEFAULT_MUTUAL_HELP_MODE,
     HELP_POINTS,
     HOARD_POINTS,
     HURT_POINTS,
+    LEGACY_MUTUAL_HELP_MODE,
     MutualHelpMode,
     mode_needs_history,
     mutual_help_value,
@@ -66,7 +68,7 @@ async def current_pact_values(
     player_id: int,
     other_player_ids: Iterable[int],
     *,
-    mode: MutualHelpMode | str = MutualHelpMode.DECAY,
+    mode: MutualHelpMode | str = DEFAULT_MUTUAL_HELP_MODE,
 ) -> dict[int, int]:
     """Current mutual-help pact value between `player_id` and each other player.
 
@@ -129,12 +131,13 @@ async def resolve_turn(db: AsyncSession, turn: Turn) -> None:
       5. Persist post-floor `points_delta` and `round_score_after`.
       6. Mark turn resolved.
     """
-    # This match's mutual-help mode. Falls back to the DECAY default for a
-    # legacy/unflushed row (value None), matching the DB server default.
+    # This match's mutual-help mode. A NULL column is a row from before the mode
+    # switch existed; every such match ran decay, so that — not today's shipped
+    # default — is the correct reading of a missing value.
     match = (
         await db.execute(select(Match).where(Match.id == turn.match_id))
     ).scalar_one()
-    mode = MutualHelpMode(match.mutual_help_mode or MutualHelpMode.DECAY)
+    mode = MutualHelpMode(match.mutual_help_mode or LEGACY_MUTUAL_HELP_MODE)
 
     # Players in this game.
     players: list[Player] = list(

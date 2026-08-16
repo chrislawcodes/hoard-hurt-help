@@ -56,6 +56,21 @@ class MutualHelpMode(str, enum.Enum):
 # comparison rather than break something visibly.
 DEFAULT_MUTUAL_HELP_MODE = MutualHelpMode.FLAT_6
 
+# What a match row with NO mode recorded was actually played under. Rows predating
+# the mode switch have `mutual_help_mode` NULL, and every one of them ran decay —
+# so reading such a row is a question about HISTORY, not about today's rule.
+#
+# Keep this separate from DEFAULT_MUTUAL_HELP_MODE even when the two happen to
+# agree. Collapsing them is how the rules an agent was shown drifted away from the
+# rules its match was scored under: every "mode not supplied" path silently
+# resolved to decay, including the one that renders the public
+# /games/{game}/agent-instructions page, which advertised a decaying +8 pact while
+# every new match paid a flat +6. The rule is: a MISSING ARGUMENT means "today's
+# shipped rule" (DEFAULT_MUTUAL_HELP_MODE); a NULL COLUMN means "the rule that
+# match was played under" (this one). `test_mode_defaults_are_not_collapsed` pins
+# the distinction.
+LEGACY_MUTUAL_HELP_MODE = MutualHelpMode.DECAY
+
 
 _FLAT_TOTALS = {
     MutualHelpMode.FLAT_8: HELP_POINTS + MUTUAL_HELP_BONUS,
@@ -142,7 +157,9 @@ _MUTUAL_HELP_SECTIONS = {
 }
 
 
-def _render_game_rules_text(*, mode: MutualHelpMode | str = MutualHelpMode.DECAY) -> str:
+def _render_game_rules_text(
+    *, mode: MutualHelpMode | str = DEFAULT_MUTUAL_HELP_MODE
+) -> str:
     """Build the semantic rules body (default 7-round/5-turn counts) for one mode.
 
     The rules a player is shown MUST match what the resolver pays — both come from
@@ -190,9 +207,11 @@ Each turn has a talk phase followed by an act phase:
 """
 
 
-# The default (decay) rules — kept as a module constant because callers and
-# tests reference it directly and expect today's text.
-GAME_RULES_TEXT = _render_game_rules_text(mode=MutualHelpMode.DECAY)
+# The shipped rules — the exact text a brand-new match's agents are given. Kept as
+# a module constant because callers and tests reference it directly. It tracks
+# DEFAULT_MUTUAL_HELP_MODE, so it is never a snapshot of a rule the game has since
+# moved off; `test_default_rules_text_is_the_shipped_mode` pins that.
+GAME_RULES_TEXT = _render_game_rules_text(mode=DEFAULT_MUTUAL_HELP_MODE)
 
 RULES_TEXT = f"""{GAME_RULES_TEXT}
 ## Response format
@@ -230,13 +249,13 @@ def make_game_rules_text(
     total_rounds: int = DEFAULT_TOTAL_ROUNDS,
     turns_per_round: int = DEFAULT_TURNS_PER_ROUND,
     *,
-    mode: MutualHelpMode | str = MutualHelpMode.DECAY,
+    mode: MutualHelpMode | str = DEFAULT_MUTUAL_HELP_MODE,
 ) -> str:
     """Return semantic game rules for this match's mutual-help mode and counts."""
     mode = MutualHelpMode(mode)
     base = (
         GAME_RULES_TEXT
-        if mode is MutualHelpMode.DECAY
+        if mode is DEFAULT_MUTUAL_HELP_MODE
         else _render_game_rules_text(mode=mode)
     )
     return _apply_counts(base, total_rounds, turns_per_round)
@@ -246,7 +265,7 @@ def make_rules_text(
     total_rounds: int = DEFAULT_TOTAL_ROUNDS,
     turns_per_round: int = DEFAULT_TURNS_PER_ROUND,
     *,
-    mode: MutualHelpMode | str = MutualHelpMode.DECAY,
+    mode: MutualHelpMode | str = DEFAULT_MUTUAL_HELP_MODE,
 ) -> str:
     """Return official rules plus the canonical response contract."""
     return (

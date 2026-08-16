@@ -92,6 +92,15 @@ Mutual help decays (feature `mutual-help-decay`):
   auto‑match constants, and the admin create schema — so the numbers can't drift
   apart. An admin can still override them per match.
 
+  Call a rules‑text method with a count or mode left unset and you get **what the
+  game currently ships**: counts resolve through `BaseGameModule.resolved_counts`
+  → that game's own `config_defaults()`, and the mutual‑help rule through
+  `DEFAULT_MUTUAL_HELP_MODE`. Never put a literal in one of those signatures. The
+  one exception is a match row whose `mutual_help_mode` is **NULL** — that is a
+  row from before the switch existed and it really was played under decay, so it
+  reads as `LEGACY_MUTUAL_HELP_MODE`. `tests/test_rules_single_source.py` pins
+  both halves.
+
   History: rounds ran 7 originally, dropped to 5 in #567 on counterfactual replay
   evidence, then went back to 7 with turns cut to 5 — a deliberate reshape of the
   same 35‑turn match, not a revert of #567. See the "Match length" row in the

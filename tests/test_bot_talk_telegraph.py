@@ -68,6 +68,7 @@ def _ctx(
         scoreboard=scoreboard,
         current_talk_messages=[],
         turns_per_round=5,
+        mutual_help_mode="decay",
     )
 
 

@@ -41,6 +41,7 @@ def _ctx(
         scoreboard=board,
         current_talk_messages=[],
         turns_per_round=turns_per_round,
+        mutual_help_mode="decay",
     )
     profile = BotProfile(strategy=strategy, truthfulness=80, trust_model="even", seed=3, version="v1")
     return ctx, profile

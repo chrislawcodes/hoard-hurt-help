@@ -15,6 +15,7 @@ from app.engine.bots.runtime import (
 )
 from app.engine.bots.types import BotContext
 from app.engine.player_move import record_player_action
+from app.games.hoard_hurt_help.rules import LEGACY_MUTUAL_HELP_MODE
 from app.models.agent import Agent, AgentKind, AgentStatus
 from app.models.match import Match
 from app.models.player import Player
@@ -105,7 +106,7 @@ async def auto_submit_bot_phase(
             scoreboard=scoreboard,
             current_talk_messages=current_talk_messages,
             turns_per_round=game.turns_per_round,
-            mutual_help_mode=game.mutual_help_mode or "decay",
+            mutual_help_mode=game.mutual_help_mode or LEGACY_MUTUAL_HELP_MODE.value,
         )
 
         if phase == "talk":
