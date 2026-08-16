@@ -332,6 +332,7 @@ def _bot_context(*, mutual_help_mode: str) -> BotContext:
             ScoreboardRow(agent_id="AI_3", round_score=6, round_wins=0.0),
         ],
         current_talk_messages=[],
+        turns_per_round=5,
         mutual_help_mode=mutual_help_mode,
     )
 

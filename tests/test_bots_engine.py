@@ -32,6 +32,7 @@ def _context(
     talk: list[TalkMessage] | None = None,
     game_id: str = "G_1",
     game_started_at: datetime | None = None,
+    turns_per_round: int = 5,
 ) -> BotContext:
     agent_ids = all_agent_ids or ["AI_1", "AI_2", "AI_3", "AI_10"]
     board = scoreboard or [
@@ -51,6 +52,7 @@ def _context(
         history=history or [],
         scoreboard=board,
         current_talk_messages=talk or [],
+        turns_per_round=turns_per_round,
     )
 
 

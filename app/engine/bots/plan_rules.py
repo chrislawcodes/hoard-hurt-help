@@ -43,10 +43,22 @@ HOSTILE_TRUST = -20
 LEADER_GAP_GANG = 12
 LEADER_GAP_CLAW = 8
 
-# The turn from which the late-game / buzzer strategies switch behavior. Rounds
-# run 7 turns, so 6 is "the last couple of turns" and 7 is the final turn.
-LATE_GAME_TURN = 6
-BUZZER_TURN = 7
+# The late-game / buzzer strategies switch behavior near the END of a round, so
+# both thresholds are measured back from the round's last turn rather than fixed.
+# They used to be the literals 6 and 7, written when every round ran 7 turns; in a
+# shorter round neither number is ever reached and the strategies quietly never
+# switch. Counting from the end keeps them live at any round length.
+LATE_GAME_TURNS_BEFORE_END = 1
+
+
+def is_buzzer_turn(context: BotContext) -> bool:
+    """True on the round's final turn — the last chance to betray for the round-win."""
+    return context.turn >= context.turns_per_round
+
+
+def is_late_game_turn(context: BotContext) -> bool:
+    """True on the last couple of turns of the round."""
+    return context.turn >= context.turns_per_round - LATE_GAME_TURNS_BEFORE_END
 
 
 @dataclass(frozen=True)
@@ -180,7 +192,7 @@ def _pragmatist(i: PlanInputs) -> list[BotPlan | None]:
     # normal -4 — a swing big enough to steal the round-win. It keeps talking
     # cooperatively that turn (a false-mode bluff) so the partner
     # doesn't see it coming. Falls back to hoarding if it has no likely helper.
-    if i.context.turn >= BUZZER_TURN:
+    if is_buzzer_turn(i.context):
         betray_target = i.strong_partner or i.partner or i.helper
         return [
             betray_if(betray_target, "betray at the buzzer"),
@@ -247,8 +259,8 @@ def _opportunist(i: PlanInputs) -> list[BotPlan | None]:
 
 @register_strategy("endgame_sniper")
 def _endgame_sniper(i: PlanInputs) -> list[BotPlan | None]:
-    # Late game = the last couple of turns of the round (rounds are 7 turns).
-    if i.context.turn >= LATE_GAME_TURN:
+    # Late game = the last couple of turns of the round, whatever its length.
+    if is_late_game_turn(i.context):
         return [
             hurt_if("hurt_leader", i.leader, "endgame", when=i.leader_gap >= LEADER_GAP_CLAW),
             help_if("keep_partner", i.partner, "late partner"),

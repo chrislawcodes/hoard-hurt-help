@@ -67,6 +67,7 @@ def _ctx(
         history=history,
         scoreboard=scoreboard,
         current_talk_messages=[],
+        turns_per_round=5,
     )
 
 

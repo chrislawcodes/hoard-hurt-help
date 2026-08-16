@@ -148,6 +148,7 @@ async def test_bot_play_is_deterministic_without_connection_or_key(reset_db) -> 
                 ScoreboardRow(agent_id="Beta", round_score=4, round_wins=0.0),
             ],
             current_talk_messages=[],
+            turns_per_round=5,
         )
 
         first = choose_bot_action_decision(context, profile)

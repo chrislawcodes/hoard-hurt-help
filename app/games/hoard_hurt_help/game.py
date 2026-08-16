@@ -24,6 +24,8 @@ from app.games.base import (
 )
 from app.games.hoard_hurt_help import scoring
 from app.games.hoard_hurt_help.rules import (
+    DEFAULT_TOTAL_ROUNDS,
+    DEFAULT_TURNS_PER_ROUND,
     HELP_POINTS,
     HOARD_POINTS,
     HURT_POINTS,
@@ -90,8 +92,8 @@ class HoardHurtHelp(BaseGameModule):
 
     def config_defaults(self) -> GameConfig:
         return GameConfig(
-            total_rounds=5,
-            turns_per_round=7,
+            total_rounds=DEFAULT_TOTAL_ROUNDS,
+            turns_per_round=DEFAULT_TURNS_PER_ROUND,
             per_turn_deadline_seconds=act_deadline_seconds(),
             min_players=6,
             max_players=10,
@@ -103,12 +105,20 @@ class HoardHurtHelp(BaseGameModule):
         return ("HOARD", "HELP", "HURT")
 
     def rules_text(
-        self, total_rounds: int = 5, turns_per_round: int = 7, *, mutual_help_mode: str = "decay"
+        self,
+        total_rounds: int = DEFAULT_TOTAL_ROUNDS,
+        turns_per_round: int = DEFAULT_TURNS_PER_ROUND,
+        *,
+        mutual_help_mode: str = "decay",
     ) -> str:
         return make_rules_text(total_rounds, turns_per_round, mode=mutual_help_mode)
 
     def semantic_rules_text(
-        self, total_rounds: int = 5, turns_per_round: int = 7, *, mutual_help_mode: str = "decay"
+        self,
+        total_rounds: int = DEFAULT_TOTAL_ROUNDS,
+        turns_per_round: int = DEFAULT_TURNS_PER_ROUND,
+        *,
+        mutual_help_mode: str = "decay",
     ) -> str:
         return make_game_rules_text(
             total_rounds, turns_per_round, mode=mutual_help_mode
@@ -125,8 +135,8 @@ class HoardHurtHelp(BaseGameModule):
         *,
         your_agent_id: str,
         all_agent_ids: list[str],
-        total_rounds: int = 5,
-        turns_per_round: int = 7,
+        total_rounds: int = DEFAULT_TOTAL_ROUNDS,
+        turns_per_round: int = DEFAULT_TURNS_PER_ROUND,
         mutual_help_mode: str = "decay",
     ) -> str:
         return make_agent_base_prompt(

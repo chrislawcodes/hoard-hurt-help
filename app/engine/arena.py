@@ -29,7 +29,11 @@ from app.engine.match_cancellation import mark_cancelled
 from app.engine.player_counts import active_player_count
 from app.engine.user_match_start import is_bot_kind
 from app.games import get as get_game_module
-from app.games.hoard_hurt_help.rules import DEFAULT_MUTUAL_HELP_MODE
+from app.games.hoard_hurt_help.rules import (
+    DEFAULT_MUTUAL_HELP_MODE,
+    DEFAULT_TOTAL_ROUNDS,
+    DEFAULT_TURNS_PER_ROUND,
+)
 from app.models.agent import Agent, AgentKind
 from app.models.match import GameState, Match, MatchKind
 from app.models.player import Player
@@ -52,16 +56,18 @@ PRACTICE_ARENA_NAME = "Practice Arena"
 # starts the game.
 PRACTICE_ARENA_MAX_PLAYERS = 7
 PRACTICE_ARENA_BOT_COUNT = PRACTICE_ARENA_MAX_PLAYERS - 1
-PRACTICE_ARENA_TOTAL_ROUNDS = 5
-PRACTICE_ARENA_TURNS_PER_ROUND = 7
+# Both platform-seeded match types run the shipped match length rather than their
+# own copy of it, so an arena game is the same game a player-created match is.
+PRACTICE_ARENA_TOTAL_ROUNDS = DEFAULT_TOTAL_ROUNDS
+PRACTICE_ARENA_TURNS_PER_ROUND = DEFAULT_TURNS_PER_ROUND
 
 AUTO_MATCH_INTERVAL_MINUTES = 15
 # Auto-matches seat 7 players: the external agent that triggers the start plus
 # bots filling the remaining seats.
 AUTO_MATCH_MAX_PLAYERS = 7
 AUTO_MATCH_BOT_COUNT_MAX = 7
-AUTO_MATCH_TOTAL_ROUNDS = 5
-AUTO_MATCH_TURNS_PER_ROUND = 7
+AUTO_MATCH_TOTAL_ROUNDS = DEFAULT_TOTAL_ROUNDS
+AUTO_MATCH_TURNS_PER_ROUND = DEFAULT_TURNS_PER_ROUND
 
 # Rotating names for auto-matches — one name per 15-min boundary slot (96/day),
 # cycling through the list.  Keyed deterministically by slot index so the same

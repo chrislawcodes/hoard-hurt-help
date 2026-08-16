@@ -79,3 +79,21 @@ def test_row_builders_drop_rows_with_no_target_and_keep_the_fallback() -> None:
     )
     assert plan_rules.betray_if(None, "buzzer") is None
     assert plan_rules.hoard("fallback") == BotPlan("hoard_protect_score", None, "fallback")
+
+
+@pytest.mark.parametrize("turns_per_round", [3, 5, 7, 12])
+def test_buzzer_and_late_game_track_the_rounds_length(turns_per_round: int) -> None:
+    # These used to be the fixed turns 7 and 6, so a round shorter than 7 never
+    # reached either one and the betray-at-the-buzzer / endgame-sniper strategies
+    # silently never switched. Both now count back from the round's last turn.
+    last = turns_per_round
+    assert plan_rules.is_buzzer_turn(_context(turn=last, turns_per_round=turns_per_round))
+    assert not plan_rules.is_buzzer_turn(
+        _context(turn=last - 1, turns_per_round=turns_per_round)
+    )
+    assert plan_rules.is_late_game_turn(
+        _context(turn=last - 1, turns_per_round=turns_per_round)
+    )
+    assert not plan_rules.is_late_game_turn(
+        _context(turn=last - 2, turns_per_round=turns_per_round)
+    )

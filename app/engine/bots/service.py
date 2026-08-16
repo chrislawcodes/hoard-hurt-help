@@ -104,6 +104,7 @@ async def auto_submit_bot_phase(
             history=history,
             scoreboard=scoreboard,
             current_talk_messages=current_talk_messages,
+            turns_per_round=game.turns_per_round,
             mutual_help_mode=game.mutual_help_mode or "decay",
         )
 
