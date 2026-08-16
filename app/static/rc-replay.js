@@ -72,26 +72,24 @@
     caption.innerHTML='<span class="rc-badge">Live</span> Waiting for the first turn…';
   }
 
-  // Per-turn in-round score at the START of each turn, plus cumulative round
-  // wins. The winner of a game is decided by rounds won (highest in-round
-  // score when a round ends; ties split the win), so the rail tracks that —
-  // the in-round score is shown underneath as live context and resets each round.
-  var scoreAt=[], winsAt=[], finalWins={}, finalScore={};
+  // Per-turn in-round score at the START of each turn. Rounds won and the rail's
+  // ORDER are NOT worked out here: every turn ships its own standings, already
+  // ranked and already carrying each seat's round-win tally (see applyStandingsSnapshot).
+  // The rail used to rank by points first while every server ranking puts rounds
+  // won first, so a finished match's final scoreboard and the rail beside it
+  // openly disagreed — and the round-win award was a second copy of the server's
+  // rule. The in-round score below is live context only, and resets each round.
+  var scoreAt=[];
   // Recomputed from scratch over the whole TURNS list. Safe to call again after
   // more turns are appended live (see extendTurns) — the snapshots are rebuilt,
   // not patched, so the rail stays correct as the match grows.
   function computeScores(){
-    scoreAt=[]; winsAt=[]; finalWins={}; finalScore={};
-    var lastIdxOfRound={};
-    TURNS.forEach(function(t,i){ lastIdxOfRound[t.round]=i; });
-
-    var sim={}, simRound=0, wins={};
-    AGENTS.forEach(function(id){ sim[id]=0; wins[id]=0; });
+    scoreAt=[];
+    var sim={}, simRound=0;
+    AGENTS.forEach(function(id){ sim[id]=0; });
     TURNS.forEach(function(t,i){
       if(t.round!==simRound){ simRound=t.round; AGENTS.forEach(function(id){ sim[id]=0; }); }
       var snap={}; AGENTS.forEach(function(id){ snap[id]=sim[id]; }); scoreAt[i]=snap;
-      // Wins as of the start of this turn (rounds credited once they finish).
-      var wsnap={}; AGENTS.forEach(function(id){ wsnap[id]=wins[id]; }); winsAt[i]=wsnap;
       // Take the resolver's own post-turn score. This used to re-implement the
       // whole payoff table here (hoard +2, pact +8, help +4, hurt -4, betrayal
       // +4) and floor each hurt at 0 — two ways to be wrong. The server floors a
@@ -102,16 +100,7 @@
       t.actions.forEach(function(a){
         if(typeof a.score_after === 'number'){ sim[a.agent]=a.score_after; }
       });
-      // Round just ended → award the round win (split evenly on a tie).
-      if(lastIdxOfRound[t.round]===i){
-        var best=-Infinity;
-        AGENTS.forEach(function(id){ if(sim[id]>best) best=sim[id]; });
-        var winners=AGENTS.filter(function(id){ return sim[id]===best; });
-        var share=1/winners.length;
-        winners.forEach(function(id){ wins[id]=(wins[id]||0)+share; });
-      }
     });
-    AGENTS.forEach(function(id){ finalWins[id]=wins[id]; finalScore[id]=sim[id]||0; });
   }
   computeScores();
 
@@ -172,13 +161,32 @@
     railEl.style.height=(AGENTS.length*RAIL_ROW_H)+'px';
   }
 
-  // Shared ranking: live in-round points, ties broken by rounds won, then seat
-  // order — used by BOTH the standings rail and the podium crowns so they never
-  // disagree about who is 1st / 2nd / 3rd.
+  // The server ranks; this file only draws. Every turn ships two ordered
+  // standings snapshots — `before` (as the turn starts playing) and `after`
+  // (once it has resolved, so a round-win credit lands only after that round's
+  // last beat) — each a list of {agent, rank, round_wins}, first place first.
+  // The order and the rank number come straight off it, so the rail, the podium
+  // crowns and the page's final scoreboard can't disagree about who leads.
+  var standingsRows=[];
+  function standingsOf(t, which){
+    return (t && t.standings && t.standings[which]) || null;
+  }
+  // A payload built before this field existed (a stale cached blob) leaves the
+  // rail in AGENTS order — which is the server's ranked scoreboard order, not a
+  // guess made here — instead of throwing. (Named apart from the standings-column
+  // toggle's own applyStandings further down, which shows/hides the column.)
+  function applyStandingsSnapshot(rows){
+    standingsRows = rows || [];
+    rWins = {};
+    standingsRows.forEach(function(row){ rWins[row.agent] = row.round_wins; });
+    updateRail();
+  }
+  // Used by BOTH the standings rail and the podium crowns so they never disagree
+  // about who is 1st / 2nd / 3rd.
   function orderedAgents(){
-    return AGENTS.slice().sort(function(a,b){
-      return (rScore[b]-rScore[a]) || (rWins[b]-rWins[a]) || (AGENTS.indexOf(a)-AGENTS.indexOf(b));
-    });
+    return standingsRows.length
+      ? standingsRows.map(function(row){ return row.agent; })
+      : AGENTS.slice();
   }
   // Podium medals + a points label on every robot — the crowns-mode stand-in for
   // the standings column. Medals: gold/silver/bronze on the top three, but only
@@ -208,15 +216,18 @@
   function updateRail(){
     updateBotStandings();
     if(!railEl) return;  // no standings component present
-    // Rank by live in-round points; break ties by rounds won so season
-    // standing still separates players sitting on the same score.
-    var maxw=0, maxS=0;
-    AGENTS.forEach(function(id){ if(rWins[id]>maxw) maxw=rWins[id]; if((rScore[id]||0)>maxS) maxS=rScore[id]; });
+    var maxS=0;
+    AGENTS.forEach(function(id){ if((rScore[id]||0)>maxS) maxS=rScore[id]; });
+    // Row order and the rank number both come from the server's snapshot; the
+    // fallback (no snapshot yet) keeps the payload's own scoreboard order.
     var order=orderedAgents();
+    var rankOf={};
+    standingsRows.forEach(function(row){ rankOf[row.agent]=row.rank; });
     order.forEach(function(id,i){
       var row=railRowEl[id];
+      if(!row) return;
       row.style.transform='translateY('+(i*RAIL_ROW_H)+'px)';
-      row.querySelector('.rk').textContent=i+1;
+      row.querySelector('.rk').textContent=(rankOf[id]||(i+1));
       var winsVal=rWins[id]||0;
       row.querySelector('.sc').firstChild.textContent=rScore[id]||0;
       row.querySelector('.sc-unit').textContent='pts';
@@ -243,15 +254,6 @@
       d.className='rc-pdot'+(x.j<i?' is-done':x.j===i?' is-cur':'');
       prog.appendChild(d);
     });
-  }
-
-  // Standings default to the LATEST resolved turn (final wins + the last
-  // turn's in-round scores) so a passive watcher always sees current standings,
-  // even though the replay itself is cued to the start. Once the user steps
-  // through turns, renderTurn() takes over and the rail follows the scrubber.
-  function railToLatest(){
-    AGENTS.forEach(function(id){ rScore[id]=finalScore[id]||0; rWins[id]=finalWins[id]||0; });
-    updateRail();
   }
 
   buildRail(); updateRail();
@@ -540,12 +542,11 @@
       _region.dispatchEvent(new CustomEvent('rc:turn',{bubbles:true,detail:{seq:i+1,round:t.round,turn:t.turn}}));
     }
     var snap=scoreAt[i]||{};
-    // Always start from the wins credited as of the START of this turn/round —
-    // never jump to the fully-credited total before the round has actually
-    // played out. For the match's last turn, the final round's win credit is
-    // applied below once its actions finish animating, not here at the start.
-    var wsnap=winsAt[i]||{};
-    AGENTS.forEach(function(id){ rScore[id]=snap[id]||0; rWins[id]=wsnap[id]||0; });
+    AGENTS.forEach(function(id){ rScore[id]=snap[id]||0; });
+    // Open on the standings as they stood when this turn began — never jump to a
+    // round-win credit before the round has actually played out. The `after`
+    // snapshot lands below, once the turn's actions have finished animating.
+    applyStandingsSnapshot(standingsOf(t,'before'));
     // agent → its post-turn score, for beats that land on someone OTHER than the
     // actor (a HELP or HURT credits the target). Every player is submitted every
     // turn, so the target always has a row here.
@@ -553,7 +554,6 @@
     t.actions.forEach(function(a){
       if(typeof a.score_after === 'number'){ turnScoreAfter[a.agent]=a.score_after; }
     });
-    updateRail();
     updateProgress(i);
     turnlabel.textContent='Round '+t.round+' · Turn '+t.turn;
     fx.innerHTML='';
@@ -600,15 +600,15 @@
       });
     });});
 
-    // This turn finishes the match's final round. Credit its win only once
-    // these actions have actually finished animating — not at the start of
-    // the round, or the number would jump ahead of what's still playing out.
-    if(i===TURNS.length-1){
-      phaseTimers.push(setTimeout(function(){
-        AGENTS.forEach(function(id){ rWins[id]=finalWins[id]||0; });
-        updateRail();
-      }, talkDur+sched.totalDuration));
-    }
+    // Settle on this turn's `after` standings once its actions have actually
+    // finished animating. A turn that ENDS a round carries that round's win
+    // credit, so this is what keeps the number from jumping ahead of the beats
+    // still playing out. Cancelled by clearPhaseTimers() if the viewer steps
+    // away first — the next turn opens on its own `before` snapshot, which is
+    // this same state.
+    phaseTimers.push(setTimeout(function(){
+      applyStandingsSnapshot(standingsOf(t,'after'));
+    }, talkDur+sched.totalDuration));
   }
 
   function showDelta(el, val){
@@ -990,6 +990,13 @@
   // turn count the page first loaded with.
   function extendTurns(newTurns){
     if(!Array.isArray(newTurns) || newTurns.length<=TURNS.length) return;
+    // Refresh the standings we already hold before appending. The last turn we
+    // loaded with was anchored to the scoreboard as it stood THEN; now that
+    // later turns exist, the fresh payload's answer for it is the current one.
+    // Patched in place, so a pending `after` timer picks up the new numbers.
+    for(var j=0;j<TURNS.length;j++){
+      if(newTurns[j] && newTurns[j].standings){ TURNS[j].standings=newTurns[j].standings; }
+    }
     for(var k=TURNS.length;k<newTurns.length;k++){ TURNS.push(newTurns[k]); }
     computeScores();
     // First turns for a page that opened empty (live match before turn 1): run

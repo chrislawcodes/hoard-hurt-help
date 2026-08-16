@@ -159,7 +159,12 @@ def test_pact_badge_shows_decayed_value_not_stale_eight():
 
 def test_rc_caption_shows_decayed_value_not_stale_eight():
     """The robot-circle narration caption reads the decayed `+6 each`, not `+8`."""
-    scoreboard = [{"agent_id": "A"}, {"agent_id": "B"}]
+    # Shaped like a real scoreboard row: the rail's per-turn standings are
+    # ranked from `round_wins`/`round_score`, so a stub needs both.
+    scoreboard = [
+        {"agent_id": "A", "round_score": 0, "round_wins": 0.0},
+        {"agent_id": "B", "round_score": 0, "round_wins": 0.0},
+    ]
     history = [
         {"round": 2, "turn": 3, "messages": [], "actions": _decayed_pact_actions(6)}
     ]
@@ -194,7 +199,12 @@ def test_rc_data_threads_betrayed_helper_and_bonus():
     """The robot-circle JSON must carry `betrayed_helper`/`betrayal_bonus` so the
     animation can show the attacker's +4 (guard for the review-F2 silent-animation
     gap: without this thread the feed chip shows +4 but the animation nothing)."""
-    scoreboard = [{"agent_id": "A"}, {"agent_id": "B"}]
+    # Shaped like a real scoreboard row: the rail's per-turn standings are
+    # ranked from `round_wins`/`round_score`, so a stub needs both.
+    scoreboard = [
+        {"agent_id": "A", "round_score": 0, "round_wins": 0.0},
+        {"agent_id": "B", "round_score": 0, "round_wins": 0.0},
+    ]
     history = [
         {"round": 1, "turn": 1, "messages": [], "actions": _betrayal_actions()}
     ]

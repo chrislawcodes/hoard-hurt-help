@@ -18,6 +18,7 @@ stops a payoff constant creeping back into the JS.
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -213,3 +214,42 @@ async def test_replay_js_holds_no_payoff_constants() -> None:
         if pattern in source
     ]
     assert not offenders, "replay JS re-implements scoring:\n  " + "\n  ".join(offenders)
+
+
+def test_replay_js_holds_no_ranking_or_round_award_rule() -> None:
+    """The same tripwire for standings: the server ranks, the JS only draws.
+
+    The rail used to sort itself (points first, rounds won second) while every
+    server ranking puts rounds won first, and it re-derived the round-win award
+    (top scorer takes the round, a tie splits it). On a finished match both lists
+    render on one page, so the disagreement was visible. There is no JS test
+    harness here, so a structural read of the file is the guard that stops either
+    rule creeping back.
+    """
+    source = REPLAY_JS.read_text()
+    collapsed = re.sub(r"\s+", "", source)
+    banned = {
+        "sorts the rail itself": [
+            "rScore[b]-rScore[a]",
+            "rWins[b]-rWins[a]",
+            "rScore[a]-rScore[b]",
+            "rWins[a]-rWins[b]",
+            "AGENTS.slice().sort",
+        ],
+        "splits a round win itself": [
+            "1/winners.length",
+            "wins[id]=(wins[id]||0)+share",
+            "AGENTS.filter(function(id){returnsim[id]===best;})",
+        ],
+    }
+    offenders = [
+        f"{why}: {pattern}"
+        for why, patterns in banned.items()
+        for pattern in patterns
+        if pattern in collapsed
+    ]
+    assert not offenders, "replay JS re-implements standings:\n  " + "\n  ".join(offenders)
+
+    # …and it really does read the server's answer instead.
+    for required in ("standings", "round_wins", "row.rank"):
+        assert required in source, f"replay JS no longer reads the shipped {required}"

@@ -27,6 +27,7 @@ from app.games.hoard_hurt_help.rules import (
 )
 from app.games.hoard_hurt_help.scoring import apply_inround_turn
 from app.games.hoard_hurt_help.viewer_headline import _turn_headline
+from app.games.replay_standings import stamp_turn_standings
 from app.games.viewer_common import (
     project_turn_messages,
     rc_envelope,
@@ -85,6 +86,9 @@ def _stamp_sample_scores(payload: dict[str, Any]) -> None:
         )
         for a in actions:
             a["score_after"] = inround.get(a.get("agent"), 0)
+    # The recording has no live scoreboard behind it, so the rail's standings are
+    # derived from the recorded turns alone (every round in the file is finished).
+    stamp_turn_standings(payload.get("turns", []), payload.get("agents", []))
 
 
 @lru_cache(maxsize=1)
@@ -304,6 +308,16 @@ def _build_rc_data(
                 "talk": rc_talk(h),
             }
         )
+
+    # Per-turn standings for the rail: ordered by the server's own ranking, with
+    # the round-win tally from the server's own award rule, and finishing on the
+    # scoreboard's real count. The replay JS draws this list; it owns no
+    # comparator and no award rule of its own.
+    stamp_turn_standings(
+        turns,
+        agents,
+        final_round_wins={r["agent_id"]: r["round_wins"] for r in scoreboard},
+    )
 
     return rc_envelope(
         agents=agents,
