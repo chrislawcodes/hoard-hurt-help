@@ -264,6 +264,80 @@ class ProviderReadiness(str, enum.Enum):
     LIVE = "live"
 
 
+# The ladder's worst→best order, as numbers, written ONCE. Every "which of these
+# rungs is the most ready?" reduction imports this instead of restating it —
+# ``user_play_readiness`` below and ``_reduce_most_ready`` in
+# ``app/routes/nav_context.py``. Adding a rung is then one edit, not two silently
+# independent ones that can disagree about where the new rung sits.
+READINESS_RANK: dict[ProviderReadiness, int] = {
+    ProviderReadiness.NO_MCP_CONNECTION: 0,
+    ProviderReadiness.CONNECTED_NOT_LIVE: 1,
+    ProviderReadiness.SEEN_NOT_POLLING: 2,
+    ProviderReadiness.LIVE: 3,
+}
+
+
+class PlayVerdict(str, enum.Enum):
+    """What a readiness rung means for *playing*, in one word.
+
+    Four rungs, three verdicts. This is the single answer to "will this AI take
+    a turn if I hand it one right now?", so the agent pages and the join picker
+    cannot give the same provider opposite verdicts on adjacent screens.
+
+    The values match the strings the join picker already sorts and renders on
+    (``ready`` / ``idle`` / ``not_connected``), so ``.value`` drops straight into
+    that template.
+    """
+
+    READY = "ready"  # an AI is looping — a turn gets picked up now
+    IDLE = "idle"  # set up, but nothing is asking for a turn
+    NOT_CONNECTED = "not_connected"  # no usable setup at all
+
+
+# One verdict per rung. See ``play_verdict`` for the derivation.
+_PLAY_VERDICT: dict[ProviderReadiness, PlayVerdict] = {
+    ProviderReadiness.LIVE: PlayVerdict.READY,
+    ProviderReadiness.SEEN_NOT_POLLING: PlayVerdict.IDLE,
+    ProviderReadiness.CONNECTED_NOT_LIVE: PlayVerdict.IDLE,
+    ProviderReadiness.NO_MCP_CONNECTION: PlayVerdict.NOT_CONNECTED,
+}
+
+
+def play_verdict(readiness: ProviderReadiness) -> PlayVerdict:
+    """Reduce a readiness rung to the one verdict every play surface reads.
+
+    Only ``LIVE`` is ``READY``, and ``SEEN_NOT_POLLING`` is deliberately **not**
+    — that is the rung the UI used to disagree about. The platform's own
+    behaviour settles it:
+
+    - ``last_polled_at`` (the signal ``LIVE`` keys on) is bumped only by a
+      get-next-turn poll, while ``last_seen_at`` (which ``SEEN_NOT_POLLING``
+      keys on) is bumped by *any* authenticated call, "even a sign-in
+      handshake" — see ``mark_polled`` in ``app/engine/connection_activity.py``,
+      which calls the poll stamp "the honest 'is this agent playing' signal used
+      to gate seating". So ``SEEN_NOT_POLLING`` means: signed in, play loop not
+      running.
+    - A turn is only ever handed out inside a poll. Nothing is polling at this
+      rung, so nothing picks the turn up — the same argument that put
+      ``CONNECTED_NOT_LIVE`` below the ready bar in PR #644.
+    - Every gate that decides whether play can actually happen already refuses
+      this rung: ``confirm_seat_if_live`` (``app/engine/seat_hold.py``) confirms
+      only on ``LIVE``, so a ``SEEN_NOT_POLLING`` seat stays *held* and is
+      deleted at its deadline; ``_seat_user_agent``
+      (``app/routes/web_join.py``) holds rather than confirms; the seat-connect
+      screen (``app/routes/web_seat_connect.py``) keeps this rung on the
+      "start your AI" wait page; and ``_READINESS_TO_FIRST_UNMET``
+      (``app/routes/nav_context.py``) maps it to ``NEEDS_LIVE``.
+
+    The one place that treats ``SEEN_NOT_POLLING`` as good enough — the connect
+    page auto-forward in ``app/routes/connections_pages.py`` — is answering a
+    different question ("is this client signed in yet?"), not "will it play".
+    Connected is not the same as playing, which is why ``IDLE`` sits between the
+    two ends rather than collapsing into either.
+    """
+    return _PLAY_VERDICT[readiness]
+
+
 async def provider_readiness(
     db: AsyncSession, user_id: int, provider: ConnectionProvider
 ) -> ProviderReadiness:
@@ -333,18 +407,12 @@ async def user_play_readiness(db: AsyncSession, user_id: int) -> ProviderReadine
     """Best play-readiness across every provider the user has connected.
 
     The user is as ready as their most-ready connection. ``NO_MCP_CONNECTION``
-    when nothing is set up.
+    when nothing is set up. Orders the rungs with the shared ``READINESS_RANK``.
     """
-    rank = {
-        ProviderReadiness.NO_MCP_CONNECTION: 0,
-        ProviderReadiness.CONNECTED_NOT_LIVE: 1,
-        ProviderReadiness.SEEN_NOT_POLLING: 2,
-        ProviderReadiness.LIVE: 3,
-    }
     best = ProviderReadiness.NO_MCP_CONNECTION
     for value in await enabled_provider_values(db, user_id):
         readiness = await provider_readiness(db, user_id, ConnectionProvider(value))
-        if rank[readiness] > rank[best]:
+        if READINESS_RANK[readiness] > READINESS_RANK[best]:
             best = readiness
         if best == ProviderReadiness.LIVE:
             break

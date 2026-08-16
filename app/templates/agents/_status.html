@@ -1,5 +1,11 @@
+{# The agent detail page's health badge, also re-served on its own every 15s by
+   /me/agents/{id}/health-badge. It renders through the shared badge partial, so
+   it is byte-for-byte the badge the agent LIST shows for the same state — this
+   fragment used to hand-build its own span, dropping the `badge` base class (no
+   pill styling at all) and adding a `badge-pulse` class that has never existed
+   in the stylesheet. #}
 {% if health %}
-<span class="{{ health.badge_class }}{% if health.pulse %} badge-pulse{% endif %}">{{ health.label }}</span>
+{% with badge = health %}{% include "fragments/_badge.html" %}{% endwith %}
 {% endif %}
 {% if version %}
 · v{{ version.version_no }}

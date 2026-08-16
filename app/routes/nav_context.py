@@ -28,6 +28,7 @@ from app.deps import DbSession, get_current_user
 from app.game_types import DEFAULT_GAME_TYPE
 from app.engine.connection_health import (
     LIVE_WINDOW_SECONDS,
+    READINESS_RANK,
     ProviderReadiness,
     enabled_provider_values,
     provider_readiness,
@@ -275,23 +276,21 @@ async def _reduce_most_ready(
     provider clearing ``provider_has_current_setup`` — so a single-provider ready
     user costs ~1 readiness call, not 3·K. When no provider clears the bar, the
     most-ready provider is returned so the resolver still reports the nearest gate.
+
+    "Most ready" is ordered by the shared ``READINESS_RANK`` ladder that
+    ``app/engine/provider_readiness.py`` owns alongside the enum — this used to
+    restate the same four rungs locally, so adding a rung meant editing both.
     """
     best_provider = providers[0]
     best_readiness = ProviderReadiness.NO_MCP_CONNECTION
-    rank = {
-        ProviderReadiness.NO_MCP_CONNECTION: 0,
-        ProviderReadiness.CONNECTED_NOT_LIVE: 1,
-        ProviderReadiness.SEEN_NOT_POLLING: 2,
-        ProviderReadiness.LIVE: 3,
-    }
     best_rank = -1
     for provider in providers:
         readiness = await provider_readiness(db, user_id, provider)
         first_unmet = _READINESS_TO_FIRST_UNMET.get(readiness)
         if first_unmet is None or first_unmet > require:
             return provider, readiness
-        if rank[readiness] > best_rank:
-            best_rank = rank[readiness]
+        if READINESS_RANK[readiness] > best_rank:
+            best_rank = READINESS_RANK[readiness]
             best_provider, best_readiness = provider, readiness
     return best_provider, best_readiness
 

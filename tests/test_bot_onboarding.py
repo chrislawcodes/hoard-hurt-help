@@ -304,6 +304,10 @@ async def test_status_fragment_connected_no_game_shows_join(client, reset_db):
         connection.mcp_connected_at = now
         connection.first_connected_at = now
         connection.last_seen_at = now
+        # The play-loop heartbeat, not just "seen": since the badge stopped
+        # calling SEEN_NOT_POLLING "Ready", an agent only reads ready when an AI
+        # is actually polling for turns (ProviderReadiness.LIVE).
+        connection.last_polled_at = now
         await db.commit()
         uid, aid = u.id, agent.id
 
@@ -321,6 +325,10 @@ async def test_detail_empty_games_copy_when_connected(client, reset_db):
         connection.mcp_connected_at = now
         connection.first_connected_at = now
         connection.last_seen_at = now
+        # The play-loop heartbeat, not just "seen": since the badge stopped
+        # calling SEEN_NOT_POLLING "Ready", an agent only reads ready when an AI
+        # is actually polling for turns (ProviderReadiness.LIVE).
+        connection.last_polled_at = now
         await db.commit()
         uid, aid = u.id, agent.id
 
@@ -340,6 +348,7 @@ async def test_detail_established_agent_hides_playing_banner(client, reset_db):
         now = datetime.now(timezone.utc)
         connection.first_connected_at = now  # connected once, recently
         connection.last_seen_at = now
+        connection.last_polled_at = now  # and actually polling → LIVE
         connection.mcp_connected_at = now  # set up (MCP-recent)
         g = await _game(db, "G_1", GameState.COMPLETED)
         p = await _player(db, g.id, agent, u, connection_id=connection.id)

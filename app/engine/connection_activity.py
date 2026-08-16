@@ -378,7 +378,7 @@ async def compute_bot_health(
         game: Match | None = None,
         needs_reconnect: bool = False,
     ) -> ConnectionHealthStatus:
-        label, css, pulse = _HEALTH_PRESENTATION[state]
+        label, css, pulse, still_dot = _HEALTH_PRESENTATION[state]
         return ConnectionHealthStatus(
             state=state,
             label=label,
@@ -388,6 +388,7 @@ async def compute_bot_health(
             never_connected=never,
             last_connected_at=last_connected_aware,
             last_connected_human=human,
+            still_dot=still_dot,
             match_id=game.id if game else None,
             game_name=game.name if game else None,
         )

@@ -309,8 +309,11 @@ async def test_agent_detail_shows_connection_capacity_when_at_limit(
             max_concurrent_games=1,
             provider=ConnectionProvider.CLAUDE,
         )
-        # Set last_seen_at so the connection is warm (runner connected)
+        # Warm AND polling, so the agent is genuinely LIVE: since the badge
+        # stopped calling SEEN_NOT_POLLING "Ready", seen-but-not-polling no
+        # longer reaches the connected_no_game onboarding slot this card lives in.
         connection.last_seen_at = recently
+        connection.last_polled_at = recently
         connection.first_connected_at = recently
         connection.mcp_connected_at = recently
         await db.flush()
