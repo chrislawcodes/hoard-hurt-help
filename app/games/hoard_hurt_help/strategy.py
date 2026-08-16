@@ -15,12 +15,23 @@ all of which were measured in M_6442 rather than assumed:
 * **One action, one target.** Classic Prisoner's Dilemma strategies say "mirror
   each opponent" — unexecutable here, where a turn buys a single action against
   a single player. Faced with an impossible instruction the model falls back to
-  HELP, which is why four presets collapsed into one behaviour.
+  HELP, which is why most of the pre-rewrite presets collapsed into a single
+  behaviour.
 * **Even trading ties.** Two partners swapping mutual help both bank the same
   amount, so every clean pair finishes a round level. Beating the pack takes
   more helpers than anyone else, a betrayal, or dragging the leader down.
 * **Damage lands late.** The score floor means a player near zero cannot lose
   much, so an early attack is largely absorbed.
+
+The roster is deliberately four — Tit-for-Tat, Always Cooperate, Buzzer-Beater,
+Dealmaker — in that order, because the join UI pre-selects the first one. Grim
+Trigger, Pavlov, Always Defect and Generous Tit-for-Tat were dropped rather than
+rewritten: none of them can win. In M_6442 each either played out as plain
+Tit-for-Tat or, for Always Defect, aimed at the highest-scoring opponent — the
+player least likely to be helping it — so its attacks collected nothing and it
+finished last on 12 points against a winner on 184. Dropping a preset does not
+change agents that already exist; the prompt text is copied into the agent at
+creation time.
 
 Phrasing constraint: `tests/test_per_game_strategy.py` forbids these prompts
 from repeating the base prompt's wording, so they must not contain the literal
@@ -96,52 +107,5 @@ Strategy: Dealmaker.
 - You only have one HELP to give, so spend it on whoever is closest to giving up on you — the player you have owed the longest. Let the patient ones wait a turn; chase the one about to walk.
 - Never attack. Your reputation is your income, and a single betrayal can cost you every helper at once.
 - Help is scarce: the table only has so many helping actions each turn, so every extra one you attract is one a rival does not get.""",
-    ),
-    StrategyPreset(
-        id="grim_trigger",
-        name="Grim Trigger",
-        description="Cooperate fully until betrayed — then punish that player forever.",
-        prompt=f"""{RANK_FRAMING}
-
-Strategy: Grim Trigger.
-- Cooperate (Help) with everyone until any player Hurts you.
-- After the first betrayal by a player, Hurt that player every remaining turn — no exceptions, no forgiveness.
-- Continue cooperating fully with players who have not betrayed you.
-- Even while cooperating, remember the round is won alone: don't hand a clean co-op partner the lead you need for yourself.""",
-    ),
-    StrategyPreset(
-        id="pavlov",
-        name="Pavlov",
-        description="Repeat what scored well last turn; switch if it scored poorly.",
-        prompt=f"""{RANK_FRAMING}
-
-Strategy: Pavlov (Win-Stay, Lose-Shift).
-- If your last action improved your RANK (not just your score) → repeat it next turn.
-- If your last action left you flat or losing ground in the standings → switch to a different action.
-- Track your standing each turn, not just your points. Adapt faster than your opponents can predict you.
-- Don't commit to any fixed pattern — let results drive every decision.""",
-    ),
-    StrategyPreset(
-        id="always_defect",
-        name="Always Defect",
-        description="Pure aggression — Hurt the leader every single turn.",
-        prompt=f"""{RANK_FRAMING}
-
-Strategy: Always Defect.
-- Every turn, Hurt the highest-scoring opponent — keep anyone from running away with the round.
-- Never Help anyone — cooperation only benefits your enemies.
-- If scores are tied, target whoever you have the most conflict history with.""",
-    ),
-    StrategyPreset(
-        id="generous_tft",
-        name="Generous Tit-for-Tat",
-        description="Mirror defection but forgive ~1-in-10 retaliations to escape punishment loops.",
-        prompt=f"""{RANK_FRAMING}
-
-Strategy: Generous Tit-for-Tat.
-- Cooperate first. Mirror each opponent's last move as in standard Tit-for-Tat.
-- When retaliating, randomly forgive roughly 1 in 10 times — Help instead of Hurt.
-- Forgiveness breaks mutual destruction cycles and signals a preference for cooperation.
-- Forgive more readily early; late in the round, stop forgiving rivals who are tied with or ahead of you — that lead is the round you're trying to win.""",
     ),
 ]
