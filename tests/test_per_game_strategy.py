@@ -274,3 +274,37 @@ async def test_strategy_profiles_route_removed(client, reset_db) -> None:
         "/me/strategy-profiles", cookies=_signed_in_cookies(user_id)
     )
     assert r.status_code == 404
+
+
+def test_core_presets_pick_one_target_and_stay_distinct() -> None:
+    """The four presets rewritten from the M_6442 analysis must survive.
+
+    Each was collapsing into "help everybody" because it was written for a
+    two-player game. The shared framing now states the one-action limit, and
+    each of the four names a different way to get clear of the pack — so this
+    pins both the roster and the thing that makes them different.
+    """
+    module = get_game_module("hoard-hurt-help")
+    presets = {p.id: p for p in module.strategy_presets()}
+
+    for pid in ("tit_for_tat", "always_cooperate", "buzzer_beater", "dealmaker"):
+        assert pid in presets, f"{pid} preset is missing"
+
+    # The join UI selects the first preset by default, and a test elsewhere
+    # asserts it is Tit-for-Tat, so the order is load-bearing.
+    assert module.strategy_presets()[0].id == "tit_for_tat"
+
+    # One action per turn is the fact all four were previously written against.
+    framing = module.default_strategy()
+    assert "ONE action against ONE player per turn" in framing
+
+    # Each of the four leads on a different engine; if two ever say the same
+    # thing we are back to the collapse this rewrite exists to fix.
+    assert "answer that ONE player" in presets["tit_for_tat"].prompt
+    assert "without exception" in presets["always_cooperate"].prompt
+    assert "LAST turn of a round" in presets["buzzer_beater"].prompt
+    assert "helped more than anyone else" in presets["dealmaker"].prompt
+
+    bodies = [presets[p].prompt for p in
+              ("tit_for_tat", "always_cooperate", "buzzer_beater", "dealmaker")]
+    assert len(set(bodies)) == 4
