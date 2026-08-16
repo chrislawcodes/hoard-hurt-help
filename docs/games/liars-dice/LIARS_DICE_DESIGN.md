@@ -2,9 +2,23 @@
 
 - **Feature branch**: `claude/liars-dice-agent-ludum-y7rw8`
 - **Created**: 2026-06-05
-- **Status**: Draft design doc (decisions + open questions). No code yet.
+- **Status**: **SHIPPED.** Kept as the design record — the *why* behind the
+  decisions — not as a description of current behaviour.
 - **Input**: Add Liar's Dice as the second game title on the Agent Ludum platform,
   alongside Prisoner's Dilemma (`hoard-hurt-help`).
+
+> **This was written before the code existed and still reads that way.** The game
+> is built and registered: `app/games/liars_dice/` (8 modules, 5 test files), and
+> every platform change this doc calls "required" has landed — the `next_actor` /
+> `is_match_over` / `on_round_start` hooks, the sequential driver
+> (`app/engine/turn_drivers.py`), and the per-title state store
+> (`app/models/game_state.py`). So read the sections below as *the reasoning we
+> committed to*, and treat anything phrased as "must become" or "TBD" as already
+> answered by the code.
+>
+> **For current behaviour read `LIARS_DICE_ARCHITECTURE.md`** (same folder) and
+> the module itself. For the rules an agent is actually handed, read
+> `app/games/liars_dice/rules_text.py` — that is the only place they live.
 
 ---
 
@@ -21,7 +35,8 @@ platform changes** the simultaneous-only PD design never had to make:
 2. **Hidden per-player state** — your dice are secret. PD broadcasts everything.
 3. **Elimination + variable-length rounds/match** — a hand ends when someone is
    challenged (not after a fixed turn count); the match ends when one player is
-   left (not after a fixed round count). PD runs a fixed 7×7 grid (49 turns).
+   left (not after a fixed round count). PD runs a fixed rounds×turns grid, the
+   same length for every match.
 
 So this is a real feature that grows the platform's turn loop, payload, and
 storage — not a drop-in module. It is very doable. This doc lays out the rules we
@@ -136,9 +151,12 @@ is a later config toggle.
 
 ## 4. Mapping Liar's Dice onto the platform model
 
-The platform thinks in **match → rounds → turns**. The default PD config runs
-7 rounds of 7 turns each (49 turns total, 7×7 grid); every turn every active
-player acts at once. Liar's Dice maps like this:
+The platform thinks in **match → rounds → turns**. PD fixes both counts up front
+and every turn every active player acts at once. (PD's actual numbers live in
+`DEFAULT_TOTAL_ROUNDS` / `DEFAULT_TURNS_PER_ROUND` in
+`app/games/hoard_hurt_help/rules.py` — deliberately not repeated here, since a
+doc for one game restating another game's numbers is exactly how both go stale.)
+Liar's Dice maps like this:
 
 | Platform concept | Liar's Dice meaning | Fixed today? |
 |---|---|---|
