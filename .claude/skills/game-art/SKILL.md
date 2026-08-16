@@ -145,7 +145,7 @@ How it's wired:
 The visual language already established (extend it, don't reinvent it):
 
 - **Hoard** → gold (`--hoard`, currently `#b07e0d`), squash + a coin dropping into the torso, `+2`.
-- **Help** → green (`--help`, currently `#1f8a5b`), turn away → grab a gift box → walk it over → `+4`, or **mutual** → meet in the middle, lock ring. **Mutual help decays**: a pair's first pact pays +8 each, and each repeat with the *same* partner pays less, down to a floor of +2 (`max(2, 8−k)`, `scoring.py`) — the caption shows the real decayed value, so never hardcode "+8".
+- **Help** → green (`--help`, currently `#1f8a5b`), turn away → grab a gift box → walk it over → `+4`, or **mutual** → meet in the middle, lock ring. **The mutual bonus depends on the match's mutual-help mode** (`MutualHelpMode` in `rules.py`): today's default, `flat_6`, pays a flat **+6** every time — no decay, no shrinking-number animation needed. The older `decay` mode (still selectable per match) is the one that decays: a pair's first pact pays +8 each, and each repeat with the *same* partner pays less, down to a floor of +2 (`max(2, 8−k)`, `scoring.py`). Either way the caption shows the real per-mode value (`mutual_help_value`/`mutual_help_legend`), so never hardcode a specific number like "+8" or "+6" in new art/animation work.
 - **Hurt** → red (`--hurt`, currently `#c1452f`), grab a bat → walk over → strike + target recoil → `−4`. **Betrayal hits harder**: HURTing someone who helped you that same turn lands for **−8** (the betrayal sting), and the viewer shows the bigger magnitude — a betrayal must read as a heavier blow than a routine hurt.
 - The trio is **always paired with a text label, never color-only** (that's a
   stated rule in `style.css` — keep it true).

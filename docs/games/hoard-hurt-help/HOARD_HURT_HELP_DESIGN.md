@@ -36,7 +36,7 @@ Base values per action:
 | Hurt [T] | 0 | −4 |
 
 Combo bonus:
-- If A Helps B **and** B Helps A → each gets a **+4 mutual-help bonus** on top of the +4 base, for a total of +8 each.
+- If A Helps B **and** B Helps A → each gets a mutual-help bonus on top of the +4 base. How much depends on the match's mutual-help rule (see "Mutual help decays" below) — today's default, `flat_6`, pays a flat **+6** each; the full **+4** bonus (for a total of +8 each) is what `decay`'s first hit and `flat_8` pay.
 
 Betraying a helper (the "8/4" split):
 - If A **Hurts** B **and** B **Helps** A on the same turn → A gains a **+4 bonus** on top of the +4 help B still sends (so A nets **+8** that turn), and B takes the **normal −4** (not −8). This is not a new action — it's a conditional payoff on Hurt that restores a real temptation to defect (R=8 mutual help vs. a +8 for betraying a helper). The 12-point relative swing is unchanged from the earlier design; it is re-split so the **attacker rises** (+4 bonus) instead of the victim cratering (−8). See the analysis in `betray-helper-impact-review.md` (superseded by this implementation).
@@ -51,7 +51,7 @@ Mutual help decays (feature `mutual-help-decay`):
 
 | Scenario | Player A | Player B |
 |---|---|---|
-| Mutual Help (the Pact): A→B, B→A | +8 | +8 |
+| Mutual Help (the Pact): A→B, B→A — today's default (`flat_6`) | +6 | +6 |
 | Hoard-betrayal: A Helps B, B Hoards | 0 | +6 (+2 hoard, +4 from A's help) |
 | Betray a helper: A Hurts B, B Helps A | +8 (+4 from B's help, +4 betrayal bonus) | −4 (the normal Hurt) |
 | Baseline: both Hoard | +2 | +2 |

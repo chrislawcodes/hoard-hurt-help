@@ -22,9 +22,12 @@ class MutualHelpMode(str, enum.Enum):
 
     The lever these exist to explore is cooperation-vs-betrayal, not
     cooperation-vs-hoarding. Betraying a helper pays the attacker
-    HELP_POINTS + BETRAYAL_BONUS (= 8) and costs the victim HURT_POINTS. So while
-    a pact also pays 8, betrayal wins only on rank, never on points — a weak pull.
-    Every point taken off the pact's payout widens that gap.
+    HELP_POINTS + BETRAYAL_BONUS (= 8) and costs the victim HURT_POINTS,
+    mode-independent — every mode pays a betrayer the same 8. DECAY's first hit
+    and FLAT_8 also land a pact at 8, tying betrayal on points there (it wins
+    only on rank — a weak pull). Every point taken off the pact's payout widens
+    that gap; today's default, FLAT_6, is the mode where betrayal actually
+    out-pays the pact.
     """
 
     DECAY = "decay"  # 8, 7, 6 … floored at 2

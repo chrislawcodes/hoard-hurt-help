@@ -20,9 +20,9 @@ _HEADLINE_PHRASES: dict[str, tuple[str, ...]] = {
         "{a} abandons the pact with {b}",
     ),
     "pact": (
-        "{a} and {b} lock in a pact (+8 each)",
-        "{a} and {b} shake hands — +8 apiece",
-        "a fresh alliance forms: {a} and {b} (+8 each)",
+        "{a} and {b} lock in a pact (+{v} each)",
+        "{a} and {b} shake hands — +{v} apiece",
+        "a fresh alliance forms: {a} and {b} (+{v} each)",
     ),
     "gangup": (
         "{n} bots pile on {t}",
@@ -86,6 +86,21 @@ def _mutual_pairs(actions: list[dict]) -> set[frozenset[str]]:
     }
 
 
+def _pact_values(actions: list[dict]) -> dict[frozenset[str], int]:
+    """This turn's per-side pact value, by pair.
+
+    ``display_delta`` is already the resolver's real, mode-aware per-side
+    payout for a mutual HELP (set alongside ``mutual`` in ``viewer.py``), so
+    reading it here — instead of a second hardcoded number — means the
+    headline can never advertise a payout the game didn't actually pay.
+    """
+    return {
+        frozenset((a["agent_id"], a["target_id"])): a["display_delta"]
+        for a in actions
+        if a.get("mutual") and a["target_id"]
+    }
+
+
 def _turn_headline(
     actions: list[dict],
     prev_actions: list[dict],
@@ -111,10 +126,11 @@ def _turn_headline(
             )
 
     prev_pairs = _mutual_pairs(prev_actions)
+    pact_values = _pact_values(actions)
     for pair in _mutual_pairs(actions):
         if pair not in prev_pairs:
             x, y = sorted(pair)
-            beats.append((70, {"kind": "pact", "a": x, "b": y}))
+            beats.append((70, {"kind": "pact", "a": x, "b": y, "v": pact_values[pair]}))
 
     hits: dict[str, list[str]] = {}
     for a in actions:
@@ -171,6 +187,7 @@ def _turn_headline(
             t=b.get("t"),
             n=_num_word(b.get("n", 0)),
             d=b.get("d", ""),
+            v=b.get("v", ""),
         )
         return s[0].upper() + s[1:]
 

@@ -37,6 +37,20 @@ def test_new_pact_is_narrated() -> None:
     assert "Bex" in h and "Cy" in h and "+8" in h
 
 
+def test_new_pact_under_flat_6_shows_six_not_eight() -> None:
+    """The pact headline's number must track the real per-side payout the
+    resolver just paid (display_delta), not a hardcoded 8 — under flat_6
+    (today's default, PR #669) that's +6."""
+    actions = [
+        act("Bex", "HELP", "Cy", mutual=True, delta=6),
+        act("Cy", "HELP", "Bex", mutual=True, delta=6),
+        *hoards(["Eli", "Fin"]),
+    ]
+    h = _turn_headline(actions, [], None, None, ordinal=1)
+    assert "Bex" in h and "Cy" in h and "+6" in h
+    assert "+8" not in h
+
+
 def test_unchanged_pact_is_not_re_announced() -> None:
     pact = [
         act("Bex", "HELP", "Cy", mutual=True, delta=8),

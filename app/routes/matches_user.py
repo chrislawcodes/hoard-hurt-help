@@ -29,7 +29,11 @@ from app.engine.match_deletion import cancel_match, delete_match
 from app.engine.user_match_start import start_match_for_user, viewer_start_eligibility
 from app.games import GameError, get as get_game_module
 from app.games.base import GameModule
-from app.games.hoard_hurt_help.rules import DEFAULT_MUTUAL_HELP_MODE, MutualHelpMode
+from app.games.hoard_hurt_help.rules import (
+    DEFAULT_MUTUAL_HELP_MODE,
+    MutualHelpMode,
+    mutual_help_legend,
+)
 from app.models.match import GameState, Match
 from app.models.user import User, UserRole
 from app.routes.web_match_loaders import (
@@ -104,6 +108,22 @@ def _load_visible_game_module_or_404(game: str, user: User | None) -> GameModule
     return module
 
 
+def _mutual_help_choices() -> list[tuple[str, str]]:
+    """Every mutual-help mode as an admin create-form (value, label) option.
+
+    Iterates the enum, so a new `MutualHelpMode` member shows up here with no
+    separate edit, and each label's payout number comes from
+    `mutual_help_legend` — never hand-typed — so this list can't drift from
+    what the game actually pays. The display name is derived from the enum
+    value itself (``flat_6`` -> ``Flat 6``) rather than a second hand-kept
+    name table, for the same reason.
+    """
+    return [
+        (mode.value, f"{mode.value.replace('_', ' ').title()} — {mutual_help_legend(mode)}")
+        for mode in MutualHelpMode
+    ]
+
+
 def _create_context(
     user: User,
     game: str,
@@ -126,6 +146,10 @@ def _create_context(
         "defaults": _form_defaults(module),
         "submitted": submitted or {},
         "error": error,
+        # Admin-only mutual-help mode picker (hoard-hurt-help only — see the
+        # template's own game_slug guard). Cheap to build for every game since
+        # it's just an enum walk.
+        "mutual_help_choices": _mutual_help_choices(),
     }
 
 

@@ -40,6 +40,7 @@ from app.deps import DbSession, get_current_user
 from app.engine.scheduler import cancel_overdue_unfilled_games
 from app.games import get as get_game_module
 from app.games.base import GameError
+from app.games.hoard_hurt_help.rules import mutual_help_legend
 from app.models.match import Match, GameState
 from app.ops_events import log_ops_event
 from app.read_models.matches import count_players_by_match
@@ -54,7 +55,10 @@ from app.routes import (
     web_legacy_redirects,
     web_legal,
 )
-from app.routes.showcase_replay import load_showcase_replay_cached
+from app.routes.showcase_replay import (
+    load_showcase_replay_cached,
+    showcase_mutual_help_mode,
+)
 from app.routes.web_support import (
     _is_any_admin,
     _redirect_to_match,
@@ -177,6 +181,11 @@ async def game_lobby(request: Request, db: DbSession, game: Annotated[str, Path(
         rc_game_id, rc_data = None, ""
     else:
         rc_game_id, rc_data, _ = await load_showcase_replay_cached()
+    # Gate the robot-circle legend on THAT replay's own mode (mirrors the front
+    # page's showcase — see web_front_page.py), not the platform default: this
+    # widget always shows one specific match (live=none) or none at all, never
+    # an abstract "what a new match plays" statement.
+    rc_mutual_help_mode = await showcase_mutual_help_mode(db, rc_game_id)
     recent_games = finished_views["recent"]
     bots_only_games = finished_views["bots_only"]
 
@@ -230,6 +239,7 @@ async def game_lobby(request: Request, db: DbSession, game: Annotated[str, Path(
             "show_cancelled_all": show_cancelled_all,
             "rc_game_id": rc_game_id,
             "rc_data": rc_data,
+            "rc_mutual_help_legend": mutual_help_legend(rc_mutual_help_mode),
             "show_onboarding_banner": show_onboarding_banner,
             # Tint the lobby's content with this game's scheme; the shared chrome
             # (defined outside <main>) is untouched. See GameModule.theme().

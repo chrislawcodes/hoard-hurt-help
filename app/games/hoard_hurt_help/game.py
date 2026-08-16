@@ -27,11 +27,11 @@ from app.games.hoard_hurt_help.rules import (
     HELP_POINTS,
     HOARD_POINTS,
     HURT_POINTS,
-    MUTUAL_HELP_BONUS,
     MUTUAL_HELP_FLOOR,
     make_game_rules_text,
     make_rules_text,
     mode_needs_history,
+    mutual_help_value,
 )
 from app.games.hoard_hurt_help.strategy import PD_DEFAULT_STRATEGY, PD_STRATEGY_PRESETS
 from app.models.player import Player
@@ -316,7 +316,7 @@ class HoardHurtHelp(BaseGameModule):
         else:
             note = (
                 "What a mutual HELP with this agent pays EACH side: a flat "
-                f"+{HELP_POINTS + MUTUAL_HELP_BONUS}, every time."
+                f"+{mutual_help_value(mode, 0)}, every time."
             )
         return {
             "pact_values": {p.seat_name: values[p.id] for p in other_players},

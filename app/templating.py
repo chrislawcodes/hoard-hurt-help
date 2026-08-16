@@ -7,6 +7,8 @@ once in a single place.
 from datetime import datetime, timezone
 
 from fastapi.templating import Jinja2Templates
+from jinja2 import Undefined
+from jinja2.exceptions import UndefinedError
 from markupsafe import Markup
 from starlette.requests import Request
 
@@ -44,6 +46,26 @@ templates.env.globals["mutual_help_legend"] = mutual_help_legend
 # The rule a new match gets by default, so the create form pre-selects the same
 # mode every other create path would have used.
 templates.env.globals["default_mutual_help_mode"] = DEFAULT_MUTUAL_HELP_MODE.value
+
+
+def mandatory(value: object) -> object:
+    """Raise if a template variable that must always be supplied is missing.
+
+    Jinja's default ``Undefined`` renders a missing variable as a silent blank
+    instead of erroring — fine for optional copy, but wrong for a value like
+    the robot-circle mutual-help legend, where a forgotten context key used to
+    fall back to a hardcoded (and increasingly wrong) guess. Pipe a must-have
+    variable through this filter so a missing include-site wiring fails the
+    render loudly instead of quietly lying about the payout.
+    """
+    if isinstance(value, Undefined):
+        raise UndefinedError(
+            "required template variable was not provided by its caller"
+        )
+    return value
+
+
+templates.env.filters["mandatory"] = mandatory
 
 
 def _to_utc_iso(value: object) -> str | None:

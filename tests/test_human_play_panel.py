@@ -78,7 +78,11 @@ async def test_panel_renders_for_seated_human_on_act_turn(reset_db, client) -> N
     assert 'data-your-turn="act"' in html
     assert "Lock in my move" in html
     assert "+4 them" in html  # payoff hint
-    assert "+8 mutual" in html  # the cooperation upside lives on the Help card
+    # The cooperation upside on the Help card, derived from the match's own
+    # mutual_help_mode — this match's column default is flat_6 (+6), not the
+    # old hardcoded +8 (Flat 6 rollout, PR #669).
+    assert "+6 mutual" in html
+    assert "+8 mutual" not in html
     assert "bob" in html  # target option present
 
 
