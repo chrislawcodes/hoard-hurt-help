@@ -90,3 +90,35 @@ async def test_unknown_round_404(client, reset_db):
 async def test_unknown_game_404(client, reset_db):
     r = await client.get("/games/G_999/analysis")
     assert r.status_code == 404
+
+
+# --------------------------------------------------------- A9: analysis.css
+# These two pages used to embed a <style> block (fragments/analysis_styles.html)
+# that redefined .card/.muted with different values than style.css's platform
+# rules — any future platform restyle of .card/.muted would silently skip these
+# two pages. The fix moves the rules into app/static/analysis.css (renamed under
+# the file's own .an- prefix) and links it like every other page-scoped
+# stylesheet. See tests/test_css_duplicate_selectors.py for the selector-level
+# guard that .an-* doesn't shadow the platform names.
+
+
+async def test_season_page_links_stylesheet_not_inline_style(client, reset_db):
+    await _seed_game_with_history(reset_db)
+    r = await client.get("/games/hoard-hurt-help/matches/G_001/analysis")
+    assert r.status_code == 200
+    assert '/static/analysis.css' in r.text
+    assert "<style" not in r.text
+
+
+async def test_round_page_links_stylesheet_not_inline_style(client, reset_db):
+    await _seed_game_with_history(reset_db)
+    r = await client.get("/games/hoard-hurt-help/matches/G_001/analysis/rounds/1")
+    assert r.status_code == 200
+    assert '/static/analysis.css' in r.text
+    assert "<style" not in r.text
+
+
+async def test_analysis_css_is_served(client) -> None:
+    r = await client.get("/static/analysis.css")
+    assert r.status_code == 200
+    assert ".an-card" in r.text
