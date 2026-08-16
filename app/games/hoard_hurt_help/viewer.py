@@ -22,6 +22,7 @@ from app.games.hoard_hurt_help.match_summary import build_final_summary
 from app.games.hoard_hurt_help.rules import (
     BETRAYAL_BONUS,
     HELP_POINTS,
+    LEGACY_MUTUAL_HELP_MODE,
     MUTUAL_HELP_BONUS,
     mutual_help_value,
 )
@@ -439,7 +440,7 @@ async def build_pd_replay_view(
         # its running score per round — still sees the match-scoped k. The payout
         # comes from the same function the resolver uses, so the replay can never
         # show a number the game didn't actually pay.
-        mode = match.mutual_help_mode or "decay"
+        mode = match.mutual_help_mode or LEGACY_MUTUAL_HELP_MODE.value
         pact_value: dict[frozenset[str], int] = {}
         for pair in this_mutual:
             k = pact_counts.get(pair, 0)

@@ -24,6 +24,7 @@ def _ctx(
     history: list[ActionRecord],
     scores: dict[str, int] | None = None,
     turn: int = 5,
+    turns_per_round: int = 5,
     me: str = "AI_1",
 ) -> tuple[BotContext, BotProfile]:
     s = scores or {a: 4 for a in IDS}
@@ -39,6 +40,8 @@ def _ctx(
         history=history,
         scoreboard=board,
         current_talk_messages=[],
+        turns_per_round=turns_per_round,
+        mutual_help_mode="decay",
     )
     profile = BotProfile(strategy=strategy, truthfulness=80, trust_model="even", seed=3, version="v1")
     return ctx, profile
@@ -80,12 +83,14 @@ def test_icebreaker_stops_after_turn_three() -> None:
 
 def test_pragmatist_cooperates_then_betrays_at_the_buzzer() -> None:
     history = [_helped("AI_2", "AI_1")]  # AI_2 just helped me
-    # Mid-round: it reciprocates (cooperates).
-    ctx, profile = _ctx(strategy="pragmatist", history=history, turn=5)
+    # Mid-round of a 5-turn round: it reciprocates (cooperates).
+    ctx, profile = _ctx(strategy="pragmatist", history=history, turn=4, turns_per_round=5)
     assert choose_bot_action_decision(ctx, profile).move == {"action": "HELP", "target_id": "AI_2"}
     # Final turn: it betrays the partner it expects to still help it — HURTing a
-    # helper lands for the full -8. It targets AI_2 (the recent helper).
-    ctx_last, profile = _ctx(strategy="pragmatist", history=history, turn=7)
+    # helper lands for the full -8. It targets AI_2 (the recent helper). The
+    # buzzer is the round's LAST turn, not a fixed turn number, so this holds at
+    # any round length — turn 5 of 5 here, turn 7 of 7 before the round shrank.
+    ctx_last, profile = _ctx(strategy="pragmatist", history=history, turn=5, turns_per_round=5)
     assert choose_bot_action_decision(ctx_last, profile).move == {
         "action": "HURT",
         "target_id": "AI_2",

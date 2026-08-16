@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Sequence
 
 from app.engine.game_records import ActionRecord
-from app.games.hoard_hurt_help.rules import mode_needs_history
+from app.games.hoard_hurt_help.rules import DEFAULT_MUTUAL_HELP_MODE, mode_needs_history
 
 from .signals import TalkSignal
 from .strategies import latest_turn
@@ -70,7 +70,7 @@ def compute_trust_map(
     history: Sequence[ActionRecord],
     signals: Sequence[TalkSignal],
     trust_model: str,
-    mutual_help_mode: str = "decay",
+    mutual_help_mode: str = DEFAULT_MUTUAL_HELP_MODE.value,
 ) -> dict[str, int]:
     """Compute your trust in every other player from history + talk signals.
 

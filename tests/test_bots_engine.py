@@ -32,6 +32,8 @@ def _context(
     talk: list[TalkMessage] | None = None,
     game_id: str = "G_1",
     game_started_at: datetime | None = None,
+    turns_per_round: int = 5,
+    mutual_help_mode: str = "decay",
 ) -> BotContext:
     agent_ids = all_agent_ids or ["AI_1", "AI_2", "AI_3", "AI_10"]
     board = scoreboard or [
@@ -51,6 +53,8 @@ def _context(
         history=history or [],
         scoreboard=board,
         current_talk_messages=talk or [],
+        turns_per_round=turns_per_round,
+        mutual_help_mode=mutual_help_mode,
     )
 
 
@@ -267,12 +271,12 @@ def test_partner_fatigue_erodes_a_farmed_partner(monkeypatch: pytest.MonkeyPatch
     ids = ["AI_1", "AI_2", "AI_3"]
 
     farmed = compute_trust_map(
-        your_agent_id="AI_1", all_agent_ids=ids, history=history, signals=[], trust_model="even"
+        your_agent_id="AI_1", all_agent_ids=ids, history=history, signals=[], trust_model="even", mutual_help_mode="decay"
     )["AI_2"]
 
     monkeypatch.setattr(trust_module, "PARTNER_FATIGUE", 0)
     without_fatigue = compute_trust_map(
-        your_agent_id="AI_1", all_agent_ids=ids, history=history, signals=[], trust_model="even"
+        your_agent_id="AI_1", all_agent_ids=ids, history=history, signals=[], trust_model="even", mutual_help_mode="decay"
     )["AI_2"]
 
     assert without_fatigue >= 20  # would be a valid partner (the 20 threshold) without fatigue
@@ -285,7 +289,7 @@ def test_partner_fatigue_floors_at_zero_never_negative() -> None:
     # "meh", not an enemy (going negative is the betrayal system's job, not this).
     history = _mutual_round(1, "AI_1", "AI_2", turns=7) + _mutual_round(2, "AI_1", "AI_2", turns=7)
     trust = compute_trust_map(
-        your_agent_id="AI_1", all_agent_ids=["AI_1", "AI_2"], history=history, signals=[], trust_model="even"
+        your_agent_id="AI_1", all_agent_ids=["AI_1", "AI_2"], history=history, signals=[], trust_model="even", mutual_help_mode="decay"
     )
     assert trust["AI_2"] == 0
 
@@ -296,11 +300,11 @@ def test_partner_fatigue_leaves_a_hostile_player_untouched(monkeypatch: pytest.M
     history = [_rec(1, 7, "AI_2", "HURT", "AI_1")]
     ids = ["AI_1", "AI_2"]
     with_fatigue = compute_trust_map(
-        your_agent_id="AI_1", all_agent_ids=ids, history=history, signals=[], trust_model="even"
+        your_agent_id="AI_1", all_agent_ids=ids, history=history, signals=[], trust_model="even", mutual_help_mode="decay"
     )["AI_2"]
     monkeypatch.setattr(trust_module, "PARTNER_FATIGUE", 0)
     without_fatigue = compute_trust_map(
-        your_agent_id="AI_1", all_agent_ids=ids, history=history, signals=[], trust_model="even"
+        your_agent_id="AI_1", all_agent_ids=ids, history=history, signals=[], trust_model="even", mutual_help_mode="decay"
     )["AI_2"]
     assert with_fatigue < 0
     assert with_fatigue == without_fatigue  # fatigue did not touch the hostile player
@@ -325,10 +329,10 @@ def test_partner_fatigue_is_deterministic() -> None:
     history = _mutual_round(1, "AI_1", "AI_2", turns=4) + _mutual_round(2, "AI_1", "AI_3")
     ids = ["AI_1", "AI_2", "AI_3"]
     first = compute_trust_map(
-        your_agent_id="AI_1", all_agent_ids=ids, history=history, signals=[], trust_model="even"
+        your_agent_id="AI_1", all_agent_ids=ids, history=history, signals=[], trust_model="even", mutual_help_mode="decay"
     )
     second = compute_trust_map(
-        your_agent_id="AI_1", all_agent_ids=ids, history=history, signals=[], trust_model="even"
+        your_agent_id="AI_1", all_agent_ids=ids, history=history, signals=[], trust_model="even", mutual_help_mode="decay"
     )
     assert first == second
 

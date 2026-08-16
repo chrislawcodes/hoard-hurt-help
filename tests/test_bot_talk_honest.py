@@ -26,6 +26,8 @@ def _ctx(*, talk: list[TalkMessage], turn: int = 5) -> BotContext:
         history=[],
         scoreboard=[ScoreboardRow(agent_id=a, round_score=4, round_wins=0.0) for a in IDS],
         current_talk_messages=talk,
+        turns_per_round=5,
+        mutual_help_mode="decay",
     )
 
 

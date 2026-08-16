@@ -35,12 +35,23 @@ class BotContext:
     history: list[ActionRecord]
     scoreboard: list[ScoreboardRow]
     current_talk_messages: list[TalkMessage]
-    # This match's mutual-help decay switch. Gates decay-aware partner rotation in
-    # `trust.compute_trust_map` (OFF = no partner fatigue). Deliberately a trailing
-    # field with a default so existing constructions read ON, and deliberately NOT
-    # part of `seed_basis()` — folding it into the seed would perturb every bot's
-    # deterministic tie-breaks and reintroduce the talk→act target-drift bug.
-    mutual_help_mode: str = "decay"
+    # How many turns this match's rounds run. The late-game and buzzer strategies
+    # in `plan_rules.py` fire relative to the END of a round, so they need the
+    # round's length — hardcoding it left those strategies dead in any match whose
+    # rounds are shorter than the number they were written against. Required, not
+    # defaulted, so a new construction can't silently inherit a stale length.
+    # Deliberately NOT part of `seed_basis()`, for the same reason as
+    # `mutual_help_mode` below.
+    turns_per_round: int
+    # This match's mutual-help rule. Gates decay-aware partner rotation in
+    # `trust.compute_trust_map` (a flat payout = no partner fatigue). Required for
+    # the same reason as `turns_per_round`: it used to default to "decay", which
+    # stopped being the shipped rule when the default moved to flat_6, so anything
+    # that omitted it reasoned about a rule no live match was played under.
+    # Deliberately NOT part of `seed_basis()` — folding it into the seed would
+    # perturb every bot's deterministic tie-breaks and reintroduce the talk→act
+    # target-drift bug.
+    mutual_help_mode: str
 
     def seed_basis(self) -> str:
         """Canonical seed input: start time plus a sorted context snapshot.

@@ -82,16 +82,32 @@ Mutual help decays (feature `mutual-help-decay`):
 - Admin sets the start time for the match.
 
 ### Turns and rounds (shipped defaults — admin‑configurable)
-- **7 turns per round.**
-- **5 rounds per match.**
+- **5 turns per round.**
+- **7 rounds per match.**
 - **35 turns total per match.**
 
-  (These come from the PD module's `config_defaults` — `total_rounds=5`,
-  `turns_per_round=7` — and the rules text agents see. An admin can override them
-  per match. Rounds dropped from 7 to 5 in #567.)
+  (These come from `DEFAULT_TOTAL_ROUNDS` / `DEFAULT_TURNS_PER_ROUND` in
+  `app/games/hoard_hurt_help/rules.py`. Everything else reads them from there —
+  the PD module's `config_defaults`, the rules text agents see, the arena and
+  auto‑match constants, and the admin create schema — so the numbers can't drift
+  apart. An admin can still override them per match.
+
+  Call a rules‑text method with a count or mode left unset and you get **what the
+  game currently ships**: counts resolve through `BaseGameModule.resolved_counts`
+  → that game's own `config_defaults()`, and the mutual‑help rule through
+  `DEFAULT_MUTUAL_HELP_MODE`. Never put a literal in one of those signatures. The
+  one exception is a match row whose `mutual_help_mode` is **NULL** — that is a
+  row from before the switch existed and it really was played under decay, so it
+  reads as `LEGACY_MUTUAL_HELP_MODE`. `tests/test_rules_single_source.py` pins
+  both halves.
+
+  History: rounds ran 7 originally, dropped to 5 in #567 on counterfactual replay
+  evidence, then went back to 7 with turns cut to 5 — a deliberate reshape of the
+  same 35‑turn match, not a revert of #567. See the "Match length" row in the
+  `failure-archaeology` skill.)
 
 ### Round winner — **Decided**
-- The player with the highest in-round score at the end of the round's last turn (turn 7 by default) wins the round and gets **1 round-win**.
+- The player with the highest in-round score at the end of the round's last turn (turn 5 by default) wins the round and gets **1 round-win**.
 - Every other player gets 0 round-wins for that round.
 - In-round score resets to 0 at the start of each round.
 
@@ -100,7 +116,7 @@ Mutual help decays (feature `mutual-help-decay`):
 - Example: 2-way tie → 0.5 round-wins each. 3-way tie → 0.333 each.
 
 ### Match winner — **Decided**
-- Player with the most round-wins after the last round (round 5 by default) wins the game.
+- Player with the most round-wins after the last round (round 7 by default) wins the game.
 - **Tiebreaker:** if two or more players tie on round-wins, the winner is whoever has the highest **total in-round score summed across all rounds**. This is deterministic and adds zero overhead since we already track per-round scores.
 
 ### Missed turns

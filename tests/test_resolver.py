@@ -681,7 +681,7 @@ async def test_current_pact_values_fresh_pair_shows_8(db):
     from app.games.hoard_hurt_help.scoring import current_pact_values
 
     game, [a, b] = await _make_game_with_players(db, 2)
-    values = await current_pact_values(db, game.id, a.id, [b.id])
+    values = await current_pact_values(db, game.id, a.id, [b.id], mode="decay")
     assert values == {b.id: 8}
 
 
@@ -695,10 +695,10 @@ async def test_current_pact_values_after_one_mutual_help_shows_7(db):
     await _submit(db, t1, b, "HELP", target=a)
     await resolve_turn(db, t1)
 
-    values = await current_pact_values(db, game.id, a.id, [b.id])
+    values = await current_pact_values(db, game.id, a.id, [b.id], mode="decay")
     assert values == {b.id: 7}
     # Symmetric: B's live value with A is the same.
-    assert await current_pact_values(db, game.id, b.id, [a.id]) == {a.id: 7}
+    assert await current_pact_values(db, game.id, b.id, [a.id], mode="decay") == {a.id: 7}
 
 
 async def test_current_pact_values_floors_at_2(db):
@@ -712,7 +712,7 @@ async def test_current_pact_values_floors_at_2(db):
         await _submit(db, turn, b, "HELP", target=a)
         await resolve_turn(db, turn)
 
-    assert await current_pact_values(db, game.id, a.id, [b.id]) == {b.id: 2}
+    assert await current_pact_values(db, game.id, a.id, [b.id], mode="decay") == {b.id: 2}
 
 
 async def test_current_pact_values_unaffected_pair_stays_8(db):
@@ -727,10 +727,10 @@ async def test_current_pact_values_unaffected_pair_stays_8(db):
     await _submit(db, t1, d, "HOARD")
     await resolve_turn(db, t1)
 
-    assert await current_pact_values(db, game.id, a.id, [b.id]) == {b.id: 7}
-    assert await current_pact_values(db, game.id, c.id, [d.id]) == {d.id: 8}
+    assert await current_pact_values(db, game.id, a.id, [b.id], mode="decay") == {b.id: 7}
+    assert await current_pact_values(db, game.id, c.id, [d.id], mode="decay") == {d.id: 8}
     # One call can look up several other players' values at once.
-    assert await current_pact_values(db, game.id, a.id, [b.id, c.id, d.id]) == {
+    assert await current_pact_values(db, game.id, a.id, [b.id, c.id, d.id], mode="decay") == {
         b.id: 7,
         c.id: 8,
         d.id: 8,

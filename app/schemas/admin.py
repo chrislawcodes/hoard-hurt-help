@@ -5,7 +5,12 @@ from datetime import datetime
 from pydantic import BaseModel, Field, field_validator
 
 from app.game_types import DEFAULT_GAME_TYPE
-from app.games.hoard_hurt_help.rules import DEFAULT_MUTUAL_HELP_MODE, MutualHelpMode
+from app.games.hoard_hurt_help.rules import (
+    DEFAULT_MUTUAL_HELP_MODE,
+    DEFAULT_TOTAL_ROUNDS,
+    DEFAULT_TURNS_PER_ROUND,
+    MutualHelpMode,
+)
 
 
 class CreateGameRequest(BaseModel):
@@ -15,8 +20,10 @@ class CreateGameRequest(BaseModel):
     min_players: int = Field(default=6, ge=3, le=100)
     max_players: int = Field(default=10, ge=3, le=100)
     per_turn_deadline_seconds: int = Field(default=60, ge=5, le=600)
-    total_rounds: int = Field(default=7, ge=3, le=20)
-    turns_per_round: int = Field(default=7, ge=3, le=20)
+    # Omitting either gets the shipped match length, same as every other create
+    # path — this schema already defaults game_type to Hoard-Hurt-Help.
+    total_rounds: int = Field(default=DEFAULT_TOTAL_ROUNDS, ge=3, le=20)
+    turns_per_round: int = Field(default=DEFAULT_TURNS_PER_ROUND, ge=3, le=20)
     wild_ones: bool = True
     dice_per_player: int = Field(default=5, ge=1, le=20)
     # Hoard-Hurt-Help's per-match rule switch. Omitting it gets whatever the
