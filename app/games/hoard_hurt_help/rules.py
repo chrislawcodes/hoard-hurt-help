@@ -16,6 +16,18 @@ BETRAYAL_BONUS = 4  # extra to the ATTACKER when they HURT a player HELPing them
 # no better than hoarding): total = max(MUTUAL_HELP_FLOOR, HELP_POINTS + MUTUAL_HELP_BONUS - k).
 MUTUAL_HELP_FLOOR = 2
 
+# The three moves, in the canonical display order the insight engines tally them
+# in: HOARD (keep), HELP (cooperate), HURT (attack). `GameModule.action_names()`
+# returns this and move validation derives its accepted set from it, so the move
+# vocabulary is stated once rather than as a tuple in one place and a set in
+# another.
+ACTIONS: tuple[str, ...] = ("HOARD", "HELP", "HURT")
+
+# An in-round score never goes below this. Applied to the final per-player delta
+# in `scoring.resolve_turn` and per-HURT in the viewer's mirror, and stated in the
+# rules text below — all three from here, so a change lands everywhere at once.
+SCORE_FLOOR = 0
+
 # Match length a new match gets when its creator doesn't pick one. The rules text
 # below is written from these two constants and `_apply_counts` rewrites it off the
 # same two, so the numbers an agent reads can never drift from the numbers the
@@ -23,6 +35,18 @@ MUTUAL_HELP_FLOOR = 2
 # `test_pd_is_registered`.
 DEFAULT_TOTAL_ROUNDS = 7
 DEFAULT_TURNS_PER_ROUND = 5
+
+# Which revision of the rules a match is played under. It is stamped onto the
+# match row at creation and shipped to agents in every turn payload, and the rules
+# text below is titled from it, so the version an agent is told cannot disagree
+# with the rules it is handed.
+#
+# It versions the SHAPE of the rules — the actions, the payoff table, stacking,
+# betrayal, the score floor. It deliberately does not move when a per-match knob
+# moves: match length and `mutual_help_mode` are stored per match in their own
+# columns, so they are already recorded exactly, and bumping this for them would
+# make the version say a match is unlike another that differs only by a setting.
+RULES_VERSION = "v5"
 
 
 class MutualHelpMode(str, enum.Enum):
@@ -158,15 +182,25 @@ _MUTUAL_HELP_SECTIONS = {
 
 
 def _render_game_rules_text(
-    *, mode: MutualHelpMode | str = DEFAULT_MUTUAL_HELP_MODE
+    *,
+    mode: MutualHelpMode | str = DEFAULT_MUTUAL_HELP_MODE,
+    total_rounds: int = DEFAULT_TOTAL_ROUNDS,
+    turns_per_round: int = DEFAULT_TURNS_PER_ROUND,
 ) -> str:
-    """Build the semantic rules body (default 7-round/5-turn counts) for one mode.
+    """Build the semantic rules body for one mode and one match length.
+
+    Every number in the text is interpolated from a constant or an argument, so
+    there is nothing to keep in step by hand. In particular the counts are
+    rendered directly rather than rendered-at-defaults-then-string-replaced: the
+    old `_apply_counts` had to know the exact phrasing of five sentences, so
+    rewording any one of them would have silently stopped rewriting it and handed
+    a custom-length match the *default* counts in its rules.
 
     The rules a player is shown MUST match what the resolver pays — both come from
     the same mode, and `test_rules_text_matches_payout` pins that they agree.
     """
     mutual_section = _MUTUAL_HELP_SECTIONS[MutualHelpMode(mode)]
-    return f"""# Hoard-Hurt-Help — Official Rules (v5)
+    return f"""# Hoard-Hurt-Help — Official Rules ({RULES_VERSION})
 
 The goal is to win more rounds than any other agent over the course of the game.
 
@@ -188,14 +222,14 @@ In the act phase, choose exactly one action. You cannot target yourself.
 
 ## Score floor
 
-Round scores are clipped at 0. HURTing a player already at 0 still costs the attacker their turn but has no effect on the target.
+Round scores are clipped at {SCORE_FLOOR}. HURTing a player already at {SCORE_FLOOR} still costs the attacker their turn but has no effect on the target.
 
 ## Round and game structure
 
-- A game has **{DEFAULT_TOTAL_ROUNDS} rounds**, each with **{DEFAULT_TURNS_PER_ROUND} turns** ({DEFAULT_TOTAL_ROUNDS * DEFAULT_TURNS_PER_ROUND} turns total).
-- In-round score resets to 0 at the start of every round.
-- The player with the highest in-round score after turn {DEFAULT_TURNS_PER_ROUND} wins the round and gets **1 round-win**. Ties split the round-win equally (1/N each).
-- The player with the most round-wins after all {DEFAULT_TOTAL_ROUNDS} rounds wins the game.
+- A game has **{total_rounds} rounds**, each with **{turns_per_round} turns** ({total_rounds * turns_per_round} turns total).
+- In-round score resets to {SCORE_FLOOR} at the start of every round.
+- The player with the highest in-round score after turn {turns_per_round} wins the round and gets **1 round-win**. Ties split the round-win equally (1/N each).
+- The player with the most round-wins after all {total_rounds} rounds wins the game.
 - **Tiebreaker:** highest total in-round score summed across all rounds.
 
 ## Turn structure: talk, then act
@@ -222,29 +256,6 @@ RULES_TEXT = f"""{GAME_RULES_TEXT}
 DEFAULT_MISSED_MESSAGE = "I did not submit a turn."
 
 
-def _apply_counts(text: str, total_rounds: int, turns_per_round: int) -> str:
-    """Rewrite the literal 7-round/5-turn counts to the actual match counts.
-
-    The count strings live only in the "Round and game structure" section, never
-    in the mutual-help section, so this is safe for both decay settings.
-    """
-    if total_rounds == DEFAULT_TOTAL_ROUNDS and turns_per_round == DEFAULT_TURNS_PER_ROUND:
-        return text
-    return (
-        text
-        .replace(f"**{DEFAULT_TOTAL_ROUNDS} rounds**", f"**{total_rounds} rounds**")
-        .replace(f"**{DEFAULT_TURNS_PER_ROUND} turns**", f"**{turns_per_round} turns**")
-        .replace(
-            f"({DEFAULT_TOTAL_ROUNDS * DEFAULT_TURNS_PER_ROUND} turns total)",
-            f"({total_rounds * turns_per_round} turns total)",
-        )
-        .replace(f"after turn {DEFAULT_TURNS_PER_ROUND}", f"after turn {turns_per_round}")
-        .replace(
-            f"after all {DEFAULT_TOTAL_ROUNDS} rounds", f"after all {total_rounds} rounds"
-        )
-    )
-
-
 def make_game_rules_text(
     total_rounds: int = DEFAULT_TOTAL_ROUNDS,
     turns_per_round: int = DEFAULT_TURNS_PER_ROUND,
@@ -252,13 +263,9 @@ def make_game_rules_text(
     mode: MutualHelpMode | str = DEFAULT_MUTUAL_HELP_MODE,
 ) -> str:
     """Return semantic game rules for this match's mutual-help mode and counts."""
-    mode = MutualHelpMode(mode)
-    base = (
-        GAME_RULES_TEXT
-        if mode is DEFAULT_MUTUAL_HELP_MODE
-        else _render_game_rules_text(mode=mode)
+    return _render_game_rules_text(
+        mode=mode, total_rounds=total_rounds, turns_per_round=turns_per_round
     )
-    return _apply_counts(base, total_rounds, turns_per_round)
 
 
 def make_rules_text(

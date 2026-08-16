@@ -82,33 +82,26 @@ class LiarsDice(BaseGameModule):
     def default_strategy(self) -> str:
         return LD_DEFAULT_STRATEGY
 
-    # None means "this game's own default length" — see `resolved_counts`.
-    def rules_text(
-        self, total_rounds: int | None = None, turns_per_round: int | None = None
-    ) -> str:
+    def rules_text(self, total_rounds: int = 7, turns_per_round: int = 7) -> str:
         cfg = self.config_defaults()
-        rounds, turns = self.resolved_counts(total_rounds, turns_per_round)
         return make_rules_text(
             wild_ones=True,
             dice_per_player=_default_config()["dice_per_player"],
             min_players=cfg.min_players,
             max_players=cfg.max_players,
-            total_rounds=rounds,
-            turns_per_round=turns,
+            total_rounds=total_rounds,
+            turns_per_round=turns_per_round,
         )
 
-    def semantic_rules_text(
-        self, total_rounds: int | None = None, turns_per_round: int | None = None
-    ) -> str:
+    def semantic_rules_text(self, total_rounds: int = 7, turns_per_round: int = 7) -> str:
         cfg = self.config_defaults()
-        rounds, turns = self.resolved_counts(total_rounds, turns_per_round)
         return make_game_rules_text(
             wild_ones=True,
             dice_per_player=_default_config()["dice_per_player"],
             min_players=cfg.min_players,
             max_players=cfg.max_players,
-            total_rounds=rounds,
-            turns_per_round=turns,
+            total_rounds=total_rounds,
+            turns_per_round=turns_per_round,
         )
 
     def mcp_setup_hint_lines(self) -> list[str]:
@@ -121,18 +114,17 @@ class LiarsDice(BaseGameModule):
         *,
         your_agent_id: str,
         all_agent_ids: list[str],
-        total_rounds: int | None = None,
-        turns_per_round: int | None = None,
+        total_rounds: int = 7,
+        turns_per_round: int = 7,
     ) -> str:
         cfg = self.config_defaults()
-        rounds, turns = self.resolved_counts(total_rounds, turns_per_round)
         rules = make_game_rules_text(
             wild_ones=True,
             dice_per_player=_default_config()["dice_per_player"],
             min_players=cfg.min_players,
             max_players=cfg.max_players,
-            total_rounds=rounds,
-            turns_per_round=turns,
+            total_rounds=total_rounds,
+            turns_per_round=turns_per_round,
         )
         targets = [seat for seat in all_agent_ids if seat != your_agent_id]
         return (

@@ -214,8 +214,11 @@ have healed the match — if it didn't, diagnose the sweeper first.
 
 If a match is frozen and you can't ship a code fix to self-heal it, recover by
 hand in one guarded transaction: compute the open turn's payoffs from its
-submissions (rules in `app/engine/`: HOARD +2 self, HELP +4 to target, HURT −4,
-mutual-help bonus), write each submission's `points_delta`/`round_score_after`,
+submissions (rules in `app/games/hoard_hurt_help/rules.py`, math in that
+package's `scoring.py`: HOARD +2 self, HELP +4 to target, HURT −4, plus the
+mutual-help bonus — take its value from `mutual_help_value(match.mutual_help_mode,
+k)` rather than assuming a number, since the payout depends on the mode that
+match was created under), write each submission's `points_delta`/`round_score_after`,
 bump each player's `current_round_score`, set the turn's `resolved_at`, advance
 `matches.current_turn` to the *next* turn (so resume opens a fresh turn rather
 than the existing row), then redeploy to restart the loop. Prefer shipping the

@@ -21,6 +21,7 @@ from app.games.hoard_hurt_help.rules import (
     HOARD_POINTS,
     HURT_POINTS,
     LEGACY_MUTUAL_HELP_MODE,
+    SCORE_FLOOR,
     MutualHelpMode,
     mode_needs_history,
     mutual_help_value,
@@ -255,8 +256,8 @@ async def resolve_turn(db: AsyncSession, turn: Turn) -> None:
     sub_by_player: dict[int, TurnSubmission] = {s.player_id: s for s in submissions}
     for p in players:
         new_score = p.current_round_score + delta[p.id]
-        if new_score < 0:
-            new_score = 0
+        if new_score < SCORE_FLOOR:
+            new_score = SCORE_FLOOR
         actual_delta = new_score - p.current_round_score
         p.current_round_score = new_score
         s = sub_by_player[p.id]
@@ -306,7 +307,9 @@ def apply_inround_turn(
             new_inround[target] = new_inround.get(target, 0) + HELP_POINTS
         elif action == "HURT" and target:
             # The victim always takes the normal HURT_POINTS (floored per-hurt).
-            new_inround[target] = max(0, new_inround.get(target, 0) - HURT_POINTS)
+            new_inround[target] = max(
+                SCORE_FLOOR, new_inround.get(target, 0) - HURT_POINTS
+            )
             # Betraying a helper: the attacker gains a BETRAYAL_BONUS (a gain — not
             # floored) on top of the +HELP_POINTS the victim's HELP already credits.
             if help_targets.get(target) == actor:

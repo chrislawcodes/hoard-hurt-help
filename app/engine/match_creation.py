@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Any
 
 from app.engine.tokens import generate_match_id
+from app.games import get as get_game_module
 from app.games import known_types
 from app.games.hoard_hurt_help.rules import DEFAULT_MUTUAL_HELP_MODE
 from app.models.game_state import MatchState
@@ -123,11 +124,19 @@ async def create_match(
     if not (1 <= turns_per_round <= 20):
         raise ValueError("Turns per round must be 1 to 20.")
 
+    # Stamp the rules revision this match is created under. Left to the column
+    # default, every match ever created recorded "v1" while being played under
+    # rules titled v5 — and that string ships to agents in every turn payload and
+    # in the match export. Read from the game module so the platform doesn't need
+    # to know any game's versioning.
+    rules_version = get_game_module(game).rules_version()
+
     for attempt in range(max_attempts):
         match_id = await allocate_match_id(db)
         match = Match(
             id=match_id,
             game=game,
+            rules_version=rules_version,
             name=name,
             state=state,
             scheduled_start=scheduled_start,
