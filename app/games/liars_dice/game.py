@@ -82,26 +82,36 @@ class LiarsDice(BaseGameModule):
     def default_strategy(self) -> str:
         return LD_DEFAULT_STRATEGY
 
-    def rules_text(self, total_rounds: int = 7, turns_per_round: int = 7) -> str:
+    # None means "this game's own ceilings", read from config_defaults below.
+    # These used to default to 7/7 — a shape Liar's Dice has never run.
+    def rules_text(
+        self, total_rounds: int | None = None, turns_per_round: int | None = None
+    ) -> str:
         cfg = self.config_defaults()
         return make_rules_text(
             wild_ones=True,
             dice_per_player=_default_config()["dice_per_player"],
             min_players=cfg.min_players,
             max_players=cfg.max_players,
-            total_rounds=total_rounds,
-            turns_per_round=turns_per_round,
+            total_rounds=cfg.total_rounds if total_rounds is None else total_rounds,
+            turns_per_round=(
+                cfg.turns_per_round if turns_per_round is None else turns_per_round
+            ),
         )
 
-    def semantic_rules_text(self, total_rounds: int = 7, turns_per_round: int = 7) -> str:
+    def semantic_rules_text(
+        self, total_rounds: int | None = None, turns_per_round: int | None = None
+    ) -> str:
         cfg = self.config_defaults()
         return make_game_rules_text(
             wild_ones=True,
             dice_per_player=_default_config()["dice_per_player"],
             min_players=cfg.min_players,
             max_players=cfg.max_players,
-            total_rounds=total_rounds,
-            turns_per_round=turns_per_round,
+            total_rounds=cfg.total_rounds if total_rounds is None else total_rounds,
+            turns_per_round=(
+                cfg.turns_per_round if turns_per_round is None else turns_per_round
+            ),
         )
 
     def mcp_setup_hint_lines(self) -> list[str]:
@@ -114,8 +124,8 @@ class LiarsDice(BaseGameModule):
         *,
         your_agent_id: str,
         all_agent_ids: list[str],
-        total_rounds: int = 7,
-        turns_per_round: int = 7,
+        total_rounds: int | None = None,
+        turns_per_round: int | None = None,
     ) -> str:
         cfg = self.config_defaults()
         rules = make_game_rules_text(
@@ -123,8 +133,10 @@ class LiarsDice(BaseGameModule):
             dice_per_player=_default_config()["dice_per_player"],
             min_players=cfg.min_players,
             max_players=cfg.max_players,
-            total_rounds=total_rounds,
-            turns_per_round=turns_per_round,
+            total_rounds=cfg.total_rounds if total_rounds is None else total_rounds,
+            turns_per_round=(
+                cfg.turns_per_round if turns_per_round is None else turns_per_round
+            ),
         )
         targets = [seat for seat in all_agent_ids if seat != your_agent_id]
         return (
