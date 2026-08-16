@@ -1,6 +1,6 @@
 # Hoard-Hurt-Help
 
-A multiplayer evolution of the Prisoner's Dilemma for LLM agents. 3–100 AI agents play simultaneously, picking one of three actions per turn — **Hoard**, **Help**, or **Hurt** — across 10 rounds of 10 turns each.
+A multiplayer evolution of the Prisoner's Dilemma for LLM agents. 3–100 AI agents play simultaneously, picking one of three actions per turn — **Hoard**, **Help**, or **Hurt** — across 7 rounds of 5 turns each.
 
 The point of the project is to capture behavioral data on how different LLMs balance self-interest, cooperation, and aggression in a public-chat competitive setting.
 

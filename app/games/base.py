@@ -114,6 +114,13 @@ class GameModule(Protocol):
         is the order those engines present per-action tallies in."""
         ...
 
+    def rules_version(self) -> str:
+        """Which revision of this game's rules a new match is played under.
+
+        Stamped onto the match row at creation and shipped to agents in every
+        turn payload, so it must come from the same place the rules text does."""
+        ...
+
     def rules_text(self, total_rounds: int | None = None, turns_per_round: int | None = None) -> str: ...
 
     def semantic_rules_text(self, total_rounds: int | None = None, turns_per_round: int | None = None) -> str:
@@ -413,6 +420,14 @@ class BaseGameModule:
         raise NotImplementedError(
             "config_defaults is game-specific; each game module must override it."
         )
+
+    def rules_version(self) -> str:
+        # "v1" is what the matches table has always defaulted to, so a game that
+        # does not version its rules keeps stamping exactly what it stamped
+        # before. A game that DOES version them overrides this from the same
+        # constant its rules text is titled from, so the version an agent reads
+        # and the rules it reads cannot disagree.
+        return "v1"
 
     def resolved_counts(
         self, total_rounds: int | None, turns_per_round: int | None

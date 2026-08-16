@@ -2,7 +2,7 @@
 
 A grounded reference for the `game-design` skill. Every game, designer, and term
 is drawn from cited sources — nothing invented. Target game context: 4-player
-(or up to ~20), simultaneous-reveal, repeated Prisoner's Dilemma. 10 rounds × 10
+(or up to ~20), simultaneous-reveal, repeated Prisoner's Dilemma. 7 rounds × 5
 turns. Moves: HOARD (+2 self), HELP (+4 to target; mutual pact pays +6 under
 today's default rule, up to +8 under the other selectable modes — see
 `MutualHelpMode` in `app/games/hoard_hurt_help/rules.py`), HURT (-4 to target,

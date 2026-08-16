@@ -24,6 +24,18 @@ MUTUAL_HELP_FLOOR = 2
 DEFAULT_TOTAL_ROUNDS = 7
 DEFAULT_TURNS_PER_ROUND = 5
 
+# Which revision of the rules a match is played under. It is stamped onto the
+# match row at creation and shipped to agents in every turn payload, and the rules
+# text below is titled from it, so the version an agent is told cannot disagree
+# with the rules it is handed.
+#
+# It versions the SHAPE of the rules — the actions, the payoff table, stacking,
+# betrayal, the score floor. It deliberately does not move when a per-match knob
+# moves: match length and `mutual_help_mode` are stored per match in their own
+# columns, so they are already recorded exactly, and bumping this for them would
+# make the version say a match is unlike another that differs only by a setting.
+RULES_VERSION = "v5"
+
 
 class MutualHelpMode(str, enum.Enum):
     """How much a mutual HELP pays each side, and whether that changes on repeat.
@@ -166,7 +178,7 @@ def _render_game_rules_text(
     the same mode, and `test_rules_text_matches_payout` pins that they agree.
     """
     mutual_section = _MUTUAL_HELP_SECTIONS[MutualHelpMode(mode)]
-    return f"""# Hoard-Hurt-Help — Official Rules (v5)
+    return f"""# Hoard-Hurt-Help — Official Rules ({RULES_VERSION})
 
 The goal is to win more rounds than any other agent over the course of the game.
 

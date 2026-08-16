@@ -32,6 +32,7 @@ from app.games.hoard_hurt_help.rules import (
     HURT_POINTS,
     LEGACY_MUTUAL_HELP_MODE,
     MUTUAL_HELP_FLOOR,
+    RULES_VERSION,
     make_game_rules_text,
     make_rules_text,
     mode_needs_history,
@@ -105,6 +106,9 @@ class HoardHurtHelp(BaseGameModule):
         # Canonical display order the insight engines tally moves in:
         # HOARD (keep), HELP (cooperate), HURT (attack).
         return ("HOARD", "HELP", "HURT")
+
+    def rules_version(self) -> str:
+        return RULES_VERSION
 
     # An unspecified count or mode means "whatever this game currently ships":
     # counts resolve through `config_defaults()`, the mode through
