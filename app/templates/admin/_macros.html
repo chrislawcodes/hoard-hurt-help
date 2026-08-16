@@ -1,0 +1,26 @@
+{# Jinja macros shared by /admin/reports and /admin/engagement.
+   Import with: {% from "admin/_macros.html" import pct, empty_row %}
+
+   Macro bodies are written on a single line, with -/- whitespace control on
+   the macro tags themselves, so a call produces exactly the characters below
+   and nothing else — no stray newlines or indentation get inserted at the
+   call site, matching what the inline {% if %}/{% else %} expressions this
+   replaces used to output. #}
+
+{# A percentage cell: n/total as a rounded 1-decimal percentage, or an em
+   dash when total is falsy (guards the divide-by-zero on an empty window).
+   For a value that is already a 0-1 ratio rather than a count/total pair
+   (report.ai_connected_share on /admin/engagement), pass total=1 — always
+   truthy, so it always takes the compute branch, same as that call site did
+   before it had a guard at all. #}
+{% macro pct(n, total) -%}{% if total %}{{ ((n / total) * 100) | round(1) }}%{% else %}—{% endif %}{%- endmacro %}
+
+{# An empty-state table row spanning every column, for a {% for %}/{% else %}
+   block (renders only when the loop had zero iterations). `colspan` is a
+   literal column count on every current call site — none of these tables
+   render their headers from a variable or a loop, so there is nothing to
+   compute it from; if a table's header count ever comes from one (as
+   /admin/engagement's "How far they got" table's Share column already does,
+   though that table has no empty row today), pass that same variable here
+   instead of a new literal. #}
+{% macro empty_row(colspan, text) -%}<tr><td colspan="{{ colspan }}" class="report-empty">{{ text }}</td></tr>{%- endmacro %}

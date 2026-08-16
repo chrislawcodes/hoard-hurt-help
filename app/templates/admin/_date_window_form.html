@@ -1,0 +1,38 @@
+{# Date-window filter form shared by /admin/reports and /admin/engagement.
+   Both routes parse start_date/end_date/tz through the same
+   app/routes/admin_date_window.py:parse_admin_window and echo the results
+   back into this form's fields.
+
+   Expects in context (the including page sets these with {% set %} right
+   before the {% include %}):
+     tz_field_id  - id on the hidden tz input. The two pages keep their own
+                    historical ids (report-tz / engagement-tz); nothing reads
+                    them by id anymore (see /static/admin-tz.js, which
+                    selects by name="tz" instead), but changing them isn't
+                    this dedup's job.
+     start_label  - label over the start-date field
+     end_label    - label over the end-date field
+     filter_hint  - hint text under the two date fields
+     clear_href   - the page's own URL, for the "Clear" link
+   Also reads tz, start_date, end_date straight from the route's own
+   response context, same as before this form was split out. #}
+<form class="card form" method="get">
+    <input type="hidden" name="tz" id="{{ tz_field_id }}" value="{{ tz }}">
+    <div class="form-row">
+        <label>
+            <span class="field-label">{{ start_label }}</span>
+            <input type="date" name="start_date" value="{{ start_date }}">
+        </label>
+        <label>
+            <span class="field-label">{{ end_label }}</span>
+            <input type="date" name="end_date" value="{{ end_date }}">
+        </label>
+    </div>
+    <p class="hint">{{ filter_hint }}</p>
+    <div class="form-actions">
+        <button type="submit" class="btn btn-primary">Apply filter</button>
+        {% if start_date or end_date %}
+        <a class="btn btn-ghost" href="{{ clear_href }}">Clear</a>
+        {% endif %}
+    </div>
+</form>
