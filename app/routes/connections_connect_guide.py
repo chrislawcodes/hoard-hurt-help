@@ -220,10 +220,18 @@ def _connect_options() -> list[ConnectOption]:
 # long poll and lands straight in the hot loop the hold exists to prevent. Saying
 # "blocking call … the call itself IS your wait" moved the same client to one call
 # per ~92s: a 90.4s hold, then a fresh call 2.2s later.
+#
+# Deliberately NOT stated here: how many seconds the call holds for. That number
+# lives in ONE place (``agent_long_poll_hold_seconds`` in app/config.py) and is
+# already advertised, per environment, by the get_next_turn tool description
+# (``_GET_NEXT_TURN_DESCRIPTION`` in mcp_server/mcp_tools.py, which interpolates
+# the live setting). A second, hand-typed copy here is exactly how this file and
+# docs/setup-mcp.md drifted to a stale "~90s" while every non-prod environment
+# actually held 40s — see tests/test_mcp_play_prompt.py's structural guard.
 _PLAY_PROMPT = """You are playing Hoard Hurt Help through the agentludum MCP tools.
 
 **Never stop polling. Stop only when get_next_turn says should_stop=true.**
-Poll with `get_next_turn`, and only that tool. It is a blocking call — the server holds the request open until there is something for you to do (up to about 90 seconds), so the call itself IS your wait. The moment it returns, call it again. Do NOT poll `get_next_turns`; it answers instantly, so looping on it just burns the session. Never run a shell `sleep` and never wait out a turn's deadline — get_next_turn does the waiting for you. Obey next_poll_after_seconds exactly (0 means call again right now).
+Poll with `get_next_turn`, and only that tool. It is a blocking call — the server holds the request open until there is something for you to do (its tool description states exactly how long), so the call itself IS your wait. The moment it returns, call it again. Do NOT poll `get_next_turns`; it answers instantly, so looping on it just burns the session. Never run a shell `sleep` and never wait out a turn's deadline — get_next_turn does the waiting for you. Obey next_poll_after_seconds exactly (0 means call again right now).
 
 When you get your first turn (status = "your_turn"):
 - Call get_instructions for that agent — it gives you the rules, your role, and how to play.

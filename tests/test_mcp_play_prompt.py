@@ -8,16 +8,38 @@ so the first test here pins them together.
 
 The rest pin the two phrases that were *measured* to change client behaviour — see
 the comment above ``_PLAY_PROMPT`` for the Codex 0.146.1 numbers.
+
+The prompt and doc also drifted from a THIRD place: the live
+``agent_long_poll_hold_seconds`` setting (app/config.py), whose actual value is
+40 in dev/test and 90 in production. The prompt said "about 90 seconds"
+unconditionally, so every non-prod client read a number that was simply false.
+The fix removes the hand-typed figure rather than chasing it with a fourth
+place to update — the get_next_turn tool description already interpolates the
+live setting (see tests/test_mcp_poll_tool_descriptions.py), so the prompt only
+needs to say a wait happens, not how long it is. The structural tests below make
+that permanent: they fail on ANY hold-length-shaped literal, not just the ones
+that already bit us.
 """
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from app.routes.connections_connect_guide import _PLAY_PROMPT
 
 REPO_ROOT: Path = Path(__file__).resolve().parents[1]
 SETUP_DOC: Path = REPO_ROOT / "docs" / "setup-mcp.md"
+
+# Matches a hand-typed hold-length figure: digits immediately followed by
+# "second(s)" (with an optional separator, so "90 seconds" and "90-second" both
+# match) or by a bare "s" unit ("90s", "40s", "25s"). Deliberately broad rather
+# than a fixed list of bad strings — the bug this guards against is a NEW number
+# getting typed in, not a specific old one recurring, so the check has to catch
+# shapes, not values.
+_HOLD_LENGTH_LITERAL_RE = re.compile(
+    r"\d+(?:\.\d+)?\s*(?:-|to)?\s*seconds?\b|\b\d+(?:\.\d+)?s\b", re.IGNORECASE
+)
 
 
 def test_play_prompt_matches_docs() -> None:
@@ -56,3 +78,47 @@ def test_play_prompt_says_the_call_itself_is_the_wait() -> None:
     """
     assert "blocking call" in _PLAY_PROMPT
     assert "the call itself IS your wait" in _PLAY_PROMPT
+
+
+def test_play_prompt_has_no_hardcoded_hold_length() -> None:
+    """The served prompt must not hand-type a hold length.
+
+    The number lives in ONE place — ``agent_long_poll_hold_seconds`` in
+    app/config.py — and the get_next_turn tool description already advertises
+    the live value (see tests/test_mcp_poll_tool_descriptions.py). A figure
+    typed into this prompt is a second copy that silently goes stale the next
+    time someone tunes the setting, exactly like the "~90s" that used to sit
+    here unconditionally while dev/test actually held 40s. Structural (a regex
+    over any digits-plus-seconds shape) rather than a list of banned strings, so
+    the NEXT hand-typed number fails this too, not just the ones we already
+    caught.
+    """
+    matches = _HOLD_LENGTH_LITERAL_RE.findall(_PLAY_PROMPT)
+    assert not matches, (
+        f"_PLAY_PROMPT hand-types a hold-length figure: {matches}. State that "
+        "get_next_turn blocks, not how long it blocks for — the tool's own "
+        "description (mcp_server/mcp_tools.py) already advertises the live "
+        "agent_long_poll_hold_seconds setting."
+    )
+
+
+def test_setup_doc_has_no_hardcoded_hold_length_outside_the_prompt() -> None:
+    """``docs/setup-mcp.md`` must not hand-type a hold length anywhere, not just
+    inside the mirrored play-prompt block.
+
+    The doc's prose (the "MCP connection" section, outside the ```text block
+    ``test_play_prompt_matches_docs`` pins) is free text a human edits directly —
+    it drifted to "holds open ~90s while waiting" once already, unguarded,
+    because the verbatim-prompt test only ever looked inside the code fence.
+    This scans the whole file so that line can't quietly regrow a number either.
+    ("about 90 days", the OAuth sign-in lifetime, is a different setting and
+    does not match this pattern — see the regex comment above.)
+    """
+    doc = SETUP_DOC.read_text(encoding="utf-8")
+    matches = _HOLD_LENGTH_LITERAL_RE.findall(doc)
+    assert not matches, (
+        f"docs/setup-mcp.md hand-types a hold-length figure: {matches}. Point "
+        "readers at the tool's own description instead of a number that can go "
+        "stale — see the comment above _PLAY_PROMPT in "
+        "app/routes/connections_connect_guide.py for the reasoning."
+    )
