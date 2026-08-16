@@ -69,7 +69,7 @@ async def test_connecting_before_building_an_agent_records_both(db) -> None:
     connection.first_connected_at = None
     await db.commit()
 
-    await mark_seen(db, connection, key_hash=bot_key_lookup(plain_key))
+    await mark_seen(db, connection, presented_key_hash=bot_key_lookup(plain_key))
     assert MilestoneKind.AI_CONNECTED in await _reached(db, user.id)
 
     # The agent arrives afterwards; both are recorded, neither is suppressed.
@@ -82,6 +82,28 @@ async def test_connecting_before_building_an_agent_records_both(db) -> None:
 
 
 @pytest.mark.asyncio
+async def test_a_keyless_call_still_counts_as_the_first_connect(db) -> None:
+    """Signing in on /mcp presents no connection key, and that is still a connect.
+
+    ``mark_seen``'s ``presented_key_hash`` gates one thing only — the rotation
+    cutover. If ``None`` also skipped first-connect, every user whose only AI is
+    an OAuth MCP client would silently lose this milestone and their connection
+    would read "never connected" forever.
+    """
+    user = await make_user(db)
+    connection, _plain_key = await make_connection(db, user, key="sk_conn_test_keyless")
+    connection.first_connected_at = None
+    connection.last_seen_at = None
+    await db.commit()
+
+    await mark_seen(db, connection, presented_key_hash=None)
+
+    assert connection.first_connected_at is not None
+    assert connection.last_seen_at is not None  # the heartbeat is credential-blind too
+    assert MilestoneKind.AI_CONNECTED in await _reached(db, user.id)
+
+
+@pytest.mark.asyncio
 async def test_first_connect_is_recorded_once(db) -> None:
     """mark_seen runs on every authenticated call; the milestone is the first."""
     user = await make_user(db)
@@ -91,7 +113,7 @@ async def test_first_connect_is_recorded_once(db) -> None:
 
     key_hash = bot_key_lookup(plain_key)
     for _ in range(3):
-        await mark_seen(db, connection, key_hash=key_hash)
+        await mark_seen(db, connection, presented_key_hash=key_hash)
 
     rows = (
         (
@@ -122,5 +144,5 @@ async def test_an_already_connected_connection_records_nothing_new(db) -> None:
     assert connection.first_connected_at is not None
 
     before = await _reached(db, user.id)
-    await mark_seen(db, connection, key_hash=bot_key_lookup(plain_key))
+    await mark_seen(db, connection, presented_key_hash=bot_key_lookup(plain_key))
     assert await _reached(db, user.id) == before

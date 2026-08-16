@@ -247,8 +247,10 @@ async def test_get_next_turn_uses_google_identity_and_mcp_connection(
     def fake_assert_connection_usable(connection: object) -> None:
         captured["checked_connection"] = connection
 
-    async def fake_mark_seen(db: object, connection: object, *, key_hash: str) -> None:
-        captured["mark_seen_key_hash"] = key_hash
+    async def fake_mark_seen(
+        db: object, connection: object, *, presented_key_hash: str | None
+    ) -> None:
+        captured["mark_seen_presented_key_hash"] = presented_key_hash
         captured["mark_seen_connection"] = connection
 
     async def fake_get_next_turn(
@@ -278,7 +280,12 @@ async def test_get_next_turn_uses_google_identity_and_mcp_connection(
     assert captured["userinfo"].email == "agent@example.com"
     assert captured["user"].google_sub == "sub-123"
     assert captured["checked_connection"].key_lookup == "lookup-7"
-    assert captured["mark_seen_key_hash"] == "lookup-7"
+    # A Google sign-in presents no connection key, and mark_seen is told exactly
+    # that. This used to assert "lookup-7" — the connection's own stored hash —
+    # which made mark_seen's rotation-cutover test true by construction: any OAuth
+    # tool call retired a still-live previous key and 401'd an agent running on it
+    # mid-match. Passing None is what keeps the grace period intact.
+    assert captured["mark_seen_presented_key_hash"] is None
     assert captured["service_connection"].id == 7
     # The MCP path adds NO cap of its own: hold length is decided in one place
     # (pace_idle / `agent_long_poll_hold_seconds`). A second number here is how a
@@ -302,7 +309,9 @@ async def test_get_next_turn_strips_duplicate_static_for_mcp(
     def fake_assert_connection_usable(connection: object) -> None:
         pass
 
-    async def fake_mark_seen(db: object, connection: object, *, key_hash: str) -> None:
+    async def fake_mark_seen(
+        db: object, connection: object, *, presented_key_hash: str | None
+    ) -> None:
         pass
 
     async def fake_get_next_turn(
@@ -385,7 +394,9 @@ async def test_get_next_turns_strips_duplicate_static_for_mcp(
     def fake_assert_connection_usable(connection: object) -> None:
         pass
 
-    async def fake_mark_seen(db: object, connection: object, *, key_hash: str) -> None:
+    async def fake_mark_seen(
+        db: object, connection: object, *, presented_key_hash: str | None
+    ) -> None:
         pass
 
     async def fake_get_next_turns(db: object, connection: object) -> dict[str, object]:
@@ -488,7 +499,9 @@ async def test_pull_tools_use_shared_oauth_resolution(
     def fake_assert_connection_usable(connection: object) -> None:
         pass
 
-    async def fake_mark_seen(db: object, connection: object, *, key_hash: str) -> None:
+    async def fake_mark_seen(
+        db: object, connection: object, *, presented_key_hash: str | None
+    ) -> None:
         pass
 
     async def fake_require_agent_player(

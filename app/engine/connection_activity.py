@@ -80,13 +80,32 @@ class OnboardingStatus:
 
 
 async def mark_seen(
-    db: AsyncSession, bot: Bot, *, key_hash: str, now: datetime | None = None
+    db: AsyncSession,
+    bot: Bot,
+    *,
+    presented_key_hash: str | None,
+    now: datetime | None = None,
 ) -> None:
     """Record an authenticated agent call: first-connect, key cutover, heartbeat.
 
-    Called from the single auth choke point (``require_connection``), so it covers
-    every connection method (runner, MCP, direct API) with one hook. Does four
-    things in a single atomic UPDATE per call:
+    ``presented_key_hash`` is the sha256 of the connection key the caller actually
+    presented on THIS request, or ``None`` when the caller proved itself without a
+    connection key at all. There is no single auth choke point — every path that
+    authenticates a connection calls this, and they present different credentials:
+
+      * ``app.deps.require_connection`` (HTTP agent API) — the hash of the
+        presented ``X-Connection-Key``. During a graceful rotation that may be the
+        current key *or* the still-valid previous one.
+      * ``mcp_server.connection_identity._resolve_oauth_connection`` (/mcp) — the
+        hash of the presented ``sk_conn_`` key on the opt-in key sign-in path, and
+        ``None`` on the Google OAuth path, which presents a JWT and no key.
+
+    Never substitute the connection's own stored ``key_lookup`` for a credential
+    that was not presented: that makes the cutover test below true by
+    construction, so a keyless call would retire a still-live previous key and
+    401 a running agent mid-match.
+
+    Does four things in a single atomic UPDATE per call:
 
       * **Usage count** — bump ``api_call_count`` by one. Every authenticated call
         is one paid model inference in interactive (MCP) mode, so this is the raw
@@ -95,16 +114,23 @@ async def mark_seen(
         for the heartbeat avoids a second write per call (no write amplification).
       * **First connect** — on the ``NULL -> now`` transition of
         ``first_connected_at``, set it and announce ``connected`` (once; later
-        calls are no-ops here).
-      * **Key cutover** — if the call used the CURRENT key while a previous key is
-        still live from a graceful rotation, clear ``prev_key_lookup`` so the old
-        key stops working now that the new one is in use.
+        calls are no-ops here). Credential-blind: an OAuth sign-in on /mcp is
+        every bit a connect, so this runs for ``None`` too.
+      * **Key cutover** — only if this call PRESENTED the current key while a
+        previous key is still live from a graceful rotation: clear
+        ``prev_key_lookup`` so the old key stops working now that the new one is
+        in use. A call that presented no key never cuts over.
       * **Heartbeat** — refresh ``last_seen_at`` (throttled), the signal the
-        health badge reads to tell "alive now" from "connected once".
+        health badge reads to tell "alive now" from "connected once". Also
+        credential-blind.
     """
     now = now or datetime.now(timezone.utc)
     first = bot.first_connected_at is None
-    cutover = key_hash == bot.key_lookup and bot.prev_key_lookup is not None
+    cutover = (
+        presented_key_hash is not None
+        and presented_key_hash == bot.key_lookup
+        and bot.prev_key_lookup is not None
+    )
     heartbeat_due = (
         bot.last_seen_at is None
         or (now - ensure_aware(bot.last_seen_at)).total_seconds() >= _HEARTBEAT_THROTTLE_SECONDS

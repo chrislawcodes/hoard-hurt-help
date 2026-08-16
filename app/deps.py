@@ -15,7 +15,7 @@ from app.db import get_session
 from app.engine.connection_activity import mark_seen
 from app.engine.connection_auth_loading import connection_user_load_options
 from app.engine.match_id_rewrite import match_id_candidates
-from app.engine.tokens import bot_key_lookup
+from app.engine.tokens import bot_key_lookup, connection_key_log_hint
 from app.models.agent import Agent, AgentKind, AgentStatus
 from app.models.connection import Connection, ConnectionStatus
 from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
@@ -135,7 +135,10 @@ async def require_connection(
             message="Missing X-Connection-Key header.",
         )
     if not x_connection_key.startswith("sk_conn_"):
-        logger.warning("agent auth failed: bad key prefix %s", x_connection_key[:11])
+        logger.warning(
+            "agent auth failed: bad key prefix, key ending %s",
+            connection_key_log_hint(x_connection_key),
+        )
         raise api_error(
             status_code=status.HTTP_401_UNAUTHORIZED,
             code="INVALID_KEY",
@@ -166,7 +169,8 @@ async def require_connection(
         ).scalar_one_or_none()
         if setup is None:
             logger.warning(
-                "agent auth failed: no connection for key prefix %s", x_connection_key[:11]
+                "agent auth failed: no connection for key ending %s",
+                connection_key_log_hint(x_connection_key),
             )
             raise api_error(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -208,7 +212,11 @@ async def require_connection(
         ).scalar_one()
     assert_connection_usable(connection)
 
-    await mark_seen(db, connection, key_hash=key_hash)
+    # The hash of the key this caller actually presented — which may be the
+    # still-valid previous key mid-rotation. `mark_seen` retires the previous key
+    # only when the CURRENT one is presented, so this must not be the connection's
+    # stored `key_lookup`.
+    await mark_seen(db, connection, presented_key_hash=key_hash)
     return connection
 
 

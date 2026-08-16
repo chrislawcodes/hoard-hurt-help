@@ -212,9 +212,9 @@ async def test_mark_seen_sets_and_publishes_once(reset_db, events):
         connection, _ = await make_connection(db, u)
         await db.commit()
 
-        await mark_seen(db, connection, key_hash=connection.key_lookup)
+        await mark_seen(db, connection, presented_key_hash=connection.key_lookup)
         first = connection.first_connected_at
-        await mark_seen(db, connection, key_hash=connection.key_lookup)  # no second 'connected'
+        await mark_seen(db, connection, presented_key_hash=connection.key_lookup)  # no second 'connected'
 
     assert first is not None
     assert connection.first_connected_at == first  # unchanged on second call
