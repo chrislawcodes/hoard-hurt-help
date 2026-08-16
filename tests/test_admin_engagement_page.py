@@ -66,6 +66,36 @@ async def test_the_page_renders_on_an_empty_database(reset_db, client) -> None:
 
 
 @pytest.mark.asyncio
+async def test_the_filter_form_shows_its_own_labels_not_reports(
+    reset_db, client
+) -> None:
+    """Mirrors tests/test_admin.py's reports-page check. The filter form now
+    renders through a shared partial (admin/_date_window_form.html) with this
+    page's own labels/hint/clear-href set by {% set %} in engagement.html,
+    right before the {% include %}. Pins that /admin/engagement keeps its own
+    text after the dedup, and that /admin/reports's copy can't leak here."""
+    admin = await _admin(reset_db)
+    response = await client.get(
+        "/admin/engagement", cookies=signed_in_cookies(admin.id)
+    )
+    assert response.status_code == 200
+    body = response.text
+    assert "Signed up from" in body
+    assert "Signed up to" in body
+    assert "Picks the signup cohort" in body
+    # No filter set yet, so the partial's conditional Clear link is hidden.
+    assert 'href="/admin/engagement">Clear</a>' not in body
+    assert "Start date" not in body
+    assert "Filters by match completion date" not in body
+
+    response2 = await client.get(
+        "/admin/engagement?start_date=2026-06-11", cookies=signed_in_cookies(admin.id)
+    )
+    assert response2.status_code == 200
+    assert 'href="/admin/engagement">Clear</a>' in response2.text
+
+
+@pytest.mark.asyncio
 async def test_a_bad_date_is_rejected(reset_db, client) -> None:
     admin = await _admin(reset_db)
     response = await client.get(

@@ -338,6 +338,33 @@ async def test_turn_timing_report_date_filter_limits_matches(client, reset_db):
     assert 'value="America/Los_Angeles"' in r.text
 
 
+async def test_reports_filter_form_shows_its_own_labels_not_engagements(
+    client, reset_db
+):
+    """The filter form now renders through a shared partial
+    (admin/_date_window_form.html) with this page's own labels/hint/clear-href
+    set by {% set %} in reports.html, right before the {% include %}. Pins
+    that /admin/reports keeps its own text after the dedup, and that
+    /admin/engagement's copy (set the same way, one {% set %} block over)
+    can't leak onto this page."""
+    admin = await _seed_user(reset_db, "admin@test.com")
+    r = await client.get("/admin/reports", cookies=_cookies(admin.id))
+    assert r.status_code == 200
+    assert "Start date" in r.text
+    assert "End date" in r.text
+    assert "Filters by match completion date in your browser timezone." in r.text
+    # No filter set yet, so the partial's conditional Clear link is hidden.
+    assert 'href="/admin/reports">Clear</a>' not in r.text
+    assert "Signed up from" not in r.text
+    assert "Picks the signup cohort" not in r.text
+
+    r2 = await client.get(
+        "/admin/reports?start_date=2026-06-11", cookies=_cookies(admin.id)
+    )
+    assert r2.status_code == 200
+    assert 'href="/admin/reports">Clear</a>' in r2.text
+
+
 async def test_admin_api_records_creator(client, reset_db):
     admin = await _seed_user(reset_db, "admin@test.com")
     when = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()

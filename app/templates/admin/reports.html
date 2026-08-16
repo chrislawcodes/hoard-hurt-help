@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "admin/_macros.html" import pct, empty_row %}
 {% block title %}Reporting — Match Admin{% endblock %}
 {% block content %}
 <div class="page-head">
@@ -6,26 +7,12 @@
     <p class="sub">Agent response times across completed matches.</p>
 </div>
 
-<form class="card form" method="get">
-    <input type="hidden" name="tz" id="report-tz" value="{{ tz }}">
-    <div class="form-row">
-        <label>
-            <span class="field-label">Start date</span>
-            <input type="date" name="start_date" value="{{ start_date }}">
-        </label>
-        <label>
-            <span class="field-label">End date</span>
-            <input type="date" name="end_date" value="{{ end_date }}">
-        </label>
-    </div>
-    <p class="hint">Filters by match completion date in your browser timezone.</p>
-    <div class="form-actions">
-        <button type="submit" class="btn btn-primary">Apply filter</button>
-        {% if start_date or end_date %}
-        <a class="btn btn-ghost" href="/admin/reports">Clear</a>
-        {% endif %}
-    </div>
-</form>
+{% set tz_field_id = "report-tz" %}
+{% set start_label = "Start date" %}
+{% set end_label = "End date" %}
+{% set filter_hint = "Filters by match completion date in your browser timezone." %}
+{% set clear_href = "/admin/reports" %}
+{% include "admin/_date_window_form.html" %}
 
 <div class="section-head"><h2>Turn-time distribution</h2><span class="count">{{ report.sample_count }} samples</span></div>
 <div class="report-table-wrap">
@@ -39,10 +26,10 @@
         <tr>
             <td>{{ bucket.label }}</td>
             <td>{{ bucket.count }}</td>
-            <td>{% if report.sample_count %}{{ ((bucket.count / report.sample_count) * 100) | round(1) }}%{% else %}—{% endif %}</td>
+            <td>{{ pct(bucket.count, report.sample_count) }}</td>
         </tr>
         {% else %}
-        <tr><td colspan="3" class="report-empty">No completed matches yet.</td></tr>
+        {{ empty_row(3, "No completed matches yet.") }}
         {% endfor %}
     </table>
 </div>
@@ -76,17 +63,14 @@
             <td>{% if row.max_seconds is not none %}{{ row.max_seconds | round(1) }}s{% else %}—{% endif %}</td>
         </tr>
         {% else %}
-        <tr><td colspan="10" class="report-empty">No completed matches yet.</td></tr>
+        {{ empty_row(10, "No completed matches yet.") }}
         {% endfor %}
     </table>
 </div>
 
-<script>
-(function () {
-    var tz = document.getElementById('report-tz');
-    if (!tz) return;
-    var browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    if (browserTz) tz.value = browserTz;
-})();
-</script>
+{# Fills the hidden tz field above from the browser, but only when it's
+   still empty — see /static/admin-tz.js. Not deferred: it looks up the field
+   right here, after the form that defines it, exactly like the inline
+   script it replaced (same convention as game.html's round-nav.js). #}
+<script src="/static/admin-tz.js?v=1"></script>
 {% endblock %}

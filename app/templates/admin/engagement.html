@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "admin/_macros.html" import pct, empty_row %}
 {% block title %}Engagement — Platform Admin{% endblock %}
 {% block content %}
 <div class="page-head">
@@ -6,26 +7,12 @@
     <p class="sub">Where new users fall out on the way to playing, and which source produced them.</p>
 </div>
 
-<form class="card form" method="get">
-    <input type="hidden" name="tz" id="engagement-tz" value="{{ tz }}">
-    <div class="form-row">
-        <label>
-            <span class="field-label">Signed up from</span>
-            <input type="date" name="start_date" value="{{ start_date }}">
-        </label>
-        <label>
-            <span class="field-label">Signed up to</span>
-            <input type="date" name="end_date" value="{{ end_date }}">
-        </label>
-    </div>
-    <p class="hint">Picks the signup cohort. How far each person got is measured ever, not only inside the window.</p>
-    <div class="form-actions">
-        <button type="submit" class="btn btn-primary">Apply filter</button>
-        {% if start_date or end_date %}
-        <a class="btn btn-ghost" href="/admin/engagement">Clear</a>
-        {% endif %}
-    </div>
-</form>
+{% set tz_field_id = "engagement-tz" %}
+{% set start_label = "Signed up from" %}
+{% set end_label = "Signed up to" %}
+{% set filter_hint = "Picks the signup cohort. How far each person got is measured ever, not only inside the window." %}
+{% set clear_href = "/admin/engagement" %}
+{% include "admin/_date_window_form.html" %}
 
 <div class="section-head"><h2>This window</h2></div>
 <div class="report-table-wrap">
@@ -72,7 +59,7 @@
             <td>{{ step.label }}</td>
             <td>{{ step.count }}</td>
             {% if report.show_percentages %}
-            <td>{% if report.cohort_size %}{{ ((step.count / report.cohort_size) * 100) | round(1) }}%{% else %}—{% endif %}</td>
+            <td>{{ pct(step.count, report.cohort_size) }}</td>
             {% endif %}
             <td>{% if step.fewer_than_above is none %}—{% else %}{{ step.fewer_than_above }}{% endif %}</td>
         </tr>
@@ -81,7 +68,7 @@
             <td>{{ "Came back another day" }}</td>
             <td>{{ report.returned_count }}</td>
             {% if report.show_percentages %}
-            <td>{% if report.cohort_size %}{{ ((report.returned_count / report.cohort_size) * 100) | round(1) }}%{% else %}—{% endif %}</td>
+            <td>{{ pct(report.returned_count, report.cohort_size) }}</td>
             {% endif %}
             <td>—</td>
         </tr>
@@ -89,7 +76,7 @@
 </div>
 {% if report.ai_connected_share is not none %}
 <p class="hint">
-    Of the people who set up an AI agent, {{ (report.ai_connected_share * 100) | round(1) }}% got it connected.
+    Of the people who set up an AI agent, {{ pct(report.ai_connected_share, 1) }} got it connected.
     Measured against AI owners rather than everyone, because manual play is the default for a new user.
 </p>
 {% endif %}
@@ -111,7 +98,7 @@
             <td>{{ row.played }}</td>
         </tr>
         {% else %}
-        <tr><td colspan="3" class="report-empty">No signups in this window.</td></tr>
+        {{ empty_row(3, "No signups in this window.") }}
         {% endfor %}
     </table>
 </div>
@@ -140,7 +127,7 @@
             <td><a href="/admin/users/{{ person.user_id }}">Open →</a></td>
         </tr>
         {% else %}
-        <tr><td colspan="3" class="report-empty">Everyone in this window has come back.</td></tr>
+        {{ empty_row(3, "Everyone in this window has come back.") }}
         {% endfor %}
     </table>
 </div>
@@ -154,14 +141,9 @@
     app later cleaned up — abandoned setups, released seats, deleted agents and matches.
 </p>
 
-<script>
-  // Report in the reader's own timezone, not UTC. Same pattern as /admin/reports.
-  (function () {
-    var field = document.getElementById("engagement-tz");
-    if (field && !field.value) {
-      try { field.value = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"; }
-      catch (e) { field.value = "UTC"; }
-    }
-  })();
-</script>
+{# Fills the hidden tz field above from the browser, but only when it's
+   still empty — see /static/admin-tz.js. Not deferred: it looks up the field
+   right here, after the form that defines it, exactly like the inline
+   script it replaced (same convention as game.html's round-nav.js). #}
+<script src="/static/admin-tz.js?v=1"></script>
 {% endblock %}
