@@ -28,7 +28,7 @@ The goal is to be the last player standing. Players are eliminated one at a time
 
 - **Table:** {min_players}–{max_players} players.
 - **Starting hand:** {dice_per_player} dice per player.
-- **Game length:** **{total_rounds} rounds**, each with **{turns_per_round} turns** ({total_rounds * turns_per_round} turns total).
+- **Game length:** not fixed. The match runs until one player is left, however many hands that takes. Do not pace yourself against a turn count — pace against how many dice are still on the table.
 
 ## How it works
 
@@ -78,8 +78,8 @@ When a player loses their last die, they are eliminated. Play continues with rem
 - Each round, all remaining players roll. Players eliminated in the previous round do not roll.
 - Bidding continues around the table until someone challenges or everyone has folded.
 - After a challenge resolves, the next round begins. The loser of the showdown bids first in the next round.
-- After **{turns_per_round} turns**, if no one has challenged, the round automatically ends and the next round begins.
-- After **{total_rounds} rounds**, the last surviving player wins the match."""
+- **The match ends when one player still has dice.** That player wins. There is no round limit to play toward.
+- **Safety ceilings, not the shape of the game.** A round is cut off after {turns_per_round} turns if nobody has challenged, and the match is cut off after {total_rounds} rounds. Both sit far above any real game and are there so a stuck match cannot run forever — treat them as unreachable, not as a target."""
 
 
 def make_rules_text(
