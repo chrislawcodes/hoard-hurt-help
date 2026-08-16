@@ -39,10 +39,12 @@ from app.schemas.agent import (
 # trips its loop detection, which stops the play loop dead.
 #
 # Two turns is the floor that still covers play:
-#   * Reactive strategies need only the LAST resolved turn — tit-for-tat mirrors
-#     "your opponent's last move"; Pavlov repeats/switches on "your last action".
-#   * The full scoreboard (always sent) already carries every rank-based signal
-#     (Pavlov's rank delta, Always-Defect's "hit the leader").
+#   * Reactive strategies need only the LAST resolved turn — mirroring what an
+#     opponent just did to you, or repeating/switching on how your own last
+#     action landed, both read exactly one resolved turn.
+#   * Rank-based strategies read the standings, not the transcript — who leads,
+#     who to chase, how hard to push as a round closes. The full scoreboard is
+#     sent on every poll, so it already carries every such signal.
 #   * The extra turn is margin: the chained connector computes its per-turn delta
 #     as "history newer than my last move", so one spare turn means a single
 #     skipped poll never drops an event from that delta.
