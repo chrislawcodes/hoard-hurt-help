@@ -27,7 +27,10 @@ from __future__ import annotations
 import pytest
 
 from app.games import get as get_game_module
+from app.games.base import GameError
 from app.games.hoard_hurt_help.rules import (
+    ACTIONS,
+    SCORE_FLOOR,
     DEFAULT_MUTUAL_HELP_MODE,
     DEFAULT_TOTAL_ROUNDS,
     DEFAULT_TURNS_PER_ROUND,
@@ -83,17 +86,16 @@ def test_bare_agent_base_prompt_is_the_shipped_rules():
     assert shipped.rstrip() in page
 
 
-@pytest.mark.parametrize("game", [PD, "liars-dice"])
-def test_every_games_bare_rules_match_its_own_config_defaults(game: str):
-    # A game's rules text must never quote a match length the game does not run.
-    # Both modules had literals in these signatures that disagreed with their own
-    # config_defaults (the platform contract said 7x7; PD runs 7x5 and Liar's
-    # Dice 64x256), so a bare call described a match nobody plays.
-    module = get_game_module(game)
+def test_bare_rules_match_config_defaults():
+    # Hoard-Hurt-Help's rules text must never quote a match length the game does
+    # not run. Scoped to this game on purpose: each game module owns its own rules
+    # and is checked by its own tests, so nothing here reaches across into
+    # another title's text.
+    module = get_game_module(PD)
     cfg = module.config_defaults()
     for text in (module.rules_text(), module.semantic_rules_text()):
-        assert f"**{cfg.total_rounds} rounds**" in text, game
-        assert f"**{cfg.turns_per_round} turns**" in text, game
+        assert f"**{cfg.total_rounds} rounds**" in text
+        assert f"**{cfg.turns_per_round} turns**" in text
 
 
 # --- 2. Given a match, every surface states THAT match's rules -------------
@@ -141,6 +143,48 @@ def test_a_match_row_with_no_mode_reads_as_the_rule_it_was_played_under():
     assert _pact_line(module.semantic_rules_text_for_match(legacy)) == _pact_line(
         decayed
     )
+
+
+def test_the_move_vocabulary_is_stated_once():
+    # It used to be a tuple in `action_names()` and a separate set literal driving
+    # move validation — two lists of the same three words, free to disagree.
+    module = get_game_module(PD)
+    assert module.action_names() == ACTIONS
+    for action in ACTIONS:
+        module.validate_move(
+            {"action": action, "target_id": None if action == "HOARD" else "AI_2"},
+            your_agent_id="AI_1",
+            all_agent_ids=["AI_1", "AI_2"],
+        )
+    with pytest.raises(GameError):
+        module.validate_move(
+            {"action": "SHARE"}, your_agent_id="AI_1", all_agent_ids=["AI_1", "AI_2"]
+        )
+    # And the rules text names exactly those moves, no more and no fewer.
+    text = module.semantic_rules_text()
+    for action in ACTIONS:
+        assert f"**{action}" in text, action
+
+
+def test_the_score_floor_is_stated_once():
+    # The floor was a bare `0` in two code paths and the word "0" in the prose.
+    assert f"clipped at {SCORE_FLOOR}" in get_game_module(PD).semantic_rules_text()
+
+
+@pytest.mark.parametrize(
+    "rounds,turns", [(3, 3), (4, 9), (20, 20), (1, 1), (DEFAULT_TOTAL_ROUNDS, 20)]
+)
+def test_a_custom_length_renders_without_leaking_the_default(rounds: int, turns: int):
+    # The counts used to be rendered at the defaults and then string-replaced into
+    # place, which meant rewording any of five sentences would silently stop
+    # rewriting it and hand a custom-length match the DEFAULT numbers. They are
+    # interpolated directly now; this pins that no default leaks through.
+    text = get_game_module(PD).semantic_rules_text(rounds, turns)
+    assert f"**{rounds} rounds**" in text
+    assert f"**{turns} turns**" in text
+    assert f"({rounds * turns} turns total)" in text
+    assert f"after turn {turns} " in text
+    assert f"after all {rounds} rounds" in text
 
 
 def test_a_match_keeps_its_own_rules_when_the_shipped_default_moves():

@@ -118,12 +118,13 @@ class GameModule(Protocol):
         """Which revision of this game's rules a new match is played under.
 
         Stamped onto the match row at creation and shipped to agents in every
-        turn payload, so it must come from the same place the rules text does."""
+        turn payload, so a game that versions its rules must return the same
+        constant its rules text is titled from."""
         ...
 
-    def rules_text(self, total_rounds: int | None = None, turns_per_round: int | None = None) -> str: ...
+    def rules_text(self, total_rounds: int = 7, turns_per_round: int = 7) -> str: ...
 
-    def semantic_rules_text(self, total_rounds: int | None = None, turns_per_round: int | None = None) -> str:
+    def semantic_rules_text(self, total_rounds: int = 7, turns_per_round: int = 7) -> str:
         """Game rules text without the connector's response protocol."""
         ...
 
@@ -149,8 +150,8 @@ class GameModule(Protocol):
         *,
         your_agent_id: str,
         all_agent_ids: list[str],
-        total_rounds: int | None = None,
-        turns_per_round: int | None = None,
+        total_rounds: int = 7,
+        turns_per_round: int = 7,
     ) -> str:
         """Stable model instructions supplied separately from player strategy."""
         ...
@@ -414,49 +415,22 @@ class BaseGameModule:
         # moves carry a nominal point value (e.g. PD) override this.
         return (0, None)
 
-    def config_defaults(self) -> GameConfig:
-        # Game-specific like rules_text; declared here (raising) so the shared
-        # `resolved_counts` below can read a game's own shipped match shape.
-        raise NotImplementedError(
-            "config_defaults is game-specific; each game module must override it."
-        )
-
     def rules_version(self) -> str:
         # "v1" is what the matches table has always defaulted to, so a game that
         # does not version its rules keeps stamping exactly what it stamped
-        # before. A game that DOES version them overrides this from the same
-        # constant its rules text is titled from, so the version an agent reads
-        # and the rules it reads cannot disagree.
+        # before this hook existed. A game that DOES version them overrides this
+        # from the same constant its rules text is titled from, so the version an
+        # agent reads and the rules it reads cannot disagree.
         return "v1"
 
-    def resolved_counts(
-        self, total_rounds: int | None, turns_per_round: int | None
-    ) -> tuple[int, int]:
-        """Fill in either unspecified count from this game's own `config_defaults()`.
-
-        Every rules-text entry point runs its counts through here, so "the caller
-        didn't say how long the match is" resolves to the length the game actually
-        ships — not to a literal typed into a signature. Those literals were a
-        second opinion about match length that nothing kept in step: the platform
-        contract said 7x7, Hoard-Hurt-Help ran 7x5 and Liar's Dice 64x256, so a
-        bare `rules_text()` described a match neither game plays.
-        """
-        cfg = self.config_defaults()
-        return (
-            cfg.total_rounds if total_rounds is None else total_rounds,
-            cfg.turns_per_round if turns_per_round is None else turns_per_round,
-        )
-
     def semantic_rules_text(
-        self, total_rounds: int | None = None, turns_per_round: int | None = None
+        self, total_rounds: int = 7, turns_per_round: int = 7
     ) -> str:
         # Default: no extra semantic rules block. Concrete games override this
         # to keep MCP instructions free of the connector's JSON protocol.
         return ""
 
-    def rules_text(
-        self, total_rounds: int | None = None, turns_per_round: int | None = None
-    ) -> str:
+    def rules_text(self, total_rounds: int = 7, turns_per_round: int = 7) -> str:
         # No platform-wide default: the full rules text is game-specific. Declared
         # here (raising) so the shared `*_for_match` wrappers below can delegate to
         # it; every concrete module (PD, Liar's Dice) overrides it.
@@ -469,8 +443,8 @@ class BaseGameModule:
         *,
         your_agent_id: str,
         all_agent_ids: list[str],
-        total_rounds: int | None = None,
-        turns_per_round: int | None = None,
+        total_rounds: int = 7,
+        turns_per_round: int = 7,
     ) -> str:
         # Game-specific like rules_text; declared here so the wrappers can delegate.
         raise NotImplementedError(

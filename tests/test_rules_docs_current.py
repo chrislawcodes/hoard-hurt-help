@@ -30,6 +30,7 @@ from pathlib import Path
 import pytest
 
 from app.games import get as get_game_module
+from app.games.base import BaseGameModule
 from app.games.hoard_hurt_help.rules import (
     DEFAULT_TOTAL_ROUNDS,
     DEFAULT_TURNS_PER_ROUND,
@@ -43,9 +44,11 @@ REPO_ROOT: Path = Path(__file__).resolve().parents[1]
 CURRENT_BEHAVIOUR_DOCS: tuple[str, ...] = (
     "README.md",
     "docs/games/hoard-hurt-help/HOARD_HURT_HELP_DESIGN.md",
-    "docs/games/liars-dice/LIARS_DICE_DESIGN.md",
     ".claude/skills/game-design/references/boardgame-design-patterns.md",
 )
+# Deliberately NOT listed: another game's docs. Each title owns its own rules and
+# its own docs; pulling a second game's design doc in here would couple it to
+# Hoard-Hurt-Help's constants and make a change to one game fail the other's docs.
 
 # Docs that record what USED to be true. Their old numbers are the point.
 HISTORY_DOCS: tuple[str, ...] = (
@@ -129,6 +132,10 @@ def test_rules_version_is_stated_once_and_matches_the_rules_text() -> None:
 
 
 def test_a_game_without_its_own_rules_version_keeps_the_historical_default() -> None:
-    # Liar's Dice does not version its rules; it must keep stamping exactly what
-    # the matches table defaulted to before there was a hook at all.
-    assert get_game_module("liars-dice").rules_version() == "v1"
+    # The hook is opt-in: a game that does not version its rules must keep
+    # stamping exactly what the matches table defaulted to before the hook
+    # existed, so adding it changed no other title's behaviour.
+    class Unversioned(BaseGameModule):
+        game_type = "unversioned"
+
+    assert Unversioned().rules_version() == "v1"

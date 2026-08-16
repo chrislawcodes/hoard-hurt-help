@@ -21,7 +21,7 @@ platform changes** the simultaneous-only PD design never had to make:
 2. **Hidden per-player state** — your dice are secret. PD broadcasts everything.
 3. **Elimination + variable-length rounds/match** — a hand ends when someone is
    challenged (not after a fixed turn count); the match ends when one player is
-   left (not after a fixed round count). PD runs a fixed 7×5 grid (35 turns).
+   left (not after a fixed round count). PD runs a fixed 7×7 grid (49 turns).
 
 So this is a real feature that grows the platform's turn loop, payload, and
 storage — not a drop-in module. It is very doable. This doc lays out the rules we
@@ -137,7 +137,7 @@ is a later config toggle.
 ## 4. Mapping Liar's Dice onto the platform model
 
 The platform thinks in **match → rounds → turns**. The default PD config runs
-7 rounds of 5 turns each (35 turns total, 7×5 grid); every turn every active
+7 rounds of 7 turns each (49 turns total, 7×7 grid); every turn every active
 player acts at once. Liar's Dice maps like this:
 
 | Platform concept | Liar's Dice meaning | Fixed today? |

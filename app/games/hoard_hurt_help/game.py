@@ -24,6 +24,7 @@ from app.games.base import (
 )
 from app.games.hoard_hurt_help import scoring
 from app.games.hoard_hurt_help.rules import (
+    ACTIONS,
     DEFAULT_MUTUAL_HELP_MODE,
     DEFAULT_TOTAL_ROUNDS,
     DEFAULT_TURNS_PER_ROUND,
@@ -54,7 +55,8 @@ if TYPE_CHECKING:
     from app.read_models.matches import TimelineTurn
     from app.schemas.agent import BoardSignals
 
-_VALID_ACTIONS = {"HOARD", "HELP", "HURT"}
+# Derived, never re-listed: the move vocabulary lives in rules.ACTIONS.
+_VALID_ACTIONS = frozenset(ACTIONS)
 
 # Act-phase window for new matches. Reasoning models (e.g. gpt-5.4-mini) can take
 # ~50s to decide a move; 75s clears them with margin.
@@ -82,6 +84,21 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _shipped_counts(
+    total_rounds: int | None, turns_per_round: int | None
+) -> tuple[int, int]:
+    """Fill in either unspecified count from the shipped match length.
+
+    Every rules-text entry point runs its counts through here, so "the caller
+    didn't say how long the match is" resolves to the length this game actually
+    ships instead of to a number typed into a signature.
+    """
+    return (
+        DEFAULT_TOTAL_ROUNDS if total_rounds is None else total_rounds,
+        DEFAULT_TURNS_PER_ROUND if turns_per_round is None else turns_per_round,
+    )
+
+
 class HoardHurtHelp(BaseGameModule):
     """The Prisoner's Dilemma game module."""
 
@@ -103,18 +120,16 @@ class HoardHurtHelp(BaseGameModule):
         )
 
     def action_names(self) -> tuple[str, ...]:
-        # Canonical display order the insight engines tally moves in:
-        # HOARD (keep), HELP (cooperate), HURT (attack).
-        return ("HOARD", "HELP", "HURT")
+        return ACTIONS
 
     def rules_version(self) -> str:
         return RULES_VERSION
 
-    # An unspecified count or mode means "whatever this game currently ships":
-    # counts resolve through `config_defaults()`, the mode through
-    # DEFAULT_MUTUAL_HELP_MODE. Never write a literal into these signatures — that
-    # is how the public /agent-instructions page ended up advertising a decaying
-    # +8 pact while every new match paid a flat +6.
+    # An unspecified count or mode means "whatever this game currently ships" —
+    # the constants in `rules.py`, never a literal typed into a signature here.
+    # A literal is how the public /agent-instructions page came to advertise a
+    # decaying +8 pact while every new match paid a flat +6. `None` rather than a
+    # default value so the resolution happens in exactly one place, below.
     def rules_text(
         self,
         total_rounds: int | None = None,
@@ -122,7 +137,7 @@ class HoardHurtHelp(BaseGameModule):
         *,
         mutual_help_mode: str = DEFAULT_MUTUAL_HELP_MODE.value,
     ) -> str:
-        rounds, turns = self.resolved_counts(total_rounds, turns_per_round)
+        rounds, turns = _shipped_counts(total_rounds, turns_per_round)
         return make_rules_text(rounds, turns, mode=mutual_help_mode)
 
     def semantic_rules_text(
@@ -132,7 +147,7 @@ class HoardHurtHelp(BaseGameModule):
         *,
         mutual_help_mode: str = DEFAULT_MUTUAL_HELP_MODE.value,
     ) -> str:
-        rounds, turns = self.resolved_counts(total_rounds, turns_per_round)
+        rounds, turns = _shipped_counts(total_rounds, turns_per_round)
         return make_game_rules_text(rounds, turns, mode=mutual_help_mode)
 
     def strategy_presets(self) -> list[StrategyPreset]:
