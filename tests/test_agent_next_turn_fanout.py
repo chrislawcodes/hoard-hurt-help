@@ -7,6 +7,7 @@ import hashlib
 import secrets
 from collections.abc import AsyncIterator
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 from fastapi import FastAPI
@@ -31,8 +32,28 @@ from app.routes.agent_next_turn import router as agent_next_turn_router
 
 
 @pytest.fixture
-async def engine() -> AsyncIterator[AsyncEngine]:
-    eng = make_engine("sqlite+aiosqlite:///:memory:")
+async def engine(tmp_path: Path) -> AsyncIterator[AsyncEngine]:
+    """A FILE-backed SQLite database, deliberately not ``:memory:``.
+
+    SQLAlchemy pools an in-memory SQLite with ``StaticPool`` — **one connection
+    shared by every session**. That makes concurrent sessions destructive to one
+    another: if session A rolls back while session B holds an uncommitted INSERT
+    on that same connection, B's row is discarded and B's later ``commit()``
+    still returns cleanly, so the write silently vanishes.
+
+    These long-poll tests are exactly that shape. The hold re-checks on a loop
+    and rolls back between ticks (to hand its pooled connection back) while a
+    second session opens a turn partway through. Under ``:memory:`` the hold's
+    rollback could wipe the turn before it was ever committed; the hold then
+    correctly found nothing and answered "waiting", failing about one run in six.
+    It reproduced only with the whole file running, and instrumenting it shifted
+    the timing enough to hide it.
+
+    A file URL gets ``AsyncAdaptedQueuePool`` — one connection per session, which
+    is what production does on Postgres. So this also makes these tests exercise
+    the isolation the real deployment has instead of an artefact of the pool.
+    """
+    eng = make_engine(f"sqlite+aiosqlite:///{tmp_path / 'test.db'}")
     yield eng
     await eng.dispose()
 
