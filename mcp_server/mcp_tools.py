@@ -67,6 +67,8 @@ def _lean_payload_for_mcp(payload: dict[str, object]) -> dict[str, object]:
     static = lean.get("static")
     if isinstance(static, dict):
         lean_static = dict(static)
+        # `rules` is popped defensively only: the builder no longer emits it. An
+        # MCP client gets its rules from get_instructions, not from the turn.
         lean_static.pop("rules", None)
         lean_static.pop("base_prompt", None)
         lean_static.pop("your_strategy", None)

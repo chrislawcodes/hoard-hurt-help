@@ -109,7 +109,9 @@ async def test_next_turn_your_turn_then_submit(client, reset_db):
     assert "summary" not in body
     assert isinstance(body["history"], list)
     assert isinstance(body["scoreboard"], list)
-    assert "rules" in body["static"]
+    # The rulebook ships once, inside base_prompt — never as a separate key.
+    assert "rules" not in body["static"]
+    assert "Hoard-Hurt-Help" in body["static"]["base_prompt"]
     turn_token = body["current"]["turn_token"]
     # The loop hands back the (agent, match)-bound submit token directly.
     agent_turn_token = body["agent_turn_token"]

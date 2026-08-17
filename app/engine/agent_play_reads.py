@@ -222,7 +222,10 @@ def build_turn_static_dict(
         "game_id": match.id,
         "game": match.game,
         "rules_version": match.rules_version,
-        "rules": module.rules_text_for_match(match),
+        # No separate `rules` key: `base_prompt` already carries the rules AND the
+        # response contract, so shipping both put the whole rulebook in the payload
+        # twice — two wordings of one rulebook, which is a drift risk as much as
+        # 2.7KB of waste on every turn.
         "base_prompt": module.agent_base_prompt_for_match(
             match,
             your_agent_id=player.seat_name,
