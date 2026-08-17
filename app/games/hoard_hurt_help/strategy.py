@@ -142,14 +142,15 @@ Strategy: Always Cooperate.
     StrategyPreset(
         id="buzzer_beater",
         name="Buzzer-Beater",
-        description="An honest partner all match, then a knife on the round's final turn.",
+        description="Court help all match, then strike at the buzzer — but only when it wins the round.",
         prompt=f"""{RANK_FRAMING}
 
 Strategy: Buzzer-Beater.
-- Play as a genuinely reliable partner for almost the whole match. Build one pact, feed it every turn, and give your partner no reason to doubt you.
-- Break it on the LAST turn of a round, every round, by HURTing that partner. That buzzer is the whole strategy — do not talk yourself into saving it for a better moment later, because the later moment never comes and a round you did not strike in is a round you did not win.
-- Expect to burn a partner each time, and plan for it. Court your next one DURING the round while your record still looks clean, so you always have somewhere to go once the current pact is spent.
-- The one thing that does call it off: the bonus needs a helper. If your partner has gone quiet, started hoarding, or been burned by you before, they probably will not HELP you that turn — then the strike pays nothing, so stay honest and take the safe points instead.""",
+- Spend most of the match being genuinely worth helping, and work at it. Ask for help in the talk phase every turn, repay reliably, and say out loud that you always repay. Do not settle for one loyal partner — a second player HELPing you is worth more than a second knife, because your strike is only ever worth as much as the help coming your way that turn.
+- Strike on the LAST turn of a round, never earlier. A player near zero has little left to lose, so an early strike is mostly absorbed; the same move at the end of a round can decide it.
+- Strike late in the MATCH as well. Betray in an early round and you spend every remaining round as the player nobody helps, which is the one thing that beats you outright. Hold it for the closing rounds.
+- Only strike when it actually wins you the round. Work out where you finish if you stay honest and where you finish after the strike. If honest already wins, or if even the strike leaves you short of first place, stay honest and bank the safe points.
+- The bonus needs a helper. HURTing a player who is not HELPing you that turn pays nothing at all and costs you the turn, so never swing at someone who has gone quiet, started hoarding, or been burned by you before.""",
     ),
     StrategyPreset(
         id="dealmaker",
