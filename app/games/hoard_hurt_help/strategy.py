@@ -23,9 +23,12 @@ all of which were measured in M_6442 rather than assumed:
 * **Damage lands late.** The score floor means a player near zero cannot lose
   much, so an early attack is largely absorbed.
 
-The roster is deliberately small — Tit-for-Tat, Always Cooperate, Buzzer-Beater,
-Dealmaker, Underdog's Champion, Kingslayer — in that order, because the join UI
-pre-selects the first one. Grim
+The roster is Tit-for-Tat, Always Cooperate, Buzzer-Beater, Dealmaker, Underdog's
+Champion, Kingslayer, Sandbagger, Salvager — in that order, because the join UI
+pre-selects the first one. Eight is the practical ceiling: once the only route
+past the tie is a betrayal, a strategy is fully described by who you partner and
+when you strike, and those combinations are now covered. A ninth would duplicate
+one of these. Grim
 Trigger, Pavlov, Always Defect and Generous Tit-for-Tat were dropped rather than
 rewritten: none of them can win. In M_6442 each either played out as plain
 Tit-for-Tat or, for Always Defect, aimed at the highest-scoring opponent — the
@@ -44,6 +47,22 @@ so one attack is smaller than the pact it asks a player to give up); pure denial
 (HURTing the leader leaves you below the bystanders who did nothing); and
 courting two backers at once, since one HELP a turn rotated between two of them
 pays each only 3 against the 6 any ordinary pact pays, so they leave.
+
+Salvager is the exception that proves that last rule, and it is worth spelling
+out because it looks like the rejected route. Nobody in contention will help you
+for free — they give up a pact worth 6. But a player who is mathematically OUT of
+the round gives up only a hoard worth 2, and their in-round score resets to zero
+at the round boundary anyway, so those 2 points only ever touch the match
+tiebreak. Their help is close to free for them and worth a full share to you.
+That asymmetry between players' round positions is the only place a second helper
+can come from, and no other preset looks for it. In M_6442's round 4 the scores
+were 30/30/30/30/10/10/8/4 — four players out of the round, four donors, ignored
+by everyone.
+
+Sandbagger works at match scale rather than turn scale. Round wins accumulate all
+match but credibility is spent once, so it hoards credibility and spends it late:
+sharing every round pays about 0.9 round wins, one late betrayal pays 1.75, and
+playing harmless for five rounds then taking the last two pays about 2.6.
 
 That last dead end is what shapes Underdog's Champion, and it is why the preset
 keeps ONE partner rather than building a bloc. Its route past the tie is a
@@ -172,5 +191,31 @@ Strategy: Kingslayer.
 - Know your reach. The strike gains you a little and costs them a little, so it only overhauls a lead of a few points. Work out before you commit whether it genuinely puts you first. If the lead is too big, stay honest and bank the safe points rather than throw away a good pact for nothing.
 - Then move on. Next round, whoever is winning NOW is your partner. Carry no grudges and never go back for someone you have already taken down — your target is the current leader, never the last one.
 - Watch your own back. When you are the one in front, assume somebody is running this exact play on you, and be slow to trust a partner who appeared the moment you took the lead.""",
+    ),
+    StrategyPreset(
+        id="sandbagger",
+        name="Sandbagger",
+        description="Look harmless for most of the match, then take the last two rounds.",
+        prompt=f"""{RANK_FRAMING}
+
+Strategy: Sandbagger.
+- Spend the early rounds buying trust rather than points. HELP generously, keep every promise, and let other players take the early rounds without contesting them. Round wins pile up across the whole match, but your credibility can only be spent once — so do not spend it early.
+- Be visibly harmless, and make sure the table notices. Never strike in the first two thirds of the match. Point out, honestly, that you have never attacked anyone. The player nobody bothers guarding is the one who can take two rounds at the end.
+- From the second-to-last round, start cashing in. Partner whoever is winning, play the round as an honest partner, then HURT them on the final turn — you keep the help they send you that turn and take the betrayal bonus on top.
+- Do it again in the last round, against whoever leads by then. Two outright round wins at the end are worth far more than a small share of every round along the way, and that trade is the entire reason for the wait.
+- If a round is out of reach even with the strike, stay honest and keep the pact. A wasted knife buys you nothing and costs you the partner you need for the final round.""",
+    ),
+    StrategyPreset(
+        id="salvager",
+        name="Salvager",
+        description="Buy turns from players whose round is already lost — their help is nearly free.",
+        prompt=f"""{RANK_FRAMING}
+
+Strategy: Salvager.
+- Every turn, split the table into players whose round is still live and players who are mathematically out of it. That second group is your entire strategy, and no one else is paying them any attention.
+- A player who is out has almost nothing to gain from their own turn: their in-round score is about to reset to zero, so the points they would keep for themselves are about to vanish anyway. Their help costs them next to nothing and is worth a full share to you. They are the only players who will ever help you for free — anyone still in contention has a better offer and will rightly refuse.
+- So ask them, directly, and say exactly why it is cheap for them: their turn is about to be wiped and yours is not. Promise repayment next round when their turns matter again, then actually pay it, so the next ask is believed.
+- Two players helping you in one turn beats anything a two-person pact can produce, and players who are out of the round are the only place a second helper can come from. Hold one ordinary partner as your floor, and stack the salvaged help on top.
+- When YOUR round is the dead one, work the same trade in reverse. Stop chasing points that are about to disappear and spend those turns buying goodwill you can collect in the rounds that still matter.""",
     ),
 ]
