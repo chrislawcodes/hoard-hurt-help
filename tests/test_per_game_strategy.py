@@ -314,3 +314,35 @@ def test_core_presets_pick_one_target_and_stay_distinct() -> None:
               ("tit_for_tat", "always_cooperate", "buzzer_beater", "dealmaker",
                "underdogs_champion", "kingslayer", "sandbagger", "salvager")]
     assert len(set(bodies)) == 8
+
+
+def test_presets_do_not_carry_the_three_measured_bugs() -> None:
+    """Three prompts told their agent the wrong thing. Pin the corrections.
+
+    All three were measured in M_6484, where the affected presets under-fired:
+    Kingslayer struck twice and came 6th, Underdog's Champion never struck at
+    all, and Buzzer-Beater struck twice instead of once per round.
+    """
+    presets = {p.id: p for p in get_game_module("hoard-hurt-help").strategy_presets()}
+
+    # 1. Kingslayer's reach was understated. Betraying the leader swings the gap
+    #    by ~12, not "a few points" — the old text stood it down when it should
+    #    have struck. The earlier arithmetic gave the leader a full mutual bonus
+    #    while they were HELPing the Kingslayer, which one action per turn makes
+    #    impossible.
+    king = presets["kingslayer"].prompt
+    assert "a lead of a few points" not in king
+    assert "twelve points" in king
+
+    # 2. Buzzer-Beater told itself to strike every round AND to wait for the
+    #    final round, in consecutive lines. It split the difference and waited.
+    buzz = presets["buzzer_beater"].prompt
+    assert "every round" in buzz
+    assert "final turn of the final round" not in buzz
+
+    # 3. The Champion's ban was meant to cover third parties only, but read as a
+    #    blanket "never attack" and suppressed its own conditional strike.
+    champ = presets["underdogs_champion"].prompt
+    assert "Never attack anyone else" not in champ
+    assert "THIRD PARTY" in champ
+    assert "not a ban on striking at all" in champ
