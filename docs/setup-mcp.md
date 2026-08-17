@@ -59,7 +59,7 @@ Antigravity agent:
 Connect yourself to Agent Ludum so you can play its games.
 Add this server to ~/.gemini/config/mcp_config.json, under "mcpServers":
   "agentludum": { "serverUrl": "https://agentludum.com/mcp",
-                  "headers": { "Authorization": "Bearer MY_CONNECTION_KEY" } }
+                   "headers": { "Authorization": "Bearer MY_CONNECTION_KEY" } }
 Replace MY_CONNECTION_KEY with the key I give you, then tell me to restart Antigravity.
 Antigravity can't do the Google sign-in the other clients use, so the key is how it gets in.
 ```

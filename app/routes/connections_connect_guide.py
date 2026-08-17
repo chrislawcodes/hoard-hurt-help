@@ -31,6 +31,50 @@ _PROVIDER_CLIS = {
 # per-provider setup path or per-provider download anymore.
 _SETUP_SCRIPT = "agentludum_connector.py"
 
+# --- Antigravity's mcp_config.json, single-sourced -----------------------------
+# Antigravity is told how to wire itself up in three places: the paste-in prompt
+# below, its mirror in docs/setup-mcp.md (served at /guide/setup-mcp), and the
+# config block on the connection detail page. The two shapes differ on purpose —
+# the prompt hands over a FRAGMENT to merge under an existing "mcpServers" key,
+# while the page shows the WHOLE file — but the path, the header shape and the
+# blank the user has to replace must agree across all three. They had already
+# drifted: the page said YOUR_CONNECTION_KEY while the prompt and the doc said
+# MY_CONNECTION_KEY, so a user reading one and following the other looked for a
+# placeholder that wasn't there. Name the atoms once; build both shapes from them.
+ANTIGRAVITY_CONFIG_PATH = "~/.gemini/config/mcp_config.json"
+ANTIGRAVITY_KEY_PLACEHOLDER = "MY_CONNECTION_KEY"
+
+
+def antigravity_config_fragment(mcp_url: str) -> str:
+    """Just the ``agentludum`` entry, indented to sit under an existing
+    ``"mcpServers"`` key. This is the shape the paste-in prompt hands the agent,
+    because merging into whatever servers it already has is safer than replacing
+    the file. ``docs/setup-mcp.md`` mirrors this verbatim (pinned by a test)."""
+    return (
+        f'  "agentludum": {{ "serverUrl": "{mcp_url}",\n'
+        f'                   "headers": {{ "Authorization": '
+        f'"Bearer {ANTIGRAVITY_KEY_PLACEHOLDER}" }} }}'
+    )
+
+
+def antigravity_config_file(mcp_url: str) -> str:
+    """The whole ``mcp_config.json`` for Antigravity, as the detail page shows it.
+
+    Rendered as a complete file because the page's copy button is meant to give a
+    user with no config yet something that works as-is. Anyone who already has
+    servers configured wants the prompt's fragment instead — see ``_connect_options``.
+    """
+    return (
+        "{\n"
+        '  "mcpServers": {\n'
+        '    "agentludum": {\n'
+        f'      "serverUrl": "{mcp_url}",\n'
+        f'      "headers": {{ "Authorization": "Bearer {ANTIGRAVITY_KEY_PLACEHOLDER}" }}\n'
+        "    }\n"
+        "  }\n"
+        "}"
+    )
+
 
 def _provider_label(provider: ConnectionProvider | None) -> str:
     if provider is None:
@@ -148,12 +192,12 @@ def _connect_options() -> list[ConnectOption]:
     # sends them there rather than pretending a sign-in will work.
     gemini_prompt = (
         "Connect yourself to Agent Ludum so you can play its games.\n\n"
-        'Add this server to ~/.gemini/config/mcp_config.json, under "mcpServers":\n'
-        f'  "agentludum": {{ "serverUrl": "{mcp_url}",\n'
-        '                   "headers": { "Authorization": "Bearer MY_CONNECTION_KEY" } }\n\n'
-        "Replace MY_CONNECTION_KEY with the key I give you, then tell me to "
-        "restart Antigravity. Antigravity can't do the Google sign-in the other "
-        "clients use, so the key is how it gets in."
+        f'Add this server to {ANTIGRAVITY_CONFIG_PATH}, under "mcpServers":\n'
+        + antigravity_config_fragment(mcp_url)
+        + "\n\n"
+        + f"Replace {ANTIGRAVITY_KEY_PLACEHOLDER} with the key I give you, then "
+        "tell me to restart Antigravity. Antigravity can't do the Google sign-in "
+        "the other clients use, so the key is how it gets in."
     )
     return [
         ConnectOption(

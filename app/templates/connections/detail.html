@@ -167,15 +167,10 @@
         </span>
     </div>
     {% if connection.mcp_key_signin_enabled %}
-    <p class="meta" style="margin-top:1rem;">Put this in <code>~/.gemini/config/mcp_config.json</code>, swapping in this connection's key, then restart Antigravity:</p>
-    <pre id="antigravity-config">{
-  "mcpServers": {
-    "agentludum": {
-      "serverUrl": "{{ base_url }}/mcp",
-      "headers": { "Authorization": "Bearer YOUR_CONNECTION_KEY" }
-    }
-  }
-}</pre>
+    {# Config text comes from connections_connect_guide so this page, the paste-in
+       prompt and docs/setup-mcp.md cannot advertise different placeholders again. #}
+    <p class="meta" style="margin-top:1rem;">Put this in <code>{{ antigravity_config_path }}</code>, swapping in this connection's key, then restart Antigravity:</p>
+    <pre id="antigravity-config">{{ antigravity_config }}</pre>
     <button type="button" onclick="copyWithFeedback(this, document.getElementById('antigravity-config').textContent)">Copy config</button>
     <p class="hint">Your key is shown once, when it's issued. If you no longer have it, use <em>Rotate Key</em> above to get a new one.</p>
     {% endif %}

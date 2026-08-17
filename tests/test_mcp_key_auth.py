@@ -8,6 +8,9 @@ way in.
 
 from __future__ import annotations
 
+import html
+import json
+import re
 from collections.abc import AsyncIterator
 from datetime import datetime, timezone
 
@@ -18,6 +21,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from app.engine.tokens import bot_key_hint, bot_key_lookup, generate_connection_key
+from app.routes.connections_connect_guide import ANTIGRAVITY_KEY_PLACEHOLDER
 from app.models import Base
 from app.models.connection import Connection, ConnectionStatus
 from app.models.user import User
@@ -315,9 +319,46 @@ async def test_detail_page_offers_the_switch_and_never_prints_a_real_key(
     on = await client.get(f"/me/connections/{connection_id}", cookies=cookies)
     assert on.status_code == 200
     assert "antigravity-config" in on.text
-    assert "YOUR_CONNECTION_KEY" in on.text
+    # The placeholder comes from the shared builder, so assert the constant rather
+    # than a literal that can silently disagree with the prompt and the doc.
+    assert ANTIGRAVITY_KEY_PLACEHOLDER in on.text
     assert raw_key not in on.text
     assert "sk_conn_" not in on.text
+
+
+async def test_copied_antigravity_block_is_valid_json_the_user_can_paste(
+    reset_db: async_sessionmaker, client: AsyncClient
+) -> None:
+    """What the copy button yields must parse as JSON.
+
+    The block is interpolated into HTML, so Jinja escapes its quotes to ``&#34;``
+    in the source. A browser undoes that for both display and ``textContent`` —
+    which is what the copy button reads — so the user gets real quotes. That is
+    correct, but it means the raw page text is NOT what gets pasted, and a test
+    asserting against the raw text would be checking the wrong string. Unescape
+    the way a browser does, then prove the result is a config file that works.
+    """
+    async with reset_db() as db:
+        user = await make_user(db)
+        connection, _key = await make_connection(db, user)
+        connection.mcp_key_signin_enabled = True
+        await db.commit()
+        connection_id, user_id = connection.id, user.id
+
+    page = await client.get(
+        f"/me/connections/{connection_id}", cookies=signed_in_cookies(user_id)
+    )
+    assert page.status_code == 200
+    block = re.search(
+        r'<pre id="antigravity-config">(.*?)</pre>', page.text, re.DOTALL
+    )
+    assert block is not None, "the Antigravity config block is no longer rendered"
+
+    pasted = html.unescape(block.group(1))
+    parsed = json.loads(pasted)  # fails loudly if the page ships broken JSON
+    entry = parsed["mcpServers"]["agentludum"]
+    assert entry["serverUrl"].endswith("/mcp")
+    assert entry["headers"]["Authorization"] == f"Bearer {ANTIGRAVITY_KEY_PLACEHOLDER}"
 
 
 async def test_leak_warning_does_not_promise_a_blanket_instant_cutoff(

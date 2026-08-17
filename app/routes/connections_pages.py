@@ -32,11 +32,13 @@ from app.engine.pending_connection_gc import gc_pending_connections
 from app.models.connection import Connection, ConnectionProvider
 from app.models.user import User
 from app.routes.connections_connect_guide import (
+    ANTIGRAVITY_CONFIG_PATH,
     _PROVIDER_CLIS,
     _connect_options,
     _play_prompt,
     _provider_label,
     _setup_message,
+    antigravity_config_file,
 )
 from app.routes.connections_machine_setup import _ensure_pending_setup_and_key
 from app.routes.connections_queries import (
@@ -347,6 +349,8 @@ async def connection_detail(
             "strand_provider": request.query_params.get("strand_provider"),
             "strand_count": request.query_params.get("strand_count"),
             "base_url": settings.base_url,
+            "antigravity_config_path": ANTIGRAVITY_CONFIG_PATH,
+            "antigravity_config": antigravity_config_file(f"{settings.base_url}/mcp"),
             "agent_count": len(attached_agents),
         },
     )
