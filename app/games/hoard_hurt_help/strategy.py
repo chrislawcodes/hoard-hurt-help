@@ -23,8 +23,9 @@ all of which were measured in M_6442 rather than assumed:
 * **Damage lands late.** The score floor means a player near zero cannot lose
   much, so an early attack is largely absorbed.
 
-The roster is deliberately four — Tit-for-Tat, Always Cooperate, Buzzer-Beater,
-Dealmaker — in that order, because the join UI pre-selects the first one. Grim
+The roster is deliberately small — Tit-for-Tat, Always Cooperate, Buzzer-Beater,
+Dealmaker, Underdog's Champion — in that order, because the join UI pre-selects
+the first one. Grim
 Trigger, Pavlov, Always Defect and Generous Tit-for-Tat were dropped rather than
 rewritten: none of them can win. In M_6442 each either played out as plain
 Tit-for-Tat or, for Always Defect, aimed at the highest-scoring opponent — the
@@ -32,6 +33,28 @@ player least likely to be helping it — so its attacks collected nothing and it
 finished last on 12 points against a winner on 184. Dropping a preset does not
 change agents that already exist; the prompt text is copied into the agent at
 creation time.
+
+Every surviving preset must have a route past the tie. Income in a turn is
+``4N + 2`` where N is how many players HELP you (``4N + 4`` if you betray one of
+them), so an extra helper is worth 4 while the choice of action is worth at most
+2 — the game is a contest for helpers, and every preset is a different bid for
+them. Three routes were considered and rejected for failing this test: coercion
+("help me or I HURT you" loses, because comply pays 0 and refuse pays 6 - 4 = 2,
+so one attack is smaller than the pact it asks a player to give up); pure denial
+(HURTing the leader leaves you below the bystanders who did nothing); and
+courting two backers at once, since one HELP a turn rotated between two of them
+pays each only 3 against the 6 any ordinary pact pays, so they leave.
+
+That last dead end is what shapes Underdog's Champion, and it is why the preset
+keeps ONE partner rather than building a bloc. Its route past the tie is a
+betrayal, the same route Buzzer-Beater uses, but the two differ in both halves
+of the decision. Buzzer-Beater picks any partner and times the knife by the
+calendar (the last turn, so nobody can answer). The Champion picks a partner who
+has just been abandoned and times the knife by the scoreboard, striking only in
+the narrow band where +8 clears the leader but +6 does not. The target choice is
+what makes it repeatable: a rescued partner's alternative is hoarding alone for
+about 10 a round against roughly 25 with the Champion even counting the knife,
+so unlike Buzzer-Beater's victim they have no better offer and come back.
 
 Phrasing constraint: `tests/test_per_game_strategy.py` forbids these prompts
 from repeating the base prompt's wording, so they must not contain the literal
@@ -107,5 +130,19 @@ Strategy: Dealmaker.
 - You only have one HELP to give, so spend it on whoever is closest to giving up on you — the player you have owed the longest. Let the patient ones wait a turn; chase the one about to walk.
 - Never attack. Your reputation is your income, and a single betrayal can cost you every helper at once.
 - Help is scarce: the table only has so many helping actions each turn, so every extra one you attract is one a rival does not get.""",
+    ),
+    StrategyPreset(
+        id="underdogs_champion",
+        name="Underdog's Champion",
+        description="Take in the freshly abandoned, stay loyal, and knife only when it wins the round.",
+        prompt=f"""{RANK_FRAMING}
+
+Strategy: Underdog's Champion.
+- Recruit the freshly abandoned. The moment a pact breaks — someone betrayed, someone dropped, someone whose HELP went unanswered — reach them that same turn and offer a real partnership. A player with a working pact has nothing to gain from you; a player who just lost one has nowhere else to go, and that gap is your whole edge. Do not waste talk on anyone already paired.
+- Lead with THEIR number. Say plainly what they earn alone, what they earn with you, and that you will repay them every single turn. A promise with a number in it gets believed; a friendly noise does not.
+- Then stay. HELP them honestly every turn so you both take the mutual bonus. A loyal pact pays you well, and being known as the agent who takes people in is what brings you the next one — every move you make is on the public record for the next stray to check.
+- Break it only when the arithmetic says it wins you the round, and never on a whim. On the last turn, work out where you finish if you stay honest, and where you finish if you HURT your partner instead — you keep the help they send you that turn and take the betrayal bonus on top. If staying honest already wins the round, or if even the betrayal leaves you short of first place, stay honest and keep the pact whole.
+- Take them back afterwards, and say so out loud. A partner you rescued has no better offer than you: alone they score almost nothing, and with you they score well even counting the occasional knife. Rebuild the pact and keep paying.
+- Never attack anyone else. HURTing a player who is not HELPing you costs you the turn and earns you nothing, and it burns the reputation that brings the abandoned to you in the first place.""",
     ),
 ]
