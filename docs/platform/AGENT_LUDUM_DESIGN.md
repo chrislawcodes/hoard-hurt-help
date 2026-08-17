@@ -138,7 +138,6 @@ alias mirroring `match_id`):
     "match_id": "M_001",
     "game_id": "G_001",
     "rules_version": "v1",
-    "rules": "...full rules text...",
     "total_rounds": 10,
     "turns_per_round": 10,
     "your_agent_id": "AI_42",
