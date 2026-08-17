@@ -33,7 +33,7 @@ from __future__ import annotations
 import pytest
 
 from app.games import get as get_game_module
-from app.games.base import GameError
+from app.games.base import BaseGameModule, GameError
 from app.games.hoard_hurt_help.rules import (
     ACTIONS,
     SCORE_FLOOR,
@@ -143,6 +143,22 @@ def test_a_match_row_with_no_mode_reads_as_the_rule_it_was_played_under():
     assert _pact_line(module.semantic_rules_text_for_match(legacy)) == _pact_line(
         decayed
     )
+
+
+def test_a_game_that_supplies_no_rules_fails_loud():
+    # `semantic_rules_text` is the only rules text there is. It used to return ""
+    # when a game did not override it, which was survivable while `rules_text` was
+    # the loud one — but `rules_text` is gone. An empty string would now serve a
+    # blank rulebook over MCP and embed a blank one in the base prompt, and nothing
+    # anywhere would fail: the agent would simply be told nothing about the game.
+    class RulelessGame(BaseGameModule):
+        game_type = "ruleless"
+
+    # Both entry points, because real serving reaches it through the wrapper.
+    with pytest.raises(NotImplementedError, match="semantic_rules_text"):
+        RulelessGame().semantic_rules_text()
+    with pytest.raises(NotImplementedError, match="semantic_rules_text"):
+        RulelessGame().semantic_rules_text_for_match(_match())
 
 
 def test_the_move_vocabulary_is_stated_once():

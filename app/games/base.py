@@ -425,10 +425,14 @@ class BaseGameModule:
     def semantic_rules_text(
         self, total_rounds: int = 7, turns_per_round: int = 7
     ) -> str:
-        # Default: no rules block. Every playable game overrides this — it is the
-        # single rules text the whole platform reads, both directly (MCP
-        # instructions) and through `agent_base_prompt`.
-        return ""
+        # No platform-wide default: a game's rules are the game. This used to
+        # return "" — harmless while the loud one was `rules_text`, which raised,
+        # but `rules_text` has been removed and this is now the ONLY rules text.
+        # An empty string here would have served a blank rulebook over MCP and
+        # embedded a blank one in `agent_base_prompt`, with nothing failing.
+        raise NotImplementedError(
+            "semantic_rules_text is game-specific; each game module must override it."
+        )
 
     def agent_base_prompt(
         self,
