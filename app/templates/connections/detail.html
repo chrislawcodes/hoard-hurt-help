@@ -143,7 +143,11 @@
 <div class="card">
     <h3 style="margin-top:0;">Sign in with a key</h3>
     <p class="meta">Most AI clients connect to Agent Ludum by signing in with Google. Antigravity can't finish that sign-in — it asks us how to sign in, gets the answer, and then never does it. Turning this on lets Antigravity use this connection's key instead.</p>
-    <p class="meta"><strong>Leave this off unless you need it.</strong> The key has to live in a text file your AI can read, and opponents' messages get fed to that same AI during a game — so a rival could try to talk it into revealing the key. If that happens, hit <em>Rotate Key</em> and the old one stops working straight away.</p>
+    {# Rotation is graceful by design (app/routes/connections_credentials.py passes
+       keep_old_overlap=True), so the two doors revoke at different moments. Say both:
+       /mcp ignores prev_key_lookup and cuts off at once, while the HTTP agent API
+       honours the old key until the new one's first call retires it. #}
+    <p class="meta"><strong>Leave this off unless you need it.</strong> The key has to live in a text file your AI can read, and opponents' messages get fed to that same AI during a game — so a rival could try to talk it into revealing the key. If that happens, hit <em>Rotate Key</em>. That kills the old key on <code>/mcp</code> straight away — but it still works on the connector's HTTP API until something calls that API with the new key, so restart your AI on the new key to close the gap.</p>
     <div class="provider-row">
         <form method="post"
               action="/me/connections/{{ connection.id }}/mcp-key-signin?enabled={{ 'false' if connection.mcp_key_signin_enabled else 'true' }}"

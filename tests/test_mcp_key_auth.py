@@ -320,6 +320,32 @@ async def test_detail_page_offers_the_switch_and_never_prints_a_real_key(
     assert "sk_conn_" not in on.text
 
 
+async def test_leak_warning_does_not_promise_a_blanket_instant_cutoff(
+    reset_db: async_sessionmaker, client: AsyncClient
+) -> None:
+    """Rotation is graceful (``keep_old_overlap=True``), so the two doors revoke at
+    different moments: /mcp drops the old key at once, while the HTTP agent API
+    honours it until the new key's first call. This warning is what an owner reads
+    after a key leak, so a blanket "stops working straight away" would send them
+    away believing a still-live key was dead. Pin both halves."""
+    async with reset_db() as db:
+        user = await make_user(db)
+        connection, _key = await make_connection(db, user)
+        await db.commit()
+        connection_id, user_id = connection.id, user.id
+
+    page = await client.get(
+        f"/me/connections/{connection_id}", cookies=signed_in_cookies(user_id)
+    )
+    assert page.status_code == 200
+    # The retired claim, which was true only of /mcp but read as universal.
+    assert "the old one stops working straight away" not in page.text
+    # Both doors named, and the gap given an end condition the owner can act on.
+    assert "kills the old key on <code>/mcp</code> straight away" in page.text
+    assert "still works on the connector" in page.text
+    assert "until something calls that API with the new key" in page.text
+
+
 async def test_mcp_signed_in_connections_are_not_offered_the_switch(
     reset_db: async_sessionmaker, client: AsyncClient
 ) -> None:
