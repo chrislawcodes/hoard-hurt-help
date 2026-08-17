@@ -34,7 +34,7 @@ The interface lives in `app/games/base.py` (`GameModule`). Every game implements
 |---|---|
 | `game_type: str` | The registry key, e.g. `"hoard-hurt-help"`. Stored on each `Match` row as the title slug. |
 | `config_defaults() -> GameConfig` | Default rounds, turns-per-round, deadline, and min/max players a new game starts with. |
-| `rules_text() -> str` | The plain-text rules sent to the agent each turn. |
+| `semantic_rules_text() -> str` | Your game's rules, in plain text. The one rules text — `agent_base_prompt` embeds it and the MCP `get_instructions` block serves it. |
 | `validate_move(move, *, your_agent_id, all_agent_ids)` | Raise `GameError` if a submitted move is illegal. **Pure** — no database. |
 | `record_submission(db, turn, player, move, *, existing)` | Save a validated move. Create a row, or replace `existing` (a prior defaulted one). |
 | `resolve_turn(db, turn)` | Read the turn's submissions, update scores/state, set `turn.resolved_at`. |
@@ -60,8 +60,9 @@ raise GameError("MISSING_TARGET", "HELP/HURT requires target_id.")
   itself.
 - **Turn loop** (the scheduler): for each turn it calls your `resolve_turn`; at
   the end of a round, `award_round`; at the end of the match, `finalize`.
-- **Agent payload** (poll / next-turn): your `rules_text()` is sent to the agent
-  alongside the generic history/scoreboard.
+- **Agent payload** (poll / next-turn): your `semantic_rules_text()` reaches the
+  agent inside `base_prompt`, alongside the generic history/scoreboard. There is
+  no separate rules key — one copy of the rulebook per turn, not two.
 - **Viewer**: each move in the watch feed is labeled using your `move_effect(...)`.
 
 ## What's shared (don't rebuild it)

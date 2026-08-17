@@ -100,8 +100,8 @@ def test_bare_rules_text_uses_this_games_own_ceilings() -> None:
     # was a trap for the next one.
     module = get_game_module(LD)
     cfg = module.config_defaults()
-    for text in (module.rules_text(), module.semantic_rules_text()):
-        assert f"after {cfg.turns_per_round} turns" in text
-        assert f"after {cfg.total_rounds} rounds" in text
-        assert "after 7 turns" not in text
-        assert "after 7 rounds" not in text
+    text = module.semantic_rules_text()
+    assert f"after {cfg.turns_per_round} turns" in text
+    assert f"after {cfg.total_rounds} rounds" in text
+    assert "after 7 turns" not in text
+    assert "after 7 rounds" not in text

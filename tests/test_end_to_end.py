@@ -9,6 +9,8 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 
 from app.engine.resolver import award_round_winners, finalize_game
+from app.games import get as get_game_module
+from app.games.hoard_hurt_help.rules import DEFAULT_MUTUAL_HELP_MODE
 from app.games.hoard_hurt_help.scoring import resolve_turn
 from app.engine.tokens import generate_turn_token
 from app.models import Match, GameState, Player, Turn, TurnSubmission, User
@@ -130,11 +132,28 @@ async def test_full_game_runs_to_completion(db):
     assert winner_seat_names == {"AI_1", "AI_2"}, f"unexpected winners: {winner_seat_names}"
 
 
-async def test_static_prefix_byte_identical_concept(db):
-    """The shape of the static prefix is stable game-wide — we test this here
-    indirectly by ensuring rules text constant doesn't change at runtime."""
-    from app.games.hoard_hurt_help.rules import RULES_TEXT
+def test_static_prefix_is_byte_identical_across_builds():
+    """Rebuilt for the same match, the static prefix must come out byte-identical.
 
-    snapshot = RULES_TEXT
-    assert RULES_TEXT is snapshot  # same object, no rebinding
-    assert len(RULES_TEXT) > 500  # sanity
+    It is what prompt caching keys on, so anything that varies between builds
+    (a timestamp, a re-ordered set) would re-bill the whole rulebook every turn.
+    This used to compare a module constant to itself, which could not fail; it now
+    builds the prefix the serving path actually sends and checks it carries the
+    one rules text.
+    """
+    module = get_game_module("hoard-hurt-help")
+    match = Match(
+        id="G_PREFIX",
+        total_rounds=3,
+        turns_per_round=4,
+        mutual_help_mode=DEFAULT_MUTUAL_HELP_MODE.value,
+    )
+    first = module.agent_base_prompt_for_match(
+        match, your_agent_id="AI_0", all_agent_ids=["AI_0", "AI_1"]
+    )
+    second = module.agent_base_prompt_for_match(
+        match, your_agent_id="AI_0", all_agent_ids=["AI_0", "AI_1"]
+    )
+    assert first == second
+    assert module.semantic_rules_text_for_match(match).rstrip() in first
+    assert len(first) > 500  # sanity: it is the whole rulebook, not a stub

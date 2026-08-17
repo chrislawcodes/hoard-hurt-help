@@ -54,7 +54,9 @@ class StubGame:
             max_players=4,
         )
 
-    def rules_text(self, total_rounds: int = 10, turns_per_round: int = 10) -> str:
+    def semantic_rules_text(
+        self, total_rounds: int = 10, turns_per_round: int = 10
+    ) -> str:
         return "Stub game: submit MOVE; each move scores you +1 point."
 
     def strategy_presets(self) -> list[StrategyPreset]:
@@ -71,7 +73,8 @@ class StubGame:
         total_rounds: int = 10,
         turns_per_round: int = 10,
     ) -> str:
-        return f"You are {your_agent_id}. {self.rules_text(total_rounds, turns_per_round)}"
+        rules = self.semantic_rules_text(total_rounds, turns_per_round)
+        return f"You are {your_agent_id}. {rules}"
 
     def validate_move(
         self, move: dict[str, Any], *, your_agent_id: str, all_agent_ids: list[str]

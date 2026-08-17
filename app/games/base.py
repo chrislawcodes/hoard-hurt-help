@@ -122,10 +122,13 @@ class GameModule(Protocol):
         constant its rules text is titled from."""
         ...
 
-    def rules_text(self, total_rounds: int = 7, turns_per_round: int = 7) -> str: ...
-
     def semantic_rules_text(self, total_rounds: int = 7, turns_per_round: int = 7) -> str:
-        """Game rules text without the connector's response protocol."""
+        """This game's rules — the one rules text, and the only one.
+
+        Everything agent-facing reads from here: `agent_base_prompt` embeds it,
+        and the MCP `get_instructions` block serves it. There used to be a second,
+        longer form that appended the connector's JSON response protocol; the turn
+        payload shipped both, so every agent read the rulebook twice."""
         ...
 
     def mcp_setup_hint_lines(self) -> list[str]:
@@ -156,15 +159,11 @@ class GameModule(Protocol):
         """Stable model instructions supplied separately from player strategy."""
         ...
 
-    def rules_text_for_match(self, match: Match) -> str:
-        """Rules text for a specific match, reflecting any per-match rule toggles.
+    def semantic_rules_text_for_match(self, match: Match) -> str:
+        """`semantic_rules_text` for a specific match, with per-match toggles applied.
 
         Defaults (see BaseGameModule) to the round-count form; a game with a
         per-match rules switch overrides this to read the match row."""
-        ...
-
-    def semantic_rules_text_for_match(self, match: Match) -> str:
-        """`semantic_rules_text` for a specific match (per-match toggles applied)."""
         ...
 
     def agent_base_prompt_for_match(
@@ -426,17 +425,10 @@ class BaseGameModule:
     def semantic_rules_text(
         self, total_rounds: int = 7, turns_per_round: int = 7
     ) -> str:
-        # Default: no extra semantic rules block. Concrete games override this
-        # to keep MCP instructions free of the connector's JSON protocol.
+        # Default: no rules block. Every playable game overrides this — it is the
+        # single rules text the whole platform reads, both directly (MCP
+        # instructions) and through `agent_base_prompt`.
         return ""
-
-    def rules_text(self, total_rounds: int = 7, turns_per_round: int = 7) -> str:
-        # No platform-wide default: the full rules text is game-specific. Declared
-        # here (raising) so the shared `*_for_match` wrappers below can delegate to
-        # it; every concrete module (PD, Liar's Dice) overrides it.
-        raise NotImplementedError(
-            "rules_text is game-specific; each game module must override it."
-        )
 
     def agent_base_prompt(
         self,
@@ -446,7 +438,7 @@ class BaseGameModule:
         total_rounds: int = 7,
         turns_per_round: int = 7,
     ) -> str:
-        # Game-specific like rules_text; declared here so the wrappers can delegate.
+        # Game-specific; declared here so the wrappers below can delegate to it.
         raise NotImplementedError(
             "agent_base_prompt is game-specific; each game module must override it."
         )
@@ -456,9 +448,6 @@ class BaseGameModule:
     # no per-match rule switch (e.g. Liar's Dice) inherits these unchanged. A game
     # that DOES vary its rules per match (e.g. PD's mutual-help decay switch)
     # overrides them to read the relevant match column.
-    def rules_text_for_match(self, match: Match) -> str:
-        return self.rules_text(match.total_rounds, match.turns_per_round)
-
     def semantic_rules_text_for_match(self, match: Match) -> str:
         return self.semantic_rules_text(match.total_rounds, match.turns_per_round)
 

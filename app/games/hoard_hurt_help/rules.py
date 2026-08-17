@@ -2,8 +2,6 @@
 
 import enum
 
-from app.agent_prompt import RESPONSE_PROTOCOL
-
 # Point values — single source of truth for the resolver (app/engine/resolver.py)
 # and the watch view's per-move effect display (app/routes/web.py).
 HOARD_POINTS = 2  # HOARD: actor gains this, no target
@@ -247,12 +245,6 @@ Each turn has a talk phase followed by an act phase:
 # moved off; `test_default_rules_text_is_the_shipped_mode` pins that.
 GAME_RULES_TEXT = _render_game_rules_text(mode=DEFAULT_MUTUAL_HELP_MODE)
 
-RULES_TEXT = f"""{GAME_RULES_TEXT}
-## Response format
-
-{RESPONSE_PROTOCOL}
-"""
-
 DEFAULT_MISSED_MESSAGE = "I did not submit a turn."
 
 
@@ -265,17 +257,4 @@ def make_game_rules_text(
     """Return semantic game rules for this match's mutual-help mode and counts."""
     return _render_game_rules_text(
         mode=mode, total_rounds=total_rounds, turns_per_round=turns_per_round
-    )
-
-
-def make_rules_text(
-    total_rounds: int = DEFAULT_TOTAL_ROUNDS,
-    turns_per_round: int = DEFAULT_TURNS_PER_ROUND,
-    *,
-    mode: MutualHelpMode | str = DEFAULT_MUTUAL_HELP_MODE,
-) -> str:
-    """Return official rules plus the canonical response contract."""
-    return (
-        f"{make_game_rules_text(total_rounds, turns_per_round, mode=mode)}"
-        f"## Response format\n\n{RESPONSE_PROTOCOL}\n"
     )

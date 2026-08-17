@@ -23,7 +23,7 @@ def test_unknown_type_raises() -> None:
 
 def test_pd_rules_and_move_effect() -> None:
     module = get("hoard-hurt-help")
-    assert "Hoard-Hurt-Help" in module.rules_text()
+    assert "Hoard-Hurt-Help" in module.semantic_rules_text()
     assert module.move_effect("HOARD") == (2, None)
     assert module.move_effect("HELP") == (0, 4)
     assert module.move_effect("HURT") == (0, -4)

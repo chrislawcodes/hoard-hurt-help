@@ -56,7 +56,7 @@ class _HiddenStub(BaseGameModule):
         ).scalar_one()
         return ms.state_json["active"]
 
-    def rules_text(self, total_rounds: int = 7, turns_per_round: int = 7) -> str:
+    def semantic_rules_text(self, total_rounds: int = 7, turns_per_round: int = 7) -> str:
         return "Hidden stub rules."
 
     def strategy_presets(self) -> list:
