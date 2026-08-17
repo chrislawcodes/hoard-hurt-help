@@ -19,7 +19,7 @@ from app.games.liars_dice.engine import (
     resolve_showdown_outcome,
     roll,
 )
-from app.games.liars_dice.rules_text import make_game_rules_text, make_rules_text
+from app.games.liars_dice.rules_text import make_game_rules_text
 from app.games.liars_dice.state import (
     _alive_players,
     _challenger_name,
@@ -84,21 +84,6 @@ class LiarsDice(BaseGameModule):
 
     # None means "this game's own ceilings", read from config_defaults below.
     # These used to default to 7/7 — a shape Liar's Dice has never run.
-    def rules_text(
-        self, total_rounds: int | None = None, turns_per_round: int | None = None
-    ) -> str:
-        cfg = self.config_defaults()
-        return make_rules_text(
-            wild_ones=True,
-            dice_per_player=_default_config()["dice_per_player"],
-            min_players=cfg.min_players,
-            max_players=cfg.max_players,
-            total_rounds=cfg.total_rounds if total_rounds is None else total_rounds,
-            turns_per_round=(
-                cfg.turns_per_round if turns_per_round is None else turns_per_round
-            ),
-        )
-
     def semantic_rules_text(
         self, total_rounds: int | None = None, turns_per_round: int | None = None
     ) -> str:

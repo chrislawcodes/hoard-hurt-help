@@ -190,14 +190,21 @@ def test_semantic_rules_off_drops_decay_language():
     assert "## Score floor" in off and "## Score floor" in on
 
 
-def test_rules_text_for_match_off_drops_decay():
-    """The connector `rules` payload surface."""
+def test_count_based_rules_text_off_drops_decay():
+    """The no-match surface: the mode is passed straight in, with no Match row.
+
+    This is a different code path from the `*_for_match` test above — it is what
+    the public /agent-instructions page renders, and it used to be checked through
+    `rules_text_for_match`, a second builder that has since been removed.
+    """
     module = HoardHurtHelp()
-    off = module.rules_text_for_match(_off_match())
+    off = module.semantic_rules_text(5, 7, mutual_help_mode="flat_8")
     for phrase in _DECAY_PHRASES:
         assert phrase not in off, phrase
     assert "every time" in off
-    assert "Mutual-help decays" in module.rules_text_for_match(_on_match())
+    assert "Mutual-help decays" in module.semantic_rules_text(
+        5, 7, mutual_help_mode="decay"
+    )
 
 
 def test_agent_base_prompt_off_drops_decay():

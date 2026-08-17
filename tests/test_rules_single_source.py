@@ -1,13 +1,19 @@
 """Every surface that tells an agent the rules must tell it the SAME rules.
 
-There are four of them, reached by different code paths:
+There are three of them, reached by different code paths:
 
-* the HTTP turn payload's ``static.rules`` and ``static.base_prompt``
+* the HTTP turn payload's ``static.base_prompt``
   (``app/engine/agent_play_reads``) — what the connector primes a session with,
 * the MCP ``get_instructions`` block (``mcp_server/mcp_tools``) — what a direct
   MCP client reads,
 * the public ``/games/{game}/agent-instructions`` page — what a human reads
   before writing a strategy.
+
+All three now start from one builder, ``semantic_rules_text``. There used to be a
+second, longer one (``rules_text``) that appended the connector's JSON response
+protocol, and the turn payload carried both — so the connector shipped the whole
+rulebook twice per turn. It was removed along with its per-match wrapper and both
+games' ``make_rules_text``; these tests were rewritten onto the survivor.
 
 They agreed only by convention, and the convention broke: the page and every
 other "mode not supplied" caller fell through to decay while real matches were
@@ -27,7 +33,7 @@ from __future__ import annotations
 import pytest
 
 from app.games import get as get_game_module
-from app.games.base import GameError
+from app.games.base import BaseGameModule, GameError
 from app.games.hoard_hurt_help.rules import (
     ACTIONS,
     SCORE_FLOOR,
@@ -93,9 +99,9 @@ def test_bare_rules_match_config_defaults():
     # another title's text.
     module = get_game_module(PD)
     cfg = module.config_defaults()
-    for text in (module.rules_text(), module.semantic_rules_text()):
-        assert f"**{cfg.total_rounds} rounds**" in text
-        assert f"**{cfg.turns_per_round} turns**" in text
+    text = module.semantic_rules_text()
+    assert f"**{cfg.total_rounds} rounds**" in text
+    assert f"**{cfg.turns_per_round} turns**" in text
 
 
 # --- 2. Given a match, every surface states THAT match's rules -------------
@@ -110,25 +116,19 @@ def test_all_agent_facing_surfaces_agree_for_one_match(mode: MutualHelpMode):
     module = get_game_module(PD)
     match = _match(total_rounds=4, turns_per_round=6, mutual_help_mode=mode.value)
 
-    http_rules = module.rules_text_for_match(match)
     mcp_rules = module.semantic_rules_text_for_match(match)
     base_prompt = module.agent_base_prompt_for_match(
         match, your_agent_id="AI_1", all_agent_ids=["AI_1", "AI_2"]
     )
 
     expected_pact = f"net +{mutual_help_value(mode, 0)}"
-    for name, text in (
-        ("http rules", http_rules),
-        ("mcp rules", mcp_rules),
-        ("base prompt", base_prompt),
-    ):
+    for name, text in (("mcp rules", mcp_rules), ("base prompt", base_prompt)):
         assert "**4 rounds**" in text, name
         assert "**6 turns**" in text, name
         assert expected_pact in _pact_line(text), (name, mode)
 
-    # The MCP block is the HTTP rules minus the connector's JSON protocol, and
-    # the base prompt embeds that same block — not a re-description of it.
-    assert mcp_rules.rstrip() in http_rules
+    # The base prompt — what the HTTP turn payload ships — embeds the MCP block
+    # verbatim, rather than re-describing the rules in its own words.
     assert mcp_rules.rstrip() in base_prompt
 
 
@@ -143,6 +143,22 @@ def test_a_match_row_with_no_mode_reads_as_the_rule_it_was_played_under():
     assert _pact_line(module.semantic_rules_text_for_match(legacy)) == _pact_line(
         decayed
     )
+
+
+def test_a_game_that_supplies_no_rules_fails_loud():
+    # `semantic_rules_text` is the only rules text there is. It used to return ""
+    # when a game did not override it, which was survivable while `rules_text` was
+    # the loud one — but `rules_text` is gone. An empty string would now serve a
+    # blank rulebook over MCP and embed a blank one in the base prompt, and nothing
+    # anywhere would fail: the agent would simply be told nothing about the game.
+    class RulelessGame(BaseGameModule):
+        game_type = "ruleless"
+
+    # Both entry points, because real serving reaches it through the wrapper.
+    with pytest.raises(NotImplementedError, match="semantic_rules_text"):
+        RulelessGame().semantic_rules_text()
+    with pytest.raises(NotImplementedError, match="semantic_rules_text"):
+        RulelessGame().semantic_rules_text_for_match(_match())
 
 
 def test_the_move_vocabulary_is_stated_once():

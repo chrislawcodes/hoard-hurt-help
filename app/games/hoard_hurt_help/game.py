@@ -35,7 +35,6 @@ from app.games.hoard_hurt_help.rules import (
     MUTUAL_HELP_FLOOR,
     RULES_VERSION,
     make_game_rules_text,
-    make_rules_text,
     mode_needs_history,
     mutual_help_value,
 )
@@ -130,16 +129,6 @@ class HoardHurtHelp(BaseGameModule):
     # A literal is how the public /agent-instructions page came to advertise a
     # decaying +8 pact while every new match paid a flat +6. `None` rather than a
     # default value so the resolution happens in exactly one place, below.
-    def rules_text(
-        self,
-        total_rounds: int | None = None,
-        turns_per_round: int | None = None,
-        *,
-        mutual_help_mode: str = DEFAULT_MUTUAL_HELP_MODE.value,
-    ) -> str:
-        rounds, turns = _shipped_counts(total_rounds, turns_per_round)
-        return make_rules_text(rounds, turns, mode=mutual_help_mode)
-
     def semantic_rules_text(
         self,
         total_rounds: int | None = None,
@@ -177,14 +166,7 @@ class HoardHurtHelp(BaseGameModule):
     # switch, so the platform's match-aware callers get the setting-correct text.
     # A NULL column is a row from before the switch existed, and those matches ran
     # decay — hence LEGACY_MUTUAL_HELP_MODE here and not the shipped default. These
-    # three are the only paths that should ever name it.
-    def rules_text_for_match(self, match: Match) -> str:
-        return self.rules_text(
-            match.total_rounds,
-            match.turns_per_round,
-            mutual_help_mode=match.mutual_help_mode or LEGACY_MUTUAL_HELP_MODE.value,
-        )
-
+    # two are the only paths that should ever name it.
     def semantic_rules_text_for_match(self, match: Match) -> str:
         return self.semantic_rules_text(
             match.total_rounds,
