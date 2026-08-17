@@ -319,9 +319,11 @@ def test_core_presets_pick_one_target_and_stay_distinct() -> None:
 def test_presets_do_not_carry_the_three_measured_bugs() -> None:
     """Three prompts told their agent the wrong thing. Pin the corrections.
 
-    All three were measured in M_6484, where the affected presets under-fired:
-    Kingslayer struck twice and came 6th, Underdog's Champion never struck at
-    all, and Buzzer-Beater struck twice instead of once per round.
+    Kingslayer and the Champion were measured in M_6484, where both under-fired:
+    Kingslayer struck twice and came 6th, the Champion never struck at all.
+    Buzzer-Beater's entry is different — see the comment on it below. Its first
+    correction was itself wrong, and this test pinned that error until three
+    matches (M_6547 / M_6556 / M_6557) showed it scoring zero round wins in 21.
     """
     presets = {p.id: p for p in get_game_module("hoard-hurt-help").strategy_presets()}
 
@@ -334,11 +336,28 @@ def test_presets_do_not_carry_the_three_measured_bugs() -> None:
     assert "a lead of a few points" not in king
     assert "twelve points" in king
 
-    # 2. Buzzer-Beater told itself to strike every round AND to wait for the
-    #    final round, in consecutive lines. It split the difference and waited.
+    # 2. Buzzer-Beater. This assertion previously required the prompt to say
+    #    "every round" — it pinned a MISTAKE, and three matches proved it.
+    #
+    #    The original prompt contradicted itself: strike every round, but also
+    #    wait for the final round. The contradiction was real; resolving it
+    #    toward "every round" was the wrong half to keep. Measured: with the old
+    #    self-contradicting text it struck twice and finished 3rd of 8 (M_6484).
+    #    Told to strike every round it struck up to 8 times, half of them at
+    #    players who were not helping it (so they paid nothing), bled helpers
+    #    from 0.80/turn to 0.33, and took ZERO round wins across 21 rounds in
+    #    M_6547 / M_6556 / M_6557.
+    #
+    #    So the timing is pinned in both directions now: late in the round AND
+    #    late in the match, and only when the arithmetic actually wins it.
     buzz = presets["buzzer_beater"].prompt
-    assert "every round" in buzz
-    assert "final turn of the final round" not in buzz
+    assert "LAST turn of a round, never earlier" in buzz
+    assert "late in the MATCH" in buzz
+    assert "Only strike when it actually wins you the round" in buzz
+    assert "every round" not in buzz
+    # It also arrived under-helped BEFORE striking (0.47/turn vs ~1.0 for the
+    # field), because it only ever fed one partner. It must court help too.
+    assert "Do not settle for one loyal partner" in buzz
 
     # 3. The Champion's ban was meant to cover third parties only, but read as a
     #    blanket "never attack" and suppressed its own conditional strike.
