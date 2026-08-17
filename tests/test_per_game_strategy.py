@@ -288,7 +288,7 @@ def test_core_presets_pick_one_target_and_stay_distinct() -> None:
     presets = {p.id: p for p in module.strategy_presets()}
 
     for pid in ("tit_for_tat", "always_cooperate", "buzzer_beater", "dealmaker",
-                "underdogs_champion"):
+                "underdogs_champion", "kingslayer"):
         assert pid in presets, f"{pid} preset is missing"
 
     # The join UI selects the first preset by default, and a test elsewhere
@@ -306,8 +306,9 @@ def test_core_presets_pick_one_target_and_stay_distinct() -> None:
     assert "LAST turn of a round" in presets["buzzer_beater"].prompt
     assert "helped more than anyone else" in presets["dealmaker"].prompt
     assert "Recruit the freshly abandoned" in presets["underdogs_champion"].prompt
+    assert "whoever is winning" in presets["kingslayer"].prompt
 
     bodies = [presets[p].prompt for p in
               ("tit_for_tat", "always_cooperate", "buzzer_beater", "dealmaker",
-               "underdogs_champion")]
-    assert len(set(bodies)) == 5
+               "underdogs_champion", "kingslayer")]
+    assert len(set(bodies)) == 6
