@@ -147,9 +147,9 @@ Strategy: Always Cooperate.
 
 Strategy: Buzzer-Beater.
 - Play as a genuinely reliable partner for almost the whole match. Build one pact, feed it every turn, and give your partner no reason to doubt you.
-- Break it on the LAST turn of a round by HURTing that partner. You still collect the help they sent you that turn and take the betrayal bonus on top, which is the largest single swing available to anyone.
-- Timing is the entire strategy. Betray in an early round and you hand the table the rest of the match to freeze you out; betray on the final turn of the final round and nobody gets a chance to answer.
-- Only strike when you are confident they will actually HELP you that turn. The bonus needs a helper — against a partner who has gone quiet, started hoarding, or already been burned once, stay honest and take the safe points.""",
+- Break it on the LAST turn of a round, every round, by HURTing that partner. That buzzer is the whole strategy — do not talk yourself into saving it for a better moment later, because the later moment never comes and a round you did not strike in is a round you did not win.
+- Expect to burn a partner each time, and plan for it. Court your next one DURING the round while your record still looks clean, so you always have somewhere to go once the current pact is spent.
+- The one thing that does call it off: the bonus needs a helper. If your partner has gone quiet, started hoarding, or been burned by you before, they probably will not HELP you that turn — then the strike pays nothing, so stay honest and take the safe points instead.""",
     ),
     StrategyPreset(
         id="dealmaker",
@@ -176,7 +176,7 @@ Strategy: Underdog's Champion.
 - Then stay. HELP them honestly every turn so you both take the mutual bonus. A loyal pact pays you well, and being known as the agent who takes people in is what brings you the next one — every move you make is on the public record for the next stray to check.
 - Break it only when the arithmetic says it wins you the round, and never on a whim. On the last turn, work out where you finish if you stay honest, and where you finish if you HURT your partner instead — you keep the help they send you that turn and take the betrayal bonus on top. If staying honest already wins the round, or if even the betrayal leaves you short of first place, stay honest and keep the pact whole.
 - Take them back afterwards, and say so out loud. A partner you rescued has no better offer than you: alone they score almost nothing, and with you they score well even counting the occasional knife. Rebuild the pact and keep paying.
-- Never attack anyone else. HURTing a player who is not HELPing you costs you the turn and earns you nothing, and it burns the reputation that brings the abandoned to you in the first place.""",
+- Never attack a THIRD PARTY. HURTing someone who is not HELPing you earns nothing and burns the reputation that brings the abandoned to you. This is not a ban on striking at all: the one strike you do make is the one above, on your own partner, on the turn the arithmetic says it takes the round.""",
     ),
     StrategyPreset(
         id="kingslayer",
@@ -188,7 +188,7 @@ Strategy: Kingslayer.
 - Every round, find whoever is winning and make yourself their partner. Offer a real pact and mean it — a pact pays them as well as you, so they have every reason to accept. If they already have someone, be the better offer.
 - While they are ahead of you, be a completely honest partner. HELP them every turn, take the mutual bonus together, and give them no reason to look elsewhere. You are not pretending, you are waiting.
 - Strike only when it puts you in front. HURT them and you keep the help they send you that turn, take the betrayal bonus on top, AND knock them backwards at the same time. That combination is the only move in the game that both pays you and moves the player you are chasing — betraying anybody else pays you exactly the same but leaves the leader untouched.
-- Know your reach. The strike gains you a little and costs them a little, so it only overhauls a lead of a few points. Work out before you commit whether it genuinely puts you first. If the lead is too big, stay honest and bank the safe points rather than throw away a good pact for nothing.
+- Your reach is far bigger than it looks, so do not stand down too early. The leader is spending their turn HELPing you, so they gain almost nothing from it while you gain the most any single move pays — the gap between you closes by roughly twelve points in that one turn. Leads you could never overhaul by out-scoring them are well inside range. Work out the actual finish before you commit, and stay honest only if even the strike leaves you short.
 - Then move on. Next round, whoever is winning NOW is your partner. Carry no grudges and never go back for someone you have already taken down — your target is the current leader, never the last one.
 - Watch your own back. When you are the one in front, assume somebody is running this exact play on you, and be slow to trust a partner who appeared the moment you took the lead.""",
     ),
