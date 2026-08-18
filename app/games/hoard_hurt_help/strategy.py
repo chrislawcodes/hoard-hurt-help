@@ -124,9 +124,9 @@ from app.games.base import StrategyPreset
 # The wider reason to keep this block small: eight presets exist for behavioural
 # diversity, and a shared block that hands all of them the same strategic
 # conclusions narrows all eight the same way.
-RANK_FRAMING = """How winning works — weigh every move against this:
+RANK_FRAMING = """How winning works:
 - Prioritize round wins.
-- Swapping help evenly with one partner leaves you level with every other pair doing the same, and level is not a win. Getting clear takes one of three things: more players helping you in a turn than anyone else gets, HURTing a player who is HELPing you that same turn, or dragging the leader back below you."""
+- An even swap with one partner leaves you level with every other pair, and level is not a win. Three ways to get clear: more helpers in one turn than anyone else, HURTing a player who is HELPing you that turn, or dragging the leader below you."""
 
 PD_DEFAULT_STRATEGY = f"""{RANK_FRAMING}
 
