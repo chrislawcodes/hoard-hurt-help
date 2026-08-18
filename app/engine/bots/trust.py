@@ -245,7 +245,8 @@ def _mutual_help_partners(history: Sequence[ActionRecord], your_agent_id: str) -
 def _betrayals(history: Sequence[ActionRecord]) -> list[tuple[str, str, int]]:
     """Every (attacker, victim, round) where the attacker HURT a player who was
     HELPing them that same turn — i.e. the attacker triggered the betrayal bonus
-    (attacker +4 on top of the help; the victim takes the normal -4).
+    (attacker +BETRAYAL_BONUS on top of the help; the victim takes the normal
+    -HURT_POINTS).
     The round lets callers fade the memory over time.
     """
     by_turn: dict[tuple[int, int], list[ActionRecord]] = defaultdict(list)

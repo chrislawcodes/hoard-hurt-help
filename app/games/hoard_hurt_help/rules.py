@@ -150,6 +150,35 @@ def mutual_help_legend(mode: MutualHelpMode | str) -> str:
     return f"mutual +{first} each, every time"
 
 
+def hoard_legend() -> str:
+    """The one-line Hoard description for a replay legend.
+
+    Sibling of `mutual_help_legend`, and here for the same reason: a legend must
+    never advertise a number the resolver doesn't pay. These two lines were typed
+    literals in two templates until the v6 payoff change moved HURT_POINTS and
+    left both showing the old value to spectators.
+    """
+    return f"+{HOARD_POINTS} to yourself"
+
+
+def hurt_legend() -> str:
+    """The one-line Hurt description for a replay legend.
+
+    The second number is the betrayal BONUS alone, matching the `+N betrayal`
+    chip the turn feed renders — not the attacker's net for the turn, which also
+    includes the help they still receive.
+    """
+    return (
+        f"-{HURT_POINTS} to another; "
+        f"+{BETRAYAL_BONUS} to you if betraying a helper"
+    )
+
+
+def help_legend(mode: MutualHelpMode | str) -> str:
+    """The one-line Help description for a replay legend, for this mode."""
+    return f"+{HELP_POINTS} to another; {mutual_help_legend(mode)}"
+
+
 def mode_needs_history(mode: MutualHelpMode | str) -> bool:
     """True when the payout depends on the pair's prior mutual helps.
 

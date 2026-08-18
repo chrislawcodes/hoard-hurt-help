@@ -511,11 +511,11 @@ def test_legend_markup_requires_the_legend_to_be_supplied():
 
 def test_legend_markup_off_renders_flat():
     """A flat-payout showcase renders the flat legend, not the decay one."""
-    from app.games.hoard_hurt_help.rules import mutual_help_legend
+    from app.games.hoard_hurt_help.rules import help_legend
     from app.templating import templates
 
     html = templates.env.get_template("fragments/robot_circle/_markup.html").render(
-        rc_mutual_help_legend=mutual_help_legend("flat_8")
+        rc_help_legend=help_legend("flat_8")
     )
     assert "mutual +8 each, every time" in html
     assert "bonus decays each round" not in html

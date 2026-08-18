@@ -299,7 +299,7 @@ async def test_viewer_shows_per_move_effect_on_target(client, reset_db):
     # The target and its loss are shown; the actor's own +0 is omitted because
     # the compact action line focuses on who the move lands on.
     assert "AI_1" in r.text
-    assert "-4" in r.text
+    assert "-8" in r.text  # the v6 HURT
     assert "+0" not in r.text
 
 

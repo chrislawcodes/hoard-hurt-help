@@ -409,3 +409,45 @@ def test_presets_do_not_carry_the_three_measured_bugs() -> None:
     # the pair was ever played. If the Champion goes quiet again, the dropped
     # clause is the first thing to put back.
     assert "HURT them only on a round's last turn" in champ
+
+
+def test_preset_prose_quotes_the_real_payoffs():
+    """Every number a preset states must be the number the resolver pays.
+
+    The presets deliberately quote figures — an LLM reasons better with them than
+    without. That makes them the same rule in two places, and the riskiest copy:
+    a stale legend misinforms a spectator, a stale preset misinforms the player
+    making the move. At v6 (BETRAYAL_BONUS 4 -> 6, HURT_POINTS 4 -> 8) every one
+    of these moved, and nothing but this test would have caught a missed one.
+
+    Derived here rather than typed, so the next payoff change fails loudly.
+    """
+    from app.games.hoard_hurt_help.rules import (
+        BETRAYAL_BONUS,
+        DEFAULT_MUTUAL_HELP_MODE,
+        HELP_POINTS,
+        HURT_POINTS,
+        mutual_help_value,
+    )
+
+    presets = {p.id: p.prompt for p in get_game_module("hoard-hurt-help").strategy_presets()}
+    pact = mutual_help_value(DEFAULT_MUTUAL_HELP_MODE, 0)  # a clean mutual pair
+    betrayal_net = HELP_POINTS + BETRAYAL_BONUS  # the knife's take that turn
+    two_helpers = pact + HELP_POINTS  # a pact plus one one-way helper
+
+    # Betraying a same-turn helper.
+    assert f"pays you {betrayal_net}" in presets["tit_for_tat"]
+    assert f"pays you {betrayal_net} and costs them {HURT_POINTS}" in presets["kingslayer"]
+    assert f"HELP pays you {pact}" in presets["kingslayer"]
+
+    # The second-helper arithmetic, quoted by the three recruiting presets.
+    for pid in ("loyal_partner", "dealmaker", "salvager"):
+        assert (
+            f"pays {two_helpers}; a clean pair banks {pact}" in presets[pid]
+        ), pid
+
+    # Kingslayer states the one-turn swing between the two players in words.
+    swing = (betrayal_net - pact) + (pact + HURT_POINTS)
+    words = {12: "twelve", 18: "eighteen", 20: "twenty"}
+    assert swing in words, f"no word for a swing of {swing} — add it"
+    assert f"{words[swing]} points" in presets["kingslayer"]
