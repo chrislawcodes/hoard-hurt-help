@@ -33,6 +33,7 @@ from app.models.user import User
 from app.provider_labels import PROVIDER_LABELS
 from app.request_logging import set_request_trace_context
 from app.routes.web_play import seat_human_player
+from app.routes.agents_queries import owned_agent_filter
 from app.routes.web_player_shared import (
     _load_user_agents,
     _seat_name,
@@ -301,9 +302,10 @@ async def _seat_user_agent(
             .join(AgentVersion, AgentVersion.id == Agent.current_version_id, isouter=True)
             .where(
                 Agent.id == agent_id,
-                Agent.user_id == user.id,
-                Agent.kind == AgentKind.AI,
-                Agent.archived_at.is_(None),
+                # The ownership half of the rule, from the one place that owns it —
+                # this query used to re-derive it, which is how it also ended up
+                # re-deriving (and forgetting) the playability half below.
+                *owned_agent_filter(user.id),
             )
         )
     ).one_or_none()

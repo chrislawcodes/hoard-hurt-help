@@ -33,11 +33,12 @@ from app.engine.connection_health import (
     enabled_provider_values,
     provider_readiness,
 )
-from app.models.agent import Agent, AgentKind
+from app.models.agent import Agent
 from app.models.connection import Connection, ConnectionProvider, ConnectionStatus
 from app.models.match import Match
 from app.models.user import User
 from app.routes.web_support import safe_internal_next
+from app.routes.agents_queries import owned_agent_filter
 
 
 # The games lobby anchor every "ready to play" path lands on (nav CTA, /play,
@@ -124,9 +125,7 @@ async def user_has_any_ai_agent(db: AsyncSession, user_id: int) -> bool:
         await db.execute(
             select(Agent.id)
             .where(
-                Agent.user_id == user_id,
-                Agent.archived_at.is_(None),
-                Agent.kind == AgentKind.AI,
+                *owned_agent_filter(user_id),
             )
             .limit(1)
         )

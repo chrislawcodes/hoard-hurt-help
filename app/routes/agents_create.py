@@ -23,6 +23,7 @@ from app.models.agent_version import AgentVersion
 from app.models.user import User
 from app.routes.web_support import safe_internal_next
 from app.templating import templates
+from app.routes.agents_queries import owned_agent_filter
 
 router = APIRouter()
 
@@ -90,9 +91,7 @@ async def _load_existing_strategies(db: DbSession, user_id: int) -> list[dict[st
         select(Agent.name, AgentVersion.strategy_text)
         .join(AgentVersion, AgentVersion.id == Agent.current_version_id)
         .where(
-            Agent.user_id == user_id,
-            Agent.kind == AgentKind.AI,
-            Agent.archived_at.is_(None),
+            *owned_agent_filter(user_id),
         )
         .order_by(Agent.name)
     )
