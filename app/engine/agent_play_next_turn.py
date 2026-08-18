@@ -54,7 +54,11 @@ from app.models.agent import Agent, AgentKind, AgentStatus
 from app.models.agent_version import AgentVersion
 from app.models.connection import Connection, ConnectionStatus
 from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
-from app.models.match import Match, GameState
+from app.models.match import (
+    GameState,
+    Match,
+    UNFINISHED_STATES,
+)
 from app.models.player import Player
 from app.models.turn import Turn, TurnMessage, TurnSubmission
 from app.ops_events import log_ops_event
@@ -422,9 +426,7 @@ async def _identity_candidate_rows(
                     Agent.status == AgentStatus.ACTIVE,
                     Agent.archived_at.is_(None),
                     Player.left_at.is_(None),
-                    Match.state.in_(
-                        [GameState.ACTIVE, GameState.SCHEDULED, GameState.REGISTERING]
-                    ),
+                    Match.state.in_(UNFINISHED_STATES),
                 )
             )
         ).all()

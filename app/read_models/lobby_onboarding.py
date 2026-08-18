@@ -18,7 +18,10 @@ from app.engine.connection_activity import compute_bot_health
 from app.engine.connection_health import LOOP_RUNNING_WINDOW_SECONDS, within_window
 from app.models.agent import Agent, AgentKind
 from app.models.connection import Connection, ConnectionStatus
-from app.models.match import GameState, Match
+from app.models.match import (
+    Match,
+    UNFINISHED_STATES,
+)
 from app.models.player import Player
 
 
@@ -82,9 +85,7 @@ async def user_has_warm_agent_without_match(db: AsyncSession, user_id: int) -> b
             .where(
                 Player.user_id == user_id,
                 Player.left_at.is_(None),
-                Match.state.in_(
-                    [GameState.ACTIVE, GameState.SCHEDULED, GameState.REGISTERING]
-                ),
+                Match.state.in_(UNFINISHED_STATES),
             )
         )
     ) or 0
