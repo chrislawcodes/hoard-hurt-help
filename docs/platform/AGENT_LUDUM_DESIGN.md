@@ -128,15 +128,16 @@ The payload is split into a **static prefix** (same every turn, cacheable by the
 - Deadline: ISO timestamp by which the action must be submitted
 - A turn-token: opaque string the agent must echo back when submitting its action (prevents replay / stale submissions)
 
-Example shape (illustrative — the **real, current contract** is the Pydantic
-models in `app/schemas/agent.py`; `game_id`/`G_` below survives only as a legacy
-alias mirroring `match_id`):
+Example shape (illustrative — the **real, current contract** is the builder,
+`_build_turn_payload` in `app/engine/agent_play_next_turn.py` plus
+`build_turn_static_dict` in `app/engine/agent_play_reads.py`, not a response
+model; `game_id`/`G_` survives only as a legacy top-level alias mirroring
+`match_id`, never inside `static`):
 
 ```json
 {
   "static": {
     "match_id": "M_001",
-    "game_id": "G_001",
     "rules_version": "v1",
     "total_rounds": 10,
     "turns_per_round": 10,

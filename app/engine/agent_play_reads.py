@@ -219,7 +219,10 @@ def build_turn_static_dict(
     module = get_game_module(match.game)
     static: dict[str, object] = {
         "match_id": match.id,
-        "game_id": match.id,
+        # No `game_id` alias in here: it restated `match.id` verbatim one line
+        # below the canonical key, and nothing ever read it. (The legacy-alias
+        # fallback clients do have is on the TOP-LEVEL turn payload, not in this
+        # block.)
         "game": match.game,
         "rules_version": match.rules_version,
         # No separate `rules` key: `base_prompt` already carries the rules AND the

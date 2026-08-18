@@ -64,12 +64,17 @@ async def _session_scope() -> AsyncIterator[AsyncSession]:
 def _lean_payload_for_mcp(payload: dict[str, object]) -> dict[str, object]:
     """Drop the MCP-only duplicated static prompt text from a turn payload."""
     lean = dict(payload)
+    # Top-level `strategy` is popped defensively only: the builder no longer
+    # emits it (the strategy ships once, as `static.your_strategy`). This stays a
+    # sanitizer, not a list of today's keys — if a builder change ever re-adds
+    # one, prompt text must still not reach an MCP client.
     lean.pop("strategy", None)
     static = lean.get("static")
     if isinstance(static, dict):
         lean_static = dict(static)
-        # `rules` is popped defensively only: the builder no longer emits it. An
-        # MCP client gets its rules from get_instructions, not from the turn.
+        # `rules` is popped defensively only, for the same reason: the builder no
+        # longer emits it. An MCP client gets its rules from get_instructions,
+        # not from the turn.
         lean_static.pop("rules", None)
         lean_static.pop("base_prompt", None)
         lean_static.pop("your_strategy", None)

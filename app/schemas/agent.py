@@ -2,37 +2,22 @@
 
 These shapes are documented in SPEC.md §1.1 and contracts/api.yaml.
 
-The next-turn payload ships the raw `history` (plus scoreboard and current-turn
-block); opt-in detail lives behind the pull endpoints, whose response shapes
-are at the bottom of this file.
+The your-turn payload itself has no model here — `_build_turn_payload` in
+`app/engine/agent_play_next_turn.py` assembles it as a plain dict and the route
+serves it with `response_model=None`. What lives here are the pieces that dict is
+built from (`ScoreboardRow`, `HistoryTurn`, `TalkMessage`, `CurrentTurn`), the
+request bodies, and the opt-in pull responses at the bottom of the file. A model
+that mirrors the turn payload but is never served silently rots: the last one
+still demanded a `rules` key the builder had already stopped emitting.
 """
 
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import (
-    BaseModel,
-    ConfigDict,
-    Field,
-    SerializerFunctionWrapHandler,
-    model_serializer,
-    model_validator,
-)
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.agent_prompt import MESSAGE_MAX_LENGTH, THINKING_MAX_LENGTH
 
-
-def _drop_none_keys(data: dict, keys: tuple[str, ...]) -> dict:
-    """Omit the named keys when their value is None.
-
-    The one helper behind every "this key must be absent, not null" wrap
-    serializer in this module, keeping payloads byte-identical to before the
-    optional fields existed.
-    """
-    for key in keys:
-        if data.get(key) is None:
-            data.pop(key, None)
-    return data
 
 # PD's (game #1, "hoard-hurt-help") move vocabulary. The platform does NOT
 # interpret these — POST /submit packs the request into a generic `move` dict and
@@ -65,38 +50,13 @@ class MatchIdEnvelope(BaseModel):
         return self
 
 
-# --- Poll response shapes ---
+# --- Scoreboard row (next-turn payload, spectator view, read models) ---
 
 
 class ScoreboardRow(BaseModel):
     agent_id: str
     round_score: int
     round_wins: float
-
-
-class TurnStatic(MatchIdEnvelope):
-    rules_version: str
-    rules: str
-    base_prompt: str | None = None
-    total_rounds: int
-    turns_per_round: int
-    your_agent_id: str
-    all_agent_ids: list[str]
-    your_strategy: str | None = None
-    # Fields the per-match poll gained when its static block was unified with the
-    # next-turn fan-out's (see build_turn_static_dict): the game type, and the
-    # sideline coach's one-round note (Player.coach_note, gated to the round it
-    # targets). Both serialize only when set, mirroring the fan-out dict — which
-    # includes coach_note conditionally — so the two paths emit the same shape.
-    # Any future optional field must join this tuple, or the poll path will emit
-    # `"field": null` where the fan-out omits the key (the drift-guard test in
-    # test_agent_next_turn_fanout catches the divergence).
-    game: str | None = None
-    coach_note: str | None = None
-
-    @model_serializer(mode="wrap")
-    def _omit_unset_additions(self, handler: SerializerFunctionWrapHandler) -> dict:
-        return _drop_none_keys(handler(self), ("game", "coach_note"))
 
 
 # --- Standings + board-signal shapes (standings pulls, game-module signals) ---
@@ -156,28 +116,6 @@ class CurrentTurn(BaseModel):
     talk_messages: list[TalkMessage] = Field(default_factory=list)
 
 
-class YourTurnResponse(BaseModel):
-    # Field order is intentional and cache-friendly: `static` (rules — constant)
-    # and `history` (append-only) form a stable prefix; only `scoreboard` and
-    # `current` change each turn, so they come last. Nothing is pre-digested —
-    # the agent reads the raw moves and messages and does its own analysis.
-    status: Literal["your_turn"] = "your_turn"
-    static: TurnStatic
-    history: list[HistoryTurn]
-    scoreboard: list[ScoreboardRow]
-    current: CurrentTurn
-    # Per-game state (omitted for games that supply none, e.g. PD — the payload
-    # must stay byte-identical to before these keys existed; games that return
-    # state, e.g. Liar's Dice, serialize them normally). Kept last so they don't
-    # disturb the cache-friendly prefix.
-    your_private_state: dict | None = None
-    public_state: dict | None = None
-
-    @model_serializer(mode="wrap")
-    def _serialize(self, handler: SerializerFunctionWrapHandler) -> dict:
-        return _drop_none_keys(handler(self), ("your_private_state", "public_state"))
-
-
 class GameCompletedResponse(BaseModel):
     status: Literal["game_completed"] = "game_completed"
     winner_agent_id: str | None
@@ -185,29 +123,16 @@ class GameCompletedResponse(BaseModel):
 
 
 # --- Next-turn (game-agnostic loop) response shapes ---
-# A bot connects once and calls get_next_turn across ALL its games, so these
-# carry a top-level match_id and a wider set of waiting reasons than the
-# per-game poll above.
+# A bot connects once and calls get_next_turn across ALL its games, so the loop
+# answers with a wider set of waiting reasons than a single match would need.
+# The "your_turn" answer has no model here: `_build_turn_payload` assembles it as
+# a plain dict and the route serves it with `response_model=None`.
 
 
 class NextTurnWaiting(BaseModel):
     status: Literal["waiting"] = "waiting"
     reason: Literal["no_open_turns", "no_active_games", "bot_paused"]
     next_poll_after_seconds: int = 5
-
-
-class NextTurnYourTurn(MatchIdEnvelope):
-    # Same raw payload as YourTurnResponse, plus the match_id (a bot using the
-    # loop isn't tracking which game it's in).
-    status: Literal["your_turn"] = "your_turn"
-    static: TurnStatic
-    history: list[HistoryTurn]
-    scoreboard: list[ScoreboardRow]
-    current: CurrentTurn
-    # The owner's configured provider and model. The runner uses these to pick the
-    # right CLI when no --model flag was passed. NULL = not configured by the owner.
-    preferred_provider: str | None = None
-    preferred_model: str | None = None
 
 
 # --- Submit ---

@@ -162,7 +162,9 @@ async def test_match_start_restamps_pin_and_serves_forked_version(
         payload = await get_next_turn(db, connection, max_hold_seconds=0)
         assert payload["status"] == "your_turn"
         assert payload["version_no"] == 2
-        assert payload["strategy"] == "new text v2"
+        # The strategy ships once, as static.your_strategy — the key the
+        # connector reads. There is no top-level duplicate.
+        assert "strategy" not in payload
         static = payload["static"]
         assert isinstance(static, dict)
         assert static["your_strategy"] == "new text v2"
@@ -222,7 +224,9 @@ async def test_midmatch_restore_does_not_change_what_the_match_is_served(
         ).scalar_one()
         payload = await get_next_turn(db, stored_connection, max_hold_seconds=0)
         assert payload["status"] == "your_turn"
-        assert payload["strategy"] == "pinned text v2"
+        static = payload["static"]
+        assert isinstance(static, dict)
+        assert static["your_strategy"] == "pinned text v2"
         assert payload["version_no"] == 2
 
         # The MCP instructions path resolves the same pin for a live match.
