@@ -306,8 +306,15 @@ def test_core_presets_pick_one_target_and_stay_distinct() -> None:
     # doing work of its own, and the rules already say "choose exactly one
     # action". What it guarded is pinned where it belongs — each preset naming a
     # target it can really pick, asserted just below.
+    # The shared framing is one line now: the objective, and nothing else. It
+    # previously also asserted "level is not a win" — part of an "even swaps
+    # leave you level" claim that only held under the FLAT mutual-help modes.
+    # Under `decay` a pair's fifth swap pays 4 against a fresh pair's 8, and
+    # `decay` is LEGACY_MUTUAL_HELP_MODE, so every pre-switch match broke it.
+    # A line shared by all eight presets has to be true in every mode.
     framing = module.default_strategy()
-    assert "level is not a win" in framing
+    assert "Prioritize round wins" in framing
+    assert "level is not a win" not in framing
 
     # Each of the four leads on a different engine; if two ever say the same
     # thing we are back to the collapse this rewrite exists to fix.

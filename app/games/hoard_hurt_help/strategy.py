@@ -4,17 +4,10 @@ These belong to the PD game module (game #1), not the platform — a different
 game ships its own. The join/player UI gets them via the GameModule contract
 (`strategy_presets()` / `default_strategy()`), never by importing this directly.
 
-Every preset and the default share `RANK_FRAMING`, which is deliberately small.
-It carries one fact, because one is all the rules do not already give the agent:
-
-* **Even trading ties.** Two partners swapping mutual help both bank the same
-  amount, so every clean pair finishes a round level. Beating the pack takes
-  more helpers than anyone else, a betrayal, or dragging the leader down.
-
-That is derived from the payoff table rather than stated in it, so an agent under
-a turn deadline may not reach it. Everything else the block used to carry IS
-stated in the rules the agent reads in the same prompt — see the note on the
-constant for what came out and why.
+Every preset and the default share `RANK_FRAMING`, which is now a single line:
+the objective. Everything else it once carried either restated a rule the agent
+reads in `base_prompt` on the same turn, or was true of only some matches — see
+the note on the constant for each removal and why.
 
 **Read this before adding to `RANK_FRAMING`.** It is shared by all eight presets,
 so anything added here pushes every one of them the same direction, and the
@@ -100,33 +93,31 @@ from __future__ import annotations
 
 from app.games.base import StrategyPreset
 
-# Shared "what winning means" lens, woven into the default and every preset.
+# The one line every preset and the default carry. One line, because one line is
+# all that is true of every match.
 #
-# It carries ONE fact, because one is all the rules do not already give the agent:
-# a clean mutual pact leaves both sides level, so winning takes asymmetry. That is
-# derived from the payoff table, not stated in it.
+# What used to be here: bullets on the tie split, the tiebreaker, one action per
+# turn, and the score floor — each restating a rule the agent reads in
+# `base_prompt` on the same turn — plus an "even swaps leave you level, so
+# winning takes asymmetry" insight.
 #
-# Five bullets were removed. Four restated a rule the agent reads in `base_prompt`
-# on the same turn — the tie split, the tiebreaker, one-action-per-turn, and the
-# score floor — so they cost every agent tokens to be told something twice. The
-# fifth ("decide how aggressively…based on your strategy") told the agent to
-# consult its own strategy, which it does anyway.
+# That last one came out for being WRONG, not merely redundant. It describes the
+# FLAT mutual-help modes only. Under `decay` a pair on its fifth swap banks 4
+# while a fresh pair banks 8; under `no_repeats` a pair that swapped last turn
+# banks 4 against a rotating pair's 8 — those modes exist precisely to break the
+# symmetry it asserted, and `decay` is LEGACY_MUTUAL_HELP_MODE, so every
+# pre-switch match ran it. Even under a flat mode it needs no HURT, no third
+# helper, and no score-floor clipping to hold. Stated as a law in the block all
+# eight presets share, it pointed every agent the same wrong way.
 #
-# The one-action bullet is the one worth explaining, because it looks load-bearing.
-# It was added in #681 after M_6442, where four presets helped on 31-35 of 35 turns
-# and never retaliated. But that commit's own root cause was an IMPOSSIBLE
-# INSTRUCTION IN THE PRESET TEXT ("do to each opponent what they did to you", which
-# one action per turn cannot execute), and the same commit rewrote every preset to
-# remove it. The two fixes shipped together and were never separated, so nothing
-# ever showed this bullet doing work of its own — and with the impossible
-# instruction gone, the rules already say "choose exactly one action".
+# Two tests before adding a line here: (a) is it true in EVERY mode, and (b) can
+# the rules not already give it? Anything failing either belongs in the one preset
+# that needs it — which is what #689 did with "damage lands late", pushing it down
+# into Buzzer-Beater rather than back up here.
 #
-# The wider reason to keep this block small: eight presets exist for behavioural
-# diversity, and a shared block that hands all of them the same strategic
-# conclusions narrows all eight the same way.
-RANK_FRAMING = """How winning works:
-- Prioritize round wins.
-- An even swap with one partner leaves you level with every other pair, and level is not a win. Three ways to get clear: more helpers in one turn than anyone else, HURTing a player who is HELPing you that turn, or dragging the leader below you."""
+# "Prioritize round wins" is deliberately not "…not points": total score is the
+# match tiebreaker, so points decide when round wins are level.
+RANK_FRAMING = "Prioritize round wins."
 
 PD_DEFAULT_STRATEGY = f"""{RANK_FRAMING}
 
@@ -206,12 +197,11 @@ Strategy: Underdog's Champion.
         prompt=f"""{RANK_FRAMING}
 
 Strategy: Kingslayer.
-- Every round, partner whoever is winning. Offer a real pact and mean it. If they are taken, be the better offer.
-- While they lead you, HELP every turn and give them no reason to look elsewhere. You are waiting, not pretending.
-- Strike only when it puts you in front. Betraying the leader pays you AND drags back the player you are chasing; betraying anyone else pays the same and leaves the leader untouched.
-- The strike closes the gap by roughly twelve points in one turn, so leads you could never out-score are in range. Work out the finish first; stay honest only if even the strike leaves you short.
-- Next round, whoever leads NOW is your partner. No grudges, and never go back for someone you have taken down.
-- When you lead, assume someone is running this on you. Distrust a partner who appeared the moment you took it.""",
+* Partner whoever is winning. Offer a real pact and mean it.
+* HELP them every turn.
+* HURT them only when it wins you the round. HELP pays you 6; HURT while they HELP you pays you 8 and costs them 4, so the gap closes twelve points in one turn.
+* Next round, whoever leads is your partner. No grudges.
+* HOARD if you think your partner will HURT you.""",
     ),
     StrategyPreset(
         id="sandbagger",
