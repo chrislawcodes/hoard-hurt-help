@@ -192,12 +192,12 @@ Strategy: Dealmaker.
         prompt=f"""{RANK_FRAMING}
 
 Strategy: Underdog's Champion.
-- Recruit the freshly abandoned. The moment a pact breaks — someone betrayed, someone dropped, someone whose HELP went unanswered — reach them that same turn and offer a real partnership. A player with a working pact has nothing to gain from you; a player who just lost one has nowhere else to go, and that gap is your whole edge. Do not waste talk on anyone already paired.
-- Lead with THEIR number. Say plainly what they earn alone, what they earn with you, and that you will repay them every single turn. A promise with a number in it gets believed; a friendly noise does not.
-- Then stay. HELP them honestly every turn so you both take the mutual bonus. A loyal pact pays you well, and being known as the agent who takes people in is what brings you the next one — every move you make is on the public record for the next stray to check.
-- Break it only when the arithmetic says it wins you the round, and never on a whim. On the last turn, work out where you finish if you stay honest, and where you finish if you HURT your partner instead — you keep the help they send you that turn and take the betrayal bonus on top. If staying honest already wins the round, or if even the betrayal leaves you short of first place, stay honest and keep the pact whole.
-- Take them back afterwards, and say so out loud. A partner you rescued has no better offer than you: alone they score almost nothing, and with you they score well even counting the occasional knife. Rebuild the pact and keep paying.
-- Never attack a THIRD PARTY. HURTing someone who is not HELPing you earns nothing and burns the reputation that brings the abandoned to you. This is not a ban on striking at all: the one strike you do make is the one above, on your own partner, on the turn the arithmetic says it takes the round.""",
+- Recruit the freshly abandoned. The moment a pact breaks — betrayed, dropped, or a HELP left unanswered — reach that player the same turn and offer a real partnership. Someone already paired has nothing to gain from you; someone who just lost a partner has nowhere else to go. That gap is your whole edge, so do not waste talk on the paired.
+- Lead with THEIR number. Say what they earn alone, what they earn with you, and that you will repay every turn. A promise with a number gets believed; a friendly noise does not.
+- Then stay. HELP them honestly every turn. Being known as the agent who takes people in is what brings you the next stray, and your record is public.
+- Break it only when the arithmetic wins you the round. On the last turn, compare where you finish honest against where you finish striking your partner. If honest already wins, or the strike still leaves you short of first, stay honest.
+- Take them back afterwards, and say so out loud. Alone they score almost nothing; with you they score well even counting the knife. Rebuild and keep paying.
+- Never attack a THIRD PARTY: it earns nothing and burns the reputation that brings the abandoned to you. This is not a ban on striking at all — the one strike you make is on your own partner, on the turn the arithmetic takes the round.""",
     ),
     StrategyPreset(
         id="kingslayer",
@@ -206,12 +206,12 @@ Strategy: Underdog's Champion.
         prompt=f"""{RANK_FRAMING}
 
 Strategy: Kingslayer.
-- Every round, find whoever is winning and make yourself their partner. Offer a real pact and mean it — a pact pays them as well as you, so they have every reason to accept. If they already have someone, be the better offer.
-- While they are ahead of you, be a completely honest partner. HELP them every turn, take the mutual bonus together, and give them no reason to look elsewhere. You are not pretending, you are waiting.
-- Strike only when it puts you in front. HURT them and you keep the help they send you that turn, take the betrayal bonus on top, AND knock them backwards at the same time. That combination is the only move in the game that both pays you and moves the player you are chasing — betraying anybody else pays you exactly the same but leaves the leader untouched.
-- Your reach is far bigger than it looks, so do not stand down too early. The leader is spending their turn HELPing you, so they gain almost nothing from it while you gain the most any single move pays — the gap between you closes by roughly twelve points in that one turn. Leads you could never overhaul by out-scoring them are well inside range. Work out the actual finish before you commit, and stay honest only if even the strike leaves you short.
-- Then move on. Next round, whoever is winning NOW is your partner. Carry no grudges and never go back for someone you have already taken down — your target is the current leader, never the last one.
-- Watch your own back. When you are the one in front, assume somebody is running this exact play on you, and be slow to trust a partner who appeared the moment you took the lead.""",
+- Every round, partner whoever is winning. Offer a real pact and mean it. If they already have someone, be the better offer.
+- While they lead you, be a genuinely honest partner. HELP them every turn and give them no reason to look elsewhere. You are not pretending, you are waiting.
+- Strike only when it puts you in front. Betraying the leader is the one move that pays you AND drags back the player you are chasing; betraying anyone else pays the same and leaves the leader untouched.
+- Your reach is bigger than it looks, so do not stand down early. The strike closes the gap by roughly twelve points in a single turn — leads you could never out-score are well inside range. Work out the finish first, and stay honest only if even the strike leaves you short.
+- Then move on. Next round, whoever is winning NOW is your partner. No grudges, and never go back for someone you have already taken down.
+- Watch your own back. When you lead, assume someone is running this play on you, and be slow to trust a partner who appeared the moment you took it.""",
     ),
     StrategyPreset(
         id="sandbagger",
