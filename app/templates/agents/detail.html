@@ -41,7 +41,7 @@
 <div class="card">
     <h3 style="margin-top:0;">Paused</h3>
     <p class="hint" style="margin-top:0;">Resume this agent when you want it to play again.</p>
-    <form method="post" action="/me/agents/{{ agent.id }}/resume">
+    <form method="post" action="/me/agents/{{ agent.id }}/resume">{% if next_url %}<input type="hidden" name="next" value="{{ next_url }}">{% endif %}
         <button type="submit">Resume</button>
     </form>
 </div>
@@ -158,7 +158,7 @@
     <h3 style="margin-top:0;">Controls</h3>
     <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
         {% if agent.status.value == 'paused' and not health.needs_reconnect %}
-            <form method="post" action="/me/agents/{{ agent.id }}/resume"><button type="submit">Resume</button></form>
+            <form method="post" action="/me/agents/{{ agent.id }}/resume">{% if next_url %}<input type="hidden" name="next" value="{{ next_url }}">{% endif %}<button type="submit">Resume</button></form>
         {% else %}
             <form method="post" action="/me/agents/{{ agent.id }}/pause"><button type="submit">Pause</button></form>
         {% endif %}

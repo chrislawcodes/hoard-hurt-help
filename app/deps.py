@@ -12,11 +12,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api_errors import api_error
 from app.auth.session import get_user_from_session
 from app.db import get_session
+from app.engine.agent_playability import playable_agent_filter
 from app.engine.connection_activity import mark_seen
 from app.engine.connection_auth_loading import connection_user_load_options
 from app.engine.match_id_rewrite import match_id_candidates
 from app.engine.tokens import bot_key_lookup, connection_key_log_hint
-from app.models.agent import Agent, AgentKind, AgentStatus
+from app.models.agent import Agent
 from app.models.connection import Connection, ConnectionStatus
 from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
 from app.models.connection_setup import ConnectionSetup
@@ -263,9 +264,7 @@ async def require_agent_player(
                 Player.match_id.in_(candidate_match_ids),
                 Player.left_at.is_(None),
                 Agent.user_id == connection.user_id,
-                Agent.kind == AgentKind.AI,
-                Agent.status == AgentStatus.ACTIVE,
-                Agent.archived_at.is_(None),
+                *playable_agent_filter(),
             )
         )
     ).all()

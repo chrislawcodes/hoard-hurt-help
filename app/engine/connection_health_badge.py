@@ -17,7 +17,8 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.aware_datetime import ensure_aware
-from app.models.agent import Agent, AgentKind, AgentStatus
+from app.engine.agent_playability import playable_agent_filter
+from app.models.agent import Agent
 from app.models.connection import Connection, ConnectionStatus
 from app.models.match import GameState, Match
 from app.models.player import Player
@@ -269,9 +270,7 @@ async def compute_connection_health(
             .select_from(Agent)
             .where(
                 Agent.user_id == connection.user_id,
-                Agent.kind == AgentKind.AI,
-                Agent.status == AgentStatus.ACTIVE,
-                Agent.archived_at.is_(None),
+                *playable_agent_filter(),
             )
         )
     ).scalar() or 0

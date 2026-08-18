@@ -40,6 +40,7 @@ from app.engine.agent_play_reads import (
     load_open_turns,
     sorted_seat_names,
 )
+from app.engine.agent_playability import playable_agent_filter
 from app.engine.model_provider_match import resolve_seat_model
 from app.engine.next_turn import TurnCandidate, select_next_turn
 from app.engine.turn_routing import (
@@ -50,7 +51,7 @@ from app.engine.turn_routing import (
 )
 from app.games import get as get_game_module
 from app.games.base import GameModule
-from app.models.agent import Agent, AgentKind, AgentStatus
+from app.models.agent import Agent
 from app.models.agent_version import AgentVersion
 from app.models.connection import Connection, ConnectionStatus
 from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
@@ -158,9 +159,7 @@ async def _fetch_active_agent_rows(
         .join(AgentVersion, AgentVersion.id == Player.agent_version_id, isouter=True)
         .where(
             Agent.user_id == connection.user_id,
-            Agent.kind == AgentKind.AI,
-            Agent.status == AgentStatus.ACTIVE,
-            Agent.archived_at.is_(None),
+            *playable_agent_filter(),
             Player.left_at.is_(None),
             Match.state == GameState.ACTIVE,
         )
@@ -383,9 +382,7 @@ async def _active_ai_agent_ids(db: AsyncSession, connection: Connection) -> list
             await db.execute(
                 select(Agent.id).where(
                     Agent.user_id == connection.user_id,
-                    Agent.kind == AgentKind.AI,
-                    Agent.status == AgentStatus.ACTIVE,
-                    Agent.archived_at.is_(None),
+                    *playable_agent_filter(),
                 )
             )
         )
@@ -422,9 +419,7 @@ async def _identity_candidate_rows(
                 )
                 .where(
                     Agent.user_id == connection.user_id,
-                    Agent.kind == AgentKind.AI,
-                    Agent.status == AgentStatus.ACTIVE,
-                    Agent.archived_at.is_(None),
+                    *playable_agent_filter(),
                     Player.left_at.is_(None),
                     Match.state.in_(UNFINISHED_STATES),
                 )

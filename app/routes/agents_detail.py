@@ -45,6 +45,7 @@ from app.routes.agents_health_presenter import (
     readiness_health_status,
 )
 from app.routes.agents_queries import load_owned_agent, version_fork_preview
+from app.routes.web_support import safe_internal_next
 from app.templating import templates
 
 router = APIRouter()
@@ -225,6 +226,7 @@ async def agent_detail(
     request: Request,
     db: DbSession,
     user: Annotated[User, Depends(require_user_with_handle)],
+    next: str | None = None,
 ) -> Response:
     agent = await load_owned_agent(db, user, agent_id)
     context = await _build_agent_detail_context(db, request, user, agent)
@@ -253,4 +255,7 @@ async def agent_detail(
         "onboarding": onboarding,
         "ready_to_play": _is_ready_to_play(context),
     }
+    # Carried through to the Resume form so a user sent here from the join picker
+    # lands back on the match they were filling. Sanitised (internal paths only).
+    context["next_url"] = safe_internal_next(next)
     return templates.TemplateResponse(request, "agents/detail.html", context)

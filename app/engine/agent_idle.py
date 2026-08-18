@@ -42,8 +42,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.aware_datetime import ensure_aware
 from app.config import settings
+from app.engine.agent_playability import playable_agent_filter
 from app.engine.onboarding_states import PREGAME_STATES
-from app.models.agent import Agent, AgentKind, AgentStatus
+from app.models.agent import Agent
 from app.models.connection import Connection
 from app.models.match import GameState, Match
 from app.models.player import Player
@@ -183,9 +184,7 @@ async def _seated_game_states(
         .join(Agent, Agent.id == Player.agent_id)
         .where(
             Agent.user_id == user_id,
-            Agent.kind == AgentKind.AI,
-            Agent.status == AgentStatus.ACTIVE,
-            Agent.archived_at.is_(None),
+            *playable_agent_filter(),
             Player.left_at.is_(None),
             Match.state.in_(_HAS_GAME_STATES),
         )

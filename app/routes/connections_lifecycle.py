@@ -10,8 +10,9 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy import func, select, update
 
 from app.deps import DbSession, require_user_with_handle
+from app.engine.agent_playability import playable_agent_filter
 from app.engine.connection_health import LIVE_WINDOW_SECONDS
-from app.models.agent import Agent, AgentKind, AgentStatus
+from app.models.agent import Agent
 from app.models.connection import Connection, ConnectionProvider, ConnectionStatus
 from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
 from app.models.connection_setup import ConnectionSetup
@@ -66,9 +67,7 @@ async def _stranded_provider_agent_count(
             .select_from(Agent)
             .where(
                 Agent.user_id == user_id,
-                Agent.kind == AgentKind.AI,
-                Agent.status == AgentStatus.ACTIVE,
-                Agent.archived_at.is_(None),
+                *playable_agent_filter(),
                 Agent.provider == provider,
             )
         )
