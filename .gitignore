@@ -95,3 +95,8 @@ docs/workflow/feature-runs/**/reviews/*.review.md.raw.txt
 # Feature Factory implement codex transcripts (verbose run logs; the committed
 # slice-<i>.md spec is the auditable record — the .codex.log is local-only).
 docs/workflow/feature-runs/**/codex-specs/*.codex.log
+
+# repowise: the index is large and regenerable (`repowise update`), so it stays local.
+# .mcp.json IS committed — it wires every worktree to the main checkout's index.
+.repowise/
+.vscode/
