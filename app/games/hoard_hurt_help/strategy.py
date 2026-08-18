@@ -17,7 +17,7 @@ true or useful. `.claude/skills/game-design/` records the wider lesson from
 G_0017: prompts are the weakest lever here, and a flat game is a payoff problem
 first.
 
-The roster is Tit-for-Tat, Always Cooperate, Buzzer-Beater, Dealmaker, Underdog's
+The roster is Tit-for-Tat, Loyal Partner, Buzzer-Beater, Dealmaker, Underdog's
 Champion, Kingslayer, Sandbagger, Salvager — in that order, because the join UI
 pre-selects the first one. Eight is the practical ceiling: once the only route
 past the tie is a betrayal, a strategy is fully described by who you partner and
@@ -139,29 +139,29 @@ Strategy: Tit-for-Tat.
 * Line up a second helper. One partner leaves you level.""",
     ),
     StrategyPreset(
-        id="always_cooperate",
-        name="Always Cooperate",
-        description="Never attack, never hoard — help every turn and win on sheer volume.",
+        id="loyal_partner",
+        name="Loyal Partner",
+        description="Back one partner completely — until they HURT you, then find another.",
         prompt=f"""{RANK_FRAMING}
 
-Strategy: Always Cooperate.
-- HELP on every single turn, without exception. You never HOARD and you never HURT, not even after you are betrayed.
-- Spend your help where it comes back: favour whoever helped you most recently, and say openly at every opportunity that you always repay, so being your partner is obviously worth it.
-- Volume is your only route past a tie. One loyal partner leaves you exactly level with every other pair, so work on getting a second player to help you in the same turn.
-- Being betrayed is a cost of this strategy, not a reason to abandon it. Take the hit and keep giving — the reputation is what keeps helpers coming.""",
+Strategy: Loyal Partner.
+* Pick one partner and HELP them every turn. Never HURT anyone.
+* If your partner HURTs you, stop HELPing them. Pick a new partner and say why.
+* Ask other players for HELP in the talk phase. Say openly that you always repay.
+* Two players HELPing you in one turn pays 10; a clean pair banks 6.""",
     ),
     StrategyPreset(
         id="buzzer_beater",
         name="Buzzer-Beater",
-        description="Court help all match, then strike at the buzzer — but only when it wins the round.",
+        description="Court help all match, then HURT at the buzzer — but only when it wins the round.",
         prompt=f"""{RANK_FRAMING}
 
 Strategy: Buzzer-Beater.
-- Spend most of the match being genuinely worth helping, and work at it. Ask for help in the talk phase every turn, repay reliably, and say out loud that you always repay. Do not settle for one loyal partner — a second player HELPing you is worth more than a second knife, because your strike is only ever worth as much as the help coming your way that turn.
-- Strike on the LAST turn of a round, never earlier. A player near zero has little left to lose, so an early strike is mostly absorbed; the same move at the end of a round can decide it.
-- Strike late in the MATCH as well. Betray in an early round and you spend every remaining round as the player nobody helps, which is the one thing that beats you outright. Hold it for the closing rounds.
-- Only strike when it actually wins you the round. Work out where you finish if you stay honest and where you finish after the strike. If honest already wins, or if even the strike leaves you short of first place, stay honest and bank the safe points.
-- The bonus needs a helper. HURTing a player who is not HELPing you that turn pays nothing at all and costs you the turn, so never swing at someone who has gone quiet, started hoarding, or been burned by you before.""",
+* Be worth helping all match. Ask for HELP in the talk phase every turn and repay reliably. Do not settle for one helper — your HURT is only ever worth the HELP coming your way that turn.
+* HURT on the LAST turn of a round, never earlier. An early HURT is absorbed by the score floor; the same move at a round's end can decide it.
+* HURT late in the MATCH too. Betray early and you spend the rest of the match as the player nobody helps.
+* Only HURT when it wins you the round. Compare where you finish if you HELP against where you finish if you HURT. If HELP already wins, or HURT still leaves you short of first, HELP.
+* HURTing a player who is not HELPing you that turn pays 0 and costs you the turn. Never HURT someone who has gone quiet, started hoarding, or been burned by you before.""",
     ),
     StrategyPreset(
         id="dealmaker",
@@ -170,25 +170,23 @@ Strategy: Buzzer-Beater.
         prompt=f"""{RANK_FRAMING}
 
 Strategy: Dealmaker.
-- You win by being helped more than anyone else, not by attacking. Two players helping you in one turn beats anything a two-person pact can produce.
-- Work the talk phase every single turn. Ask directly, promise plainly, name exactly who you will repay next turn, and then actually do it.
-- You only have one HELP to give, so spend it on whoever is closest to giving up on you — the player you have owed the longest. Let the patient ones wait a turn; chase the one about to walk.
-- Never attack. Your reputation is your income, and a single betrayal can cost you every helper at once.
-- Help is scarce: the table only has so many helping actions each turn, so every extra one you attract is one a rival does not get.""",
+* You win by being helped more than anyone else, not by attacking. Never HURT.
+* Work the talk phase every turn. Ask directly, name who you will repay next turn, then do it.
+* You have one HELP. Spend it on whoever is closest to giving up on you — the player you have owed longest.
+* Two players HELPing you in one turn pays 10; a clean pair banks 6.""",
     ),
     StrategyPreset(
         id="underdogs_champion",
         name="Underdog's Champion",
-        description="Take in the freshly abandoned, stay loyal, and knife only when it wins the round.",
+        description="Take in the freshly abandoned, stay loyal, and HURT only when it wins the round.",
         prompt=f"""{RANK_FRAMING}
 
 Strategy: Underdog's Champion.
-- Recruit the freshly abandoned. The moment a pact breaks — betrayed, dropped, or a HELP left unanswered — reach that player the same turn and offer a real partnership. Someone already paired has nothing to gain from you; someone who just lost a partner has nowhere else to go. That gap is your whole edge, so do not waste talk on the paired.
-- Lead with THEIR number. Say what they earn alone, what they earn with you, and that you will repay every turn. A promise with a number gets believed; a friendly noise does not.
-- Then stay. HELP them honestly every turn. Being known as the agent who takes people in is what brings you the next stray, and your record is public.
-- Break it only when the arithmetic wins you the round. On the last turn, compare where you finish honest against where you finish striking your partner. If honest already wins, or the strike still leaves you short of first, stay honest.
-- Take them back afterwards, and say so out loud. Alone they score almost nothing; with you they score well even counting the knife. Rebuild and keep paying.
-- Never attack a THIRD PARTY: it earns nothing and burns the reputation that brings the abandoned to you. This is not a ban on striking at all — the one strike you make is on your own partner, on the turn the arithmetic takes the round.""",
+* Recruit the freshly abandoned. When a pact breaks — betrayed, dropped, or a HELP left unanswered — reach that player the same turn. Do not waste talk on the paired.
+* Say what they earn alone, what they earn with you, and that you will repay every turn.
+* HELP them every turn.
+* HURT them only on a round's last turn, and only when it wins you the round. If HELP already wins, or HURT still leaves you short of first, HELP.
+* Never HURT a THIRD PARTY: it pays 0 and burns the reputation that brings the abandoned to you.""",
     ),
     StrategyPreset(
         id="kingslayer",
@@ -210,11 +208,10 @@ Strategy: Kingslayer.
         prompt=f"""{RANK_FRAMING}
 
 Strategy: Sandbagger.
-- Spend the early rounds buying trust rather than points. HELP generously, keep every promise, and let other players take the early rounds without contesting them. Round wins pile up across the whole match, but your credibility can only be spent once — so do not spend it early.
-- Be visibly harmless, and make sure the table notices. Never strike in the first two thirds of the match. Point out, honestly, that you have never attacked anyone. The player nobody bothers guarding is the one who can take two rounds at the end.
-- From the second-to-last round, start cashing in. Partner whoever is winning, play the round as an honest partner, then HURT them on the final turn — you keep the help they send you that turn and take the betrayal bonus on top.
-- Do it again in the last round, against whoever leads by then. Two outright round wins at the end are worth far more than a small share of every round along the way, and that trade is the entire reason for the wait.
-- If a round is out of reach even with the strike, stay honest and keep the pact. A wasted knife buys you nothing and costs you the partner you need for the final round.""",
+* Spend the early rounds buying trust, not points. HELP generously, keep every promise, and let others take the early rounds.
+* Never HURT anyone in the first two thirds of the match, and say so out loud: point out, honestly, that you have never attacked.
+* From the second-to-last round, cash in. Partner whoever is winning, HELP them all round, then HURT them on the final turn.
+* If a round is out of reach even with the HURT, HELP instead. A wasted HURT costs you the partner you need for the final round.""",
     ),
     StrategyPreset(
         id="salvager",
@@ -223,10 +220,9 @@ Strategy: Sandbagger.
         prompt=f"""{RANK_FRAMING}
 
 Strategy: Salvager.
-- Every turn, split the table into players whose round is still live and players who are mathematically out of it. That second group is your entire strategy, and no one else is paying them any attention.
-- A player who is out has almost nothing to gain from their own turn: their in-round score is about to reset to zero, so the points they would keep for themselves are about to vanish anyway. Their help costs them next to nothing and is worth a full share to you. They are the only players who will ever help you for free — anyone still in contention has a better offer and will rightly refuse.
-- So ask them, directly, and say exactly why it is cheap for them: their turn is about to be wiped and yours is not. Promise repayment next round when their turns matter again, then actually pay it, so the next ask is believed.
-- Two players helping you in one turn beats anything a two-person pact can produce, and players who are out of the round are the only place a second helper can come from. Hold one ordinary partner as your floor, and stack the salvaged help on top.
-- When YOUR round is the dead one, work the same trade in reverse. Stop chasing points that are about to disappear and spend those turns buying goodwill you can collect in the rounds that still matter.""",
+* Every turn, split the table into players whose round is still live and players who are mathematically out of it. That second group is your whole strategy.
+* Ask that group directly for HELP and say why it is cheap: their turn is about to be wiped and yours is not. Promise repayment next round, then pay it.
+* Two players HELPing you in one turn pays 10; a clean pair banks 6. Players who are out are the only place that second helper comes from.
+* When YOUR round is the dead one, run it in reverse: stop chasing points about to vanish and buy goodwill for the rounds that still matter.""",
     ),
 ]
