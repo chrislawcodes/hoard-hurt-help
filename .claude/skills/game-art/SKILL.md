@@ -137,7 +137,10 @@ How it's wired:
   - `turns[]`: each has `round`, `turn`, `badge`, `cap`, `spotlight[]`,
     `actions[]`, and `talk` (the table-talk messages for the talk phase).
   - `actions[]`: `agent`, `action` (`HOARD` / `HELP` / `HURT`), `target`,
-    `delta`, `mutual`, `betrayal`, `missed`, `msg`.
+    `delta`, `score_after`, `mutual`, `betrayal` (cross-turn: HURT on last
+    turn's pact partner — drives the tag and badge), `betrayed_helper` +
+    `betrayal_bonus` (same-turn: HURT a current helper — the attacker's +4,
+    shown on the attacker), `missed`, `msg`.
 
   If a new animation needs a fact that isn't in this contract, that's a backend
   change in `_build_rc_data` too — call it out; don't fake it client-side.
@@ -146,7 +149,7 @@ The visual language already established (extend it, don't reinvent it):
 
 - **Hoard** → gold (`--hoard`, currently `#b07e0d`), squash + a coin dropping into the torso, `+2`.
 - **Help** → green (`--help`, currently `#1f8a5b`), turn away → grab a gift box → walk it over → `+4`, or **mutual** → meet in the middle, lock ring. **The mutual bonus depends on the match's mutual-help mode** (`MutualHelpMode` in `rules.py`): today's default, `flat_6`, pays a flat **+6** every time — no decay, no shrinking-number animation needed. The older `decay` mode (still selectable per match) is the one that decays: a pair's first pact pays +8 each, and each repeat with the *same* partner pays less, down to a floor of +2 (`max(2, 8−k)`, `scoring.py`). Either way the caption shows the real per-mode value (`mutual_help_value`/`mutual_help_legend`), so never hardcode a specific number like "+8" or "+6" in new art/animation work.
-- **Hurt** → red (`--hurt`, currently `#c1452f`), grab a bat → walk over → strike + target recoil → `−4`. **Betrayal hits harder**: HURTing someone who helped you that same turn lands for **−8** (the betrayal sting), and the viewer shows the bigger magnitude — a betrayal must read as a heavier blow than a routine hurt.
+- **Hurt** → red (`--hurt`, currently `#c1452f`), grab a bat → walk over → strike + target recoil → `−4`. **Betrayal pays the attacker**: HURTing someone who is HELPing you that same turn earns the attacker a **+4** betrayal bonus on top of the +4 help they still receive — attacker nets **+8**, victim takes the normal **−4** (`BETRAYAL_BONUS` in `app/games/hoard_hurt_help/rules.py`). The replay pops the +4 on the *attacker*, so a betrayal must read as a nastier act than a routine hurt — the drama is the attacker's profit, not a bigger hit on the victim.
 - The trio is **always paired with a text label, never color-only** (that's a
   stated rule in `style.css` — keep it true).
 - **Tags / badges**: `betrayal`, `mutual`, `missed` on actions; turn badges are
@@ -327,15 +330,15 @@ read-only field, that's outside this skill — surface it and hand off.
 
 ## Provenance and maintenance
 
-Last verified against the repo 2026-07-12. The facts here that drift fastest,
+Last verified against the repo 2026-08-17. The facts here that drift fastest,
 and how to re-check each before relying on it:
 
 - File layout of the viewer: `head -30 app/templates/fragments/robot_circle.html`
   (the shell's header comment lists the parts and context variables).
 - Action colors: `grep -n '\-\-hoard\|\-\-help\|\-\-hurt' app/static/style.css`
   — quote the variables, not the hex, in anything you build.
-- Payoff numbers (hoard/help/hurt, decay, betrayal sting):
-  `grep -n "POINTS\|MUTUAL_HELP\|max(" app/games/hoard_hurt_help/scoring.py`.
+- Payoff numbers (hoard/help/hurt, decay, betrayal bonus):
+  `grep -n "POINTS\|MUTUAL_HELP\|BETRAYAL\|max(" app/games/hoard_hurt_help/rules.py`.
 - Data contract: read `_build_rc_data` in `app/games/hoard_hurt_help/viewer.py`.
 - Timing constants and `PALETTE`:
   `grep -n "PALETTE\|_DUR\|totalDuration" app/static/rc-replay.js`.
