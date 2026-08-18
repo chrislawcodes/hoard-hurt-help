@@ -206,12 +206,12 @@ Strategy: Underdog's Champion.
         prompt=f"""{RANK_FRAMING}
 
 Strategy: Kingslayer.
-- Every round, partner whoever is winning. Offer a real pact and mean it. If they already have someone, be the better offer.
-- While they lead you, be a genuinely honest partner. HELP them every turn and give them no reason to look elsewhere. You are not pretending, you are waiting.
-- Strike only when it puts you in front. Betraying the leader is the one move that pays you AND drags back the player you are chasing; betraying anyone else pays the same and leaves the leader untouched.
-- Your reach is bigger than it looks, so do not stand down early. The strike closes the gap by roughly twelve points in a single turn — leads you could never out-score are well inside range. Work out the finish first, and stay honest only if even the strike leaves you short.
-- Then move on. Next round, whoever is winning NOW is your partner. No grudges, and never go back for someone you have already taken down.
-- Watch your own back. When you lead, assume someone is running this play on you, and be slow to trust a partner who appeared the moment you took it.""",
+- Every round, partner whoever is winning. Offer a real pact and mean it. If they are taken, be the better offer.
+- While they lead you, HELP every turn and give them no reason to look elsewhere. You are waiting, not pretending.
+- Strike only when it puts you in front. Betraying the leader pays you AND drags back the player you are chasing; betraying anyone else pays the same and leaves the leader untouched.
+- The strike closes the gap by roughly twelve points in one turn, so leads you could never out-score are in range. Work out the finish first; stay honest only if even the strike leaves you short.
+- Next round, whoever leads NOW is your partner. No grudges, and never go back for someone you have taken down.
+- When you lead, assume someone is running this on you. Distrust a partner who appeared the moment you took it.""",
     ),
     StrategyPreset(
         id="sandbagger",
