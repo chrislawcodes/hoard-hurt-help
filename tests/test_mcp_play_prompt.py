@@ -26,7 +26,12 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from app.routes.connections_connect_guide import _PLAY_PROMPT
+from app.routes.connections_connect_guide import (
+    ANTIGRAVITY_KEY_PLACEHOLDER,
+    _PLAY_PROMPT,
+    antigravity_config_file,
+    antigravity_config_fragment,
+)
 
 REPO_ROOT: Path = Path(__file__).resolve().parents[1]
 SETUP_DOC: Path = REPO_ROOT / "docs" / "setup-mcp.md"
@@ -53,6 +58,53 @@ def test_play_prompt_matches_docs() -> None:
         "docs/setup-mcp.md no longer contains the served play prompt verbatim. "
         "Update the ```text block in the 'MCP connection' section to match "
         "_PLAY_PROMPT in app/routes/connections_connect_guide.py."
+    )
+
+
+PROD_MCP_URL = "https://agentludum.com/mcp"
+
+
+def test_antigravity_config_fragment_matches_docs() -> None:
+    """``docs/setup-mcp.md`` carries the Antigravity config fragment verbatim.
+
+    Same reasoning as the play prompt above, and it had drifted the same way: the
+    doc's continuation line was indented 18 spaces where the served prompt used
+    19. A one-character difference no reviewer catches by eye, in a block users
+    paste into a JSON file.
+    """
+    doc = SETUP_DOC.read_text(encoding="utf-8")
+    assert antigravity_config_fragment(PROD_MCP_URL) in doc, (
+        "docs/setup-mcp.md no longer contains the served Antigravity config "
+        "fragment verbatim. Update the Antigravity block to match "
+        "antigravity_config_fragment() in app/routes/connections_connect_guide.py."
+    )
+
+
+def test_one_placeholder_name_across_every_antigravity_surface() -> None:
+    """Prompt, page and doc must name the SAME blank for the user to replace.
+
+    They did not: the connection page said YOUR_CONNECTION_KEY while the prompt
+    and the doc said MY_CONNECTION_KEY, so a user reading one and following the
+    other hunted for a placeholder that was not in front of them. Both config
+    shapes now build from ``ANTIGRAVITY_KEY_PLACEHOLDER``; this pins the doc and
+    forbids the retired name anywhere.
+    """
+    doc = SETUP_DOC.read_text(encoding="utf-8")
+    template = (
+        REPO_ROOT / "app" / "templates" / "connections" / "detail.html"
+    ).read_text(encoding="utf-8")
+
+    for shape in (antigravity_config_fragment(PROD_MCP_URL), antigravity_config_file(PROD_MCP_URL)):
+        assert ANTIGRAVITY_KEY_PLACEHOLDER in shape
+
+    assert ANTIGRAVITY_KEY_PLACEHOLDER in doc
+    # The page must not hand-type a config block again — it renders the shared one.
+    assert "YOUR_CONNECTION_KEY" not in doc
+    assert "YOUR_CONNECTION_KEY" not in template
+    assert "mcpServers" not in template, (
+        "app/templates/connections/detail.html is hand-typing an Antigravity "
+        "config block again. Render antigravity_config_file() instead so the "
+        "page cannot drift from the prompt and the doc."
     )
 
 
