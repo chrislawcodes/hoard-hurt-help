@@ -52,7 +52,11 @@ from app.engine.scheduler_turn_loop import (
 )
 from app.engine.state_machine import assert_transition
 from app.models.agent import Agent
-from app.models.match import Match, GameState
+from app.models.match import (
+    GameState,
+    Match,
+    NOT_STARTED_STATES,
+)
 from app.models.player import Player
 from app.ops_events import log_ops_event
 from app.request_logging import record_background_incident
@@ -158,7 +162,7 @@ class SchedulerRegistry:
                 (
                     await db.execute(
                         select(Match).where(
-                            Match.state.in_([GameState.SCHEDULED, GameState.REGISTERING])
+                            Match.state.in_(NOT_STARTED_STATES)
                         )
                     )
                 )
@@ -392,7 +396,7 @@ async def cancel_overdue_unfilled_games(db) -> int:
         (
             await db.execute(
                 select(Match).where(
-                    Match.state.in_([GameState.SCHEDULED, GameState.REGISTERING])
+                    Match.state.in_(NOT_STARTED_STATES)
                 )
             )
         )

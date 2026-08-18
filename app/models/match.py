@@ -25,6 +25,26 @@ class GameState(str, enum.Enum):
     CANCELLED = "cancelled"
 
 
+# The three groupings the app actually reasons about, named once.
+#
+# They were spelled out as literals in 12 places across engine/, read_models/ and
+# routes/, and "not finished" was written two OPPOSITE ways -- three sites listed
+# `in_(SCHEDULED, REGISTERING, ACTIVE)` while a fourth wrote
+# `notin_(COMPLETED, CANCELLED)`. Both forms are correct today and would silently
+# disagree the moment a sixth state exists: the `in_` sites would exclude it, the
+# `notin_` site would include it. Naming the sets is what stops that, because both
+# forms now read from the same tuples.
+#
+# Deliberately NOT derived from each other (UNFINISHED is not `everything minus
+# FINISHED`): a derived complement would quietly swallow a new state and pick a
+# behaviour nobody chose. Spelled out, plus the partition test in
+# tests/test_match_state_groups.py, adding a state FAILS until someone classifies
+# it -- the fail-loud rule this repo already applies to rules text (#690).
+FINISHED_STATES = (GameState.COMPLETED, GameState.CANCELLED)
+UNFINISHED_STATES = (GameState.SCHEDULED, GameState.REGISTERING, GameState.ACTIVE)
+NOT_STARTED_STATES = (GameState.SCHEDULED, GameState.REGISTERING)
+
+
 class MatchKind(str, enum.Enum):
     MANUAL = "manual"
     PRACTICE_ARENA = "practice_arena"

@@ -12,7 +12,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.engine.game_records import Action, ActionRecord, PlayerRecord
 from app.models.agent import Agent, AgentKind
-from app.models.match import GameState, Match
+from app.models.match import (
+    GameState,
+    Match,
+    NOT_STARTED_STATES,
+)
 from app.models.player import Player
 from app.models.turn import Turn, TurnMessage, TurnSubmission
 from app.schemas.agent import ScoreboardRow
@@ -184,7 +188,7 @@ async def _upcoming_views(db: AsyncSession) -> list[dict]:
         (
             await db.execute(
                 select(Match)
-                .where(Match.state.in_([GameState.SCHEDULED, GameState.REGISTERING]))
+                .where(Match.state.in_(NOT_STARTED_STATES))
                 .order_by(Match.scheduled_start.desc())
             )
         )

@@ -35,7 +35,12 @@ from app.games.hoard_hurt_help.rules import (
     DEFAULT_TURNS_PER_ROUND,
 )
 from app.models.agent import Agent, AgentKind
-from app.models.match import GameState, Match, MatchKind
+from app.models.match import (
+    GameState,
+    Match,
+    MatchKind,
+    NOT_STARTED_STATES,
+)
 from app.models.player import Player
 from app.ops_events import log_ops_event
 
@@ -192,7 +197,7 @@ async def sync_managed_match_rules(db: AsyncSession) -> None:
         await db.execute(
             select(Match).where(
                 Match.match_kind.in_(_MANAGED_MATCH_KINDS),
-                Match.state.in_([GameState.SCHEDULED, GameState.REGISTERING]),
+                Match.state.in_(NOT_STARTED_STATES),
                 Match.mutual_help_mode != DEFAULT_MUTUAL_HELP_MODE.value,
             )
         )
@@ -217,7 +222,7 @@ async def ensure_practice_arena(db: AsyncSession) -> None:
         await db.execute(
             select(Match).where(
                 Match.match_kind == MatchKind.PRACTICE_ARENA.value,
-                Match.state.in_([GameState.SCHEDULED, GameState.REGISTERING]),
+                Match.state.in_(NOT_STARTED_STATES),
             )
         )
     ).scalars().first()
@@ -297,7 +302,7 @@ async def ensure_auto_match(db: AsyncSession) -> None:
         await db.execute(
             select(Match).where(
                 Match.match_kind == MatchKind.AUTO_SCHEDULED.value,
-                Match.state.in_([GameState.SCHEDULED, GameState.REGISTERING]),
+                Match.state.in_(NOT_STARTED_STATES),
                 Match.scheduled_start >= now,
             )
         )
@@ -336,7 +341,7 @@ async def fill_and_start_auto_matches(db: AsyncSession) -> None:
             await db.execute(
                 select(Match.id).where(
                     Match.match_kind == MatchKind.AUTO_SCHEDULED.value,
-                    Match.state.in_([GameState.SCHEDULED, GameState.REGISTERING]),
+                    Match.state.in_(NOT_STARTED_STATES),
                     Match.scheduled_start <= now,
                 )
             )

@@ -10,7 +10,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.match_naming import is_smoke_test_match_name
 from app.models.agent import Agent, AgentKind
-from app.models.match import Match, GameState
+from app.models.match import (
+    FINISHED_STATES,
+    GameState,
+    Match,
+)
 from app.models.player import Player
 from app.read_models.agent_display import agent_display_name
 
@@ -51,7 +55,7 @@ async def load_lobby_recent_views(
                 func.coalesce(player_counts.c.agent_count, 0),
             )
             .outerjoin(player_counts, player_counts.c.match_id == Match.id)
-            .where(Match.state.in_([GameState.COMPLETED, GameState.CANCELLED]))
+            .where(Match.state.in_(FINISHED_STATES))
             .order_by(Match.scheduled_start.desc())
         )
     ).all()

@@ -34,7 +34,11 @@ from app.games.hoard_hurt_help.rules import (
     MutualHelpMode,
     mutual_help_legend,
 )
-from app.models.match import GameState, Match
+from app.models.match import (
+    GameState,
+    Match,
+    UNFINISHED_STATES,
+)
 from app.models.user import User, UserRole
 from app.routes.web_match_loaders import (
     GameScopedMatchOr404,
@@ -329,9 +333,7 @@ async def create_match_submit(
                 .select_from(Match)
                 .where(
                     Match.created_by_user_id == user.id,
-                    Match.state.in_(
-                        [GameState.SCHEDULED, GameState.REGISTERING, GameState.ACTIVE]
-                    ),
+                    Match.state.in_(UNFINISHED_STATES),
                 )
             )
         ) or 0

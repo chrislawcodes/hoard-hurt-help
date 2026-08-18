@@ -17,7 +17,11 @@ from app.engine.connection_health_badge import _connection_is_live
 from app.engine.provider_readiness import _provider_connections_query
 from app.models.agent import Agent, AgentKind, AgentStatus
 from app.models.connection import Connection, ConnectionProvider
-from app.models.match import GameState, Match
+from app.models.match import (
+    FINISHED_STATES,
+    GameState,
+    Match,
+)
 from app.models.player import Player
 
 
@@ -134,7 +138,7 @@ async def providers_busy_for_user(db: AsyncSession, user_id: int) -> dict[str, s
             Player.user_id == user_id,
             Player.left_at.is_(None),
             Player.chosen_provider.is_not(None),
-            Match.state.notin_([GameState.COMPLETED, GameState.CANCELLED]),
+            Match.state.notin_(FINISHED_STATES),
         )
     )
     busy: dict[str, str] = {}
