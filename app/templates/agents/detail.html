@@ -37,6 +37,22 @@
     </form>
 </div>
 
+{# Shown only when the pause route bounced back here because this agent is
+   seated in a match that hasn't finished. Pausing is still allowed — this
+   just makes the cost visible first. #}
+{% if pause_live_seats %}
+<div class="warning-box" id="pause-live-seats-warning">
+    <h3 style="margin-top:0;">Pause this agent?</h3>
+    {# Each sentence is one unbroken line of template text on purpose: an
+       apostrophe passed through {{ }} would render as &#39;, and a newline
+       mid-sentence would break the copy for anything reading the raw text. #}
+    <p style="margin-top:0;">{% if pause_live_seats == 1 %}It has a seat in 1 match that hasn't finished.{% else %}It has a seat in {{ pause_live_seats }} matches that haven't finished.{% endif %} Pausing stops it playing. The seat stays, but it gets no more turns — the game plays them out for it with a default move. It will almost certainly lose {% if pause_live_seats == 1 %}that match{% else %}those matches{% endif %}.</p>
+    <form method="post" action="/me/agents/{{ agent.id }}/pause?confirm=true">
+        <button type="submit">Pause anyway</button>
+    </form>
+</div>
+{% endif %}
+
 {% if health.state.value == 'paused' %}
 <div class="card">
     <h3 style="margin-top:0;">Paused</h3>

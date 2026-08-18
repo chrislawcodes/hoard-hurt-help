@@ -16,6 +16,7 @@ from app.models.match import (
     GameState,
     Match,
     NOT_STARTED_STATES,
+    UNFINISHED_STATES,
 )
 from app.models.player import Player
 from app.models.turn import Turn, TurnMessage, TurnSubmission
@@ -104,6 +105,31 @@ async def agent_has_active_match(db: AsyncSession, agent_id: int) -> bool:
 async def version_has_active_match(db: AsyncSession, version_id: int) -> bool:
     """True if this version is seated in any active match (rated OR practice)."""
     return await _seat_in_active_match(db, Player.agent_version_id == version_id)
+
+
+async def count_agent_live_seats(db: AsyncSession, agent_id: int) -> int:
+    """How many unfinished matches this agent still holds a seat in.
+
+    Deliberately wider than :func:`agent_has_active_match`, which asks "is it
+    playing *right now*" (ACTIVE only) to lock a mid-match strategy edit. This
+    asks "would stopping this agent wreck a match it is already in", and a seat
+    in a SCHEDULED or REGISTERING match is exposed to exactly the same damage:
+    the match starts, a non-ACTIVE agent is served no turns, and the overdue
+    sweeper defaults its moves for the rest of the match.
+    """
+    return int(
+        await db.scalar(
+            select(func.count())
+            .select_from(Player)
+            .join(Match, Match.id == Player.match_id)
+            .where(
+                Player.agent_id == agent_id,
+                Player.left_at.is_(None),
+                Match.state.in_(UNFINISHED_STATES),
+            )
+        )
+        or 0
+    )
 
 
 async def count_players(
