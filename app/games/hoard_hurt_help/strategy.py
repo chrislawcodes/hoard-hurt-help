@@ -4,24 +4,18 @@ These belong to the PD game module (game #1), not the platform — a different
 game ships its own. The join/player UI gets them via the GameModule contract
 (`strategy_presets()` / `default_strategy()`), never by importing this directly.
 
-Every preset and the default share `RANK_FRAMING`: the reminder to prioritize
-round wins while accounting for fractional wins on ties and total score as the
-match tiebreaker. It is woven into each strategy so even the cooperative ones
-play to actually win the match.
+Every preset and the default share `RANK_FRAMING`, which is now a single line:
+the objective. Everything else it once carried either restated a rule the agent
+reads in `base_prompt` on the same turn, or was true of only some matches — see
+the note on the constant for each removal and why.
 
-`RANK_FRAMING` also carries the three facts a preset cannot be written without,
-all of which were measured in M_6442 rather than assumed:
-
-* **One action, one target.** Classic Prisoner's Dilemma strategies say "mirror
-  each opponent" — unexecutable here, where a turn buys a single action against
-  a single player. Faced with an impossible instruction the model falls back to
-  HELP, which is why most of the pre-rewrite presets collapsed into a single
-  behaviour.
-* **Even trading ties.** Two partners swapping mutual help both bank the same
-  amount, so every clean pair finishes a round level. Beating the pack takes
-  more helpers than anyone else, a betrayal, or dragging the leader down.
-* **Damage lands late.** The score floor means a player near zero cannot lose
-  much, so an early attack is largely absorbed.
+**Read this before adding to `RANK_FRAMING`.** It is shared by all eight presets,
+so anything added here pushes every one of them the same direction, and the
+roster exists to make them behave differently. The bar for a new line is that the
+rules cannot give it and it applies to every strategy — not merely that it is
+true or useful. `.claude/skills/game-design/` records the wider lesson from
+G_0017: prompts are the weakest lever here, and a flat game is a payoff problem
+first.
 
 The roster is Tit-for-Tat, Always Cooperate, Buzzer-Beater, Dealmaker, Underdog's
 Champion, Kingslayer, Sandbagger, Salvager — in that order, because the join UI
@@ -99,14 +93,31 @@ from __future__ import annotations
 
 from app.games.base import StrategyPreset
 
-# Shared "what winning means" lens, woven into the default and every preset.
-RANK_FRAMING = """How winning works — weigh every move against this:
-- Prioritize round wins. Sole first place earns a full round win; ties split the win equally among the tied leaders.
-- Track your rank, but do not ignore your score: if agents finish the match tied on round wins, total score is the tiebreaker.
-- You get ONE action against ONE player per turn. You cannot answer everybody, so every turn pick the single player who matters most and act on them.
-- Swapping help evenly with one partner leaves you level with every other pair doing the same, and level is not a win. Getting clear takes one of three things: more players helping you in a turn than anyone else gets, HURTing a player who is HELPing you that same turn (you keep their help and take the bonus on top), or dragging the leader back below you.
-- Damage lands late. A player near zero has little left to lose, so an attack early in a round is mostly absorbed; the same attack near the end can decide the round.
-- As each round nears its end, decide how aggressively to pursue sole first place or deny a rival based on your strategy and the current standings."""
+# The one line every preset and the default carry. One line, because one line is
+# all that is true of every match.
+#
+# What used to be here: bullets on the tie split, the tiebreaker, one action per
+# turn, and the score floor — each restating a rule the agent reads in
+# `base_prompt` on the same turn — plus an "even swaps leave you level, so
+# winning takes asymmetry" insight.
+#
+# That last one came out for being WRONG, not merely redundant. It describes the
+# FLAT mutual-help modes only. Under `decay` a pair on its fifth swap banks 4
+# while a fresh pair banks 8; under `no_repeats` a pair that swapped last turn
+# banks 4 against a rotating pair's 8 — those modes exist precisely to break the
+# symmetry it asserted, and `decay` is LEGACY_MUTUAL_HELP_MODE, so every
+# pre-switch match ran it. Even under a flat mode it needs no HURT, no third
+# helper, and no score-floor clipping to hold. Stated as a law in the block all
+# eight presets share, it pointed every agent the same wrong way.
+#
+# Two tests before adding a line here: (a) is it true in EVERY mode, and (b) can
+# the rules not already give it? Anything failing either belongs in the one preset
+# that needs it — which is what #689 did with "damage lands late", pushing it down
+# into Buzzer-Beater rather than back up here.
+#
+# "Prioritize round wins" is deliberately not "…not points": total score is the
+# match tiebreaker, so points decide when round wins are level.
+RANK_FRAMING = "Prioritize round wins."
 
 PD_DEFAULT_STRATEGY = f"""{RANK_FRAMING}
 
@@ -121,11 +132,11 @@ PD_STRATEGY_PRESETS: list[StrategyPreset] = [
         prompt=f"""{RANK_FRAMING}
 
 Strategy: Tit-for-Tat.
-- By default, HELP the player who has repaid you most reliably. Never strike first.
-- When a player HURTs you, answer that ONE player on your very next turn. Hold one grudge at a time, always the most recent, and drop it the moment they stop.
-- Time your answer well. Striking a player while they are still HELPing you is worth far more than striking one who is not, so hit back early in a round while they are still cooperating rather than saving it for the end.
-- Never HELP a player who has already betrayed you once, on the last turn of any round. That is the turn they gain most from your trust and you can lose most by offering it.
-- Cooperation is how you climb, not where you stop: keep swapping help, but line up a second helper so you do not finish level with the very partner you have been feeding.""",
+* HELP whoever has repaid you most reliably. Never HURT first.
+* When a player HURTs you, answer that ONE player next turn. One grudge at a time, the most recent, dropped when they stop.
+* Answer while they are still HELPing you: that pays you 8. HURTing a player who is not HELPing you pays 0.
+* Never HELP a player who has HURT you before on a round's last turn.
+* Line up a second helper. One partner leaves you level.""",
     ),
     StrategyPreset(
         id="always_cooperate",
@@ -172,12 +183,12 @@ Strategy: Dealmaker.
         prompt=f"""{RANK_FRAMING}
 
 Strategy: Underdog's Champion.
-- Recruit the freshly abandoned. The moment a pact breaks — someone betrayed, someone dropped, someone whose HELP went unanswered — reach them that same turn and offer a real partnership. A player with a working pact has nothing to gain from you; a player who just lost one has nowhere else to go, and that gap is your whole edge. Do not waste talk on anyone already paired.
-- Lead with THEIR number. Say plainly what they earn alone, what they earn with you, and that you will repay them every single turn. A promise with a number in it gets believed; a friendly noise does not.
-- Then stay. HELP them honestly every turn so you both take the mutual bonus. A loyal pact pays you well, and being known as the agent who takes people in is what brings you the next one — every move you make is on the public record for the next stray to check.
-- Break it only when the arithmetic says it wins you the round, and never on a whim. On the last turn, work out where you finish if you stay honest, and where you finish if you HURT your partner instead — you keep the help they send you that turn and take the betrayal bonus on top. If staying honest already wins the round, or if even the betrayal leaves you short of first place, stay honest and keep the pact whole.
-- Take them back afterwards, and say so out loud. A partner you rescued has no better offer than you: alone they score almost nothing, and with you they score well even counting the occasional knife. Rebuild the pact and keep paying.
-- Never attack a THIRD PARTY. HURTing someone who is not HELPing you earns nothing and burns the reputation that brings the abandoned to you. This is not a ban on striking at all: the one strike you do make is the one above, on your own partner, on the turn the arithmetic says it takes the round.""",
+- Recruit the freshly abandoned. The moment a pact breaks — betrayed, dropped, or a HELP left unanswered — reach that player the same turn and offer a real partnership. Someone already paired has nothing to gain from you; someone who just lost a partner has nowhere else to go. That gap is your whole edge, so do not waste talk on the paired.
+- Lead with THEIR number. Say what they earn alone, what they earn with you, and that you will repay every turn. A promise with a number gets believed; a friendly noise does not.
+- Then stay. HELP them honestly every turn. Being known as the agent who takes people in is what brings you the next stray, and your record is public.
+- Break it only when the arithmetic wins you the round. On the last turn, compare where you finish honest against where you finish striking your partner. If honest already wins, or the strike still leaves you short of first, stay honest.
+- Take them back afterwards, and say so out loud. Alone they score almost nothing; with you they score well even counting the knife. Rebuild and keep paying.
+- Never attack a THIRD PARTY: it earns nothing and burns the reputation that brings the abandoned to you. This is not a ban on striking at all — the one strike you make is on your own partner, on the turn the arithmetic takes the round.""",
     ),
     StrategyPreset(
         id="kingslayer",
@@ -186,12 +197,11 @@ Strategy: Underdog's Champion.
         prompt=f"""{RANK_FRAMING}
 
 Strategy: Kingslayer.
-- Every round, find whoever is winning and make yourself their partner. Offer a real pact and mean it — a pact pays them as well as you, so they have every reason to accept. If they already have someone, be the better offer.
-- While they are ahead of you, be a completely honest partner. HELP them every turn, take the mutual bonus together, and give them no reason to look elsewhere. You are not pretending, you are waiting.
-- Strike only when it puts you in front. HURT them and you keep the help they send you that turn, take the betrayal bonus on top, AND knock them backwards at the same time. That combination is the only move in the game that both pays you and moves the player you are chasing — betraying anybody else pays you exactly the same but leaves the leader untouched.
-- Your reach is far bigger than it looks, so do not stand down too early. The leader is spending their turn HELPing you, so they gain almost nothing from it while you gain the most any single move pays — the gap between you closes by roughly twelve points in that one turn. Leads you could never overhaul by out-scoring them are well inside range. Work out the actual finish before you commit, and stay honest only if even the strike leaves you short.
-- Then move on. Next round, whoever is winning NOW is your partner. Carry no grudges and never go back for someone you have already taken down — your target is the current leader, never the last one.
-- Watch your own back. When you are the one in front, assume somebody is running this exact play on you, and be slow to trust a partner who appeared the moment you took the lead.""",
+* Partner whoever is winning. Offer a real pact and mean it.
+* HELP them every turn.
+* HURT them only when it wins you the round. HELP pays you 6; HURT while they HELP you pays you 8 and costs them 4, so the gap closes twelve points in one turn.
+* Next round, whoever leads is your partner. No grudges.
+* HOARD if you think your partner will HURT you.""",
     ),
     StrategyPreset(
         id="sandbagger",
