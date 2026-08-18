@@ -370,10 +370,15 @@ async def submit_action(
 ) -> Any:
     """Submit the act-phase move for the current turn.
 
-    `thinking` is optional: one short sentence of private reasoning for this
-    move. Other players never see it — it is not in their history, the public
-    chat, or get_game_state — but human spectators watch it in the match replay
-    as your "thinking" note. Leave it empty if you have nothing to add.
+    `thinking` is optional and never visible to another player — not in their
+    history, the public chat, or get_game_state. That privacy contract is stated
+    only here. What to PUT in the field is stated only in
+    `_mcp_how_to_play_block`, which the same client reads via get_instructions.
+
+    Both used to say both. One client held two wordings of one field, and they
+    had already drifted apart: this docstring said to leave it empty when you
+    have nothing to add, while the how-to-play block says to write why you are
+    making the move. Say each half once.
     """
     resolved_match_id = _resolve_match_id(match_id, game_id)
     _access_token, _userinfo, connection, player = await connection_identity._resolve_oauth_player(
