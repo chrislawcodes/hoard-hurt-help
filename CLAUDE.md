@@ -132,6 +132,23 @@ This is an async app. Route handlers and DB calls must be `async def`. Do not mi
 - No vague filenames like `utils.py` or `helpers.py`.
 - App code lives in `app/`. MCP server code lives in `mcp_server/`. Do not mix them.
 
+## One Home Per Rule
+
+Before writing a query or helper that encodes a rule — who can play, what counts
+as finished, which key is still valid — search for an existing one and call it.
+This repo's worst bugs have all been the same shape: one rule written twice,
+slightly differently, by two people who each had a reasonable definition in mind
+and no way to see the other's.
+
+- **The name is the index.** A rule belongs in a module named for the question it
+  answers, so grepping the question finds it. There is deliberately no list of
+  these to keep in sync — a list would be one more copy that drifts. If a search
+  turns up nothing, that is the signal the rule has no home yet, so give it one.
+- **Two forms need a test.** When a rule genuinely must exist twice — a SQL filter
+  and an in-memory check, or code and the prose that describes it — write a test
+  that exercises both and asserts they agree. Nothing else stops them drifting,
+  and review does not catch it.
+
 ## When Something Breaks
 
 Diagnose before fixing. Find the smallest reproducing case. Fix the root cause. Do not retry blindly or change multiple things at once.
