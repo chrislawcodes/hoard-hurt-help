@@ -35,8 +35,9 @@ from app.engine.agent_play import (
     submit_action as play_submit_action,
     submit_talk as play_submit_talk,
 )
+from app.engine.agent_playability import playable_agent_filter
 from app.games import get as get_game_module
-from app.models.agent import Agent, AgentKind, AgentStatus
+from app.models.agent import Agent
 from app.models.match import Match
 from app.routes.spectator_api import public_state
 
@@ -288,9 +289,7 @@ async def get_instructions(
                 await db.execute(
                     select(Agent.id).where(
                         Agent.user_id == connection.user_id,
-                        Agent.kind == AgentKind.AI,
-                        Agent.status == AgentStatus.ACTIVE,
-                        Agent.archived_at.is_(None),
+                        *playable_agent_filter(),
                     )
                 )
             )

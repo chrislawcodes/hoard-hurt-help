@@ -18,6 +18,7 @@ from sqlalchemy import select
 from app.engine.scheduler import _active_player_count
 from app.engine.seat_hold import SEAT_HOLD_SECONDS, sweep_held_seats
 from app.models import ConnectionProvider, GameState, Match, Player, User
+from app.models.agent import AgentStatus
 from tests.factories import make_agent, make_connection, make_user
 from tests.conftest import signed_in_cookies as _cookies
 
@@ -264,7 +265,13 @@ async def test_join_never_configured_mcp_provider_redirects_to_mcp_setup(
     await _seed_match(reset_db)
     async with reset_db() as db:
         user = await make_user(db, 0)
-        agent, _v = await make_agent(db, user, connection=None, model=model, name="Atlas")
+        # ACTIVE is explicit: make_agent defaults a connection-less agent to PAUSED,
+        # a leftover from when agents belonged to a connection. This test is about
+        # an unconfigured provider, not a paused agent.
+        agent, _v = await make_agent(
+            db, user, connection=None, model=model, name="Atlas",
+            status=AgentStatus.ACTIVE,
+        )
         await db.commit()
         uid, agent_id = user.id, agent.id
     r = await client.post(

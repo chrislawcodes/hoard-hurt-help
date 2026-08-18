@@ -36,6 +36,20 @@
         {% if row.agent.blurb %}<span class="lineup-blurb">{{ row.agent.blurb }}</span>{% endif %}
         <span class="badge badge-done">already in this game</span>
     </div>
+    {% elif row.block %}
+    {# Blocked rows render like seated ones: no checkbox and no hidden mirrors, so
+       an agent that cannot play can never contribute a stray agent_id to the post.
+       The reason and its fix-link come from `seat_block`, the same function the
+       seating route enforces with, so the row cannot promise what the server
+       refuses. Shown rather than hidden, matching the preferred-model warning
+       below -- a vanished agent reads as deleted and sends people hunting. #}
+    <div class="lineup-row lineup-row-taken" data-lineup-row data-agent-name="{{ row.agent.name }}">
+        <span class="lineup-name">{{ row.agent.name }}</span>
+        {% if row.agent.blurb %}<span class="lineup-blurb">{{ row.agent.blurb }}</span>{% endif %}
+        <span class="lineup-warn">{{ row.block.reason }}{% if row.block.fix_path %} —
+            <a href="{{ row.block.fix_path }}{% if join_url %}?next={{ join_url | urlencode }}{% endif %}">{{ row.block.fix_label }}</a>
+            to play{% endif %}</span>
+    </div>
     {% else %}
     <div class="lineup-row" data-lineup-row data-agent-card
          data-agent-id="{{ row.agent.id }}" data-agent-name="{{ row.agent.name }}">

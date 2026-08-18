@@ -29,6 +29,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.models import GameState, Match, Player, User
 from app.routes.web_support import safe_internal_next
+from app.models.agent import AgentStatus
 from tests.factories import make_agent, make_connection, make_user
 from tests.conftest import signed_in_cookies as _cookies
 
@@ -157,7 +158,11 @@ async def test_agent_without_any_connection_shows_form_not_connected(client, res
     user = await _user_with_handle(reset_db)
     async with reset_db() as db:
         u = (await db.execute(select(User).where(User.id == user.id))).scalar_one()
-        await make_agent(db, u, name="Atlas")  # no connection => unconfigured
+        # ACTIVE is explicit: make_agent still defaults a connection-less agent to
+        # PAUSED, a leftover from when agents belonged to a connection. Production
+        # only pauses on an explicit user action, and this test is about having no
+        # connection, not about being paused.
+        await make_agent(db, u, name="Atlas", status=AgentStatus.ACTIVE)
         await db.commit()
     r = await client.get(JOIN_URL, cookies=_cookies(user.id), follow_redirects=False)
     assert r.status_code == 200

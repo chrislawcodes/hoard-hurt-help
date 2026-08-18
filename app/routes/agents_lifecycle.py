@@ -18,6 +18,7 @@ from app.models.user import User
 from app.read_models.matches import agent_has_active_match, version_has_active_match
 from app.routes.agents_queries import load_owned_agent, version_has_rated_history
 from app.routes.agents_setup import clean_agent_blurb, clean_agent_name
+from app.routes.web_support import safe_internal_next
 
 router = APIRouter()
 
@@ -128,6 +129,7 @@ async def resume_agent(
     agent_id: Annotated[int, Path()],
     db: DbSession,
     user: Annotated[User, Depends(require_user_with_handle)],
+    next_after: Annotated[str | None, Form(alias="next")] = None,
 ) -> RedirectResponse:
     agent = await load_owned_agent(db, user, agent_id)
     # Agents are no longer attached to a connection — resume just makes it
@@ -135,7 +137,11 @@ async def resume_agent(
     # as the "no live connection runs <provider>" warning, not a hard block.
     agent.status = AgentStatus.ACTIVE
     await db.commit()
-    return RedirectResponse(url=f"/me/agents/{agent.id}", status_code=status.HTTP_303_SEE_OTHER)
+    # Resume is reached from the join picker when a paused agent blocks a seat, so
+    # send the user back to the match they were filling instead of stranding them
+    # here. Same round-trip the "create one" link on that page already does.
+    destination = safe_internal_next(next_after) or f"/me/agents/{agent.id}"
+    return RedirectResponse(url=destination, status_code=status.HTTP_303_SEE_OTHER)
 
 
 @router.post("/{agent_id}/delete")

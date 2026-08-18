@@ -17,12 +17,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.aware_datetime import ensure_aware
 from app.config import PROVIDER_MODELS
+from app.engine.agent_playability import playable_agent_filter
 from app.engine.connection_health_badge import (
     LOOP_RUNNING_WINDOW_SECONDS,
     within_window,
 )
 from app.engine.model_provider_match import default_model_for_provider, provider_for_model
-from app.models.agent import Agent, AgentKind, AgentStatus
+from app.models.agent import Agent
 from app.models.connection import Connection, ConnectionStatus
 from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
 from app.models.model_verification import ModelVerification, ModelVerificationStatus
@@ -78,9 +79,7 @@ async def compute_worklist(
             await db.execute(
                 select(Agent.preferred_model).where(
                     Agent.user_id == connection.user_id,
-                    Agent.kind == AgentKind.AI,
-                    Agent.status == AgentStatus.ACTIVE,
-                    Agent.archived_at.is_(None),
+                    *playable_agent_filter(),
                     Agent.preferred_model.is_not(None),
                 )
             )

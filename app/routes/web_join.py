@@ -18,6 +18,7 @@ from app.engine.connection_health import (
     provider_readiness,
     providers_busy_for_user,
 )
+from app.engine.agent_playability import seat_block
 from app.engine.model_provider_match import provider_for_model
 from app.engine.model_verification import model_status_for
 from app.engine.scheduler import start_game
@@ -186,6 +187,10 @@ async def _build_agent_rows(
                 "version": version,
                 "seated": agent.id in seated_agent_ids,
                 "preferred_model_failing": preferred_failing,
+                # Why this agent cannot be picked, from the same function the
+                # seating route enforces with -- so the row a user sees and the
+                # answer the server gives cannot disagree.
+                "block": seat_block(agent),
             }
         )
     return agent_rows
@@ -308,6 +313,17 @@ async def _seat_user_agent(
     if version is None:
         raise HTTPException(
             status_code=409, detail=f"{selected_agent.name} has no current version."
+        )
+    # The query above answers "is this the user's own AI agent" (404 if not). This
+    # answers "can it actually play" -- the two used to be the same check here, so
+    # a PAUSED agent passed, took a seat, and was then skipped by every
+    # turn-serving query for the rest of the match while its moves defaulted.
+    # Same shape as assert_connection_usable: 403, and say what fixes it.
+    block = seat_block(selected_agent)
+    if block is not None:
+        raise HTTPException(
+            status_code=403,
+            detail=f"{selected_agent.name} is {block.reason.lower()}; resume it to play.",
         )
     # Re-joining the same agent is the clearest error, so check it first.
     already_in = (
