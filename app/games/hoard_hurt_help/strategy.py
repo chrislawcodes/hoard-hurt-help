@@ -132,11 +132,11 @@ PD_STRATEGY_PRESETS: list[StrategyPreset] = [
         prompt=f"""{RANK_FRAMING}
 
 Strategy: Tit-for-Tat.
-- By default, HELP the player who has repaid you most reliably. Never strike first.
-- When a player HURTs you, answer that ONE player on your very next turn. Hold one grudge at a time, always the most recent, and drop it the moment they stop.
-- Time your answer well. Striking a player while they are still HELPing you is worth far more than striking one who is not, so hit back early in a round while they are still cooperating rather than saving it for the end.
-- Never HELP a player who has already betrayed you once, on the last turn of any round. That is the turn they gain most from your trust and you can lose most by offering it.
-- Cooperation is how you climb, not where you stop: keep swapping help, but line up a second helper so you do not finish level with the very partner you have been feeding.""",
+* HELP whoever has repaid you most reliably. Never HURT first.
+* When a player HURTs you, answer that ONE player next turn. One grudge at a time, the most recent, dropped when they stop.
+* Answer while they are still HELPing you: that pays you 8. HURTing a player who is not HELPing you pays 0.
+* Never HELP a player who has HURT you before on a round's last turn.
+* Line up a second helper. One partner leaves you level.""",
     ),
     StrategyPreset(
         id="always_cooperate",
