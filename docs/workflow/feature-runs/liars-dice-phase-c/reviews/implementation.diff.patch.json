@@ -1,0 +1,15 @@
+{
+  "repo_root": ".",
+  "git_head_sha": "3b94a814fd7aaaeb9890aaef8296c643e4902d90",
+  "git_base_ref": "46399ff1a771d6dfe22d74004ce9f7422a6fba0d",
+  "git_base_sha": "46399ff1a771d6dfe22d74004ce9f7422a6fba0d",
+  "paths": [
+    "."
+  ],
+  "allowed_dirty_paths": [
+    "docs/workflow/feature-runs/liars-dice-phase-c"
+  ],
+  "untracked_files_included": [],
+  "artifact_path": "docs/workflow/feature-runs/liars-dice-phase-c/reviews/implementation.diff.patch",
+  "allow_empty_diff": false
+}
