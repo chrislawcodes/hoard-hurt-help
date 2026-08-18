@@ -295,9 +295,19 @@ def test_core_presets_pick_one_target_and_stay_distinct() -> None:
     # asserts it is Tit-for-Tat, so the order is load-bearing.
     assert module.strategy_presets()[0].id == "tit_for_tat"
 
-    # One action per turn is the fact all four were previously written against.
+    # The shared framing carries ONE fact now: a clean pact leaves both sides
+    # level, so winning takes asymmetry. It is the only one the rules do not
+    # already hand the agent — they state the payoffs, this is derived from them.
+    #
+    # This used to pin "ONE action against ONE player per turn". That bullet came
+    # from #681 after M_6442, but the SAME commit removed the impossible "mirror
+    # each opponent" instruction from the preset bodies that M_6442 actually
+    # blamed. The two fixes were never separated, so nothing showed the bullet
+    # doing work of its own, and the rules already say "choose exactly one
+    # action". What it guarded is pinned where it belongs — each preset naming a
+    # target it can really pick, asserted just below.
     framing = module.default_strategy()
-    assert "ONE action against ONE player per turn" in framing
+    assert "level is not a win" in framing
 
     # Each of the four leads on a different engine; if two ever say the same
     # thing we are back to the collapse this rewrite exists to fix.

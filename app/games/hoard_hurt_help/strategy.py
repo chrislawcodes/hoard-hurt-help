@@ -4,24 +4,25 @@ These belong to the PD game module (game #1), not the platform — a different
 game ships its own. The join/player UI gets them via the GameModule contract
 (`strategy_presets()` / `default_strategy()`), never by importing this directly.
 
-Every preset and the default share `RANK_FRAMING`: the reminder to prioritize
-round wins while accounting for fractional wins on ties and total score as the
-match tiebreaker. It is woven into each strategy so even the cooperative ones
-play to actually win the match.
+Every preset and the default share `RANK_FRAMING`, which is deliberately small.
+It carries one fact, because one is all the rules do not already give the agent:
 
-`RANK_FRAMING` also carries the three facts a preset cannot be written without,
-all of which were measured in M_6442 rather than assumed:
-
-* **One action, one target.** Classic Prisoner's Dilemma strategies say "mirror
-  each opponent" — unexecutable here, where a turn buys a single action against
-  a single player. Faced with an impossible instruction the model falls back to
-  HELP, which is why most of the pre-rewrite presets collapsed into a single
-  behaviour.
 * **Even trading ties.** Two partners swapping mutual help both bank the same
   amount, so every clean pair finishes a round level. Beating the pack takes
   more helpers than anyone else, a betrayal, or dragging the leader down.
-* **Damage lands late.** The score floor means a player near zero cannot lose
-  much, so an early attack is largely absorbed.
+
+That is derived from the payoff table rather than stated in it, so an agent under
+a turn deadline may not reach it. Everything else the block used to carry IS
+stated in the rules the agent reads in the same prompt — see the note on the
+constant for what came out and why.
+
+**Read this before adding to `RANK_FRAMING`.** It is shared by all eight presets,
+so anything added here pushes every one of them the same direction, and the
+roster exists to make them behave differently. The bar for a new line is that the
+rules cannot give it and it applies to every strategy — not merely that it is
+true or useful. `.claude/skills/game-design/` records the wider lesson from
+G_0017: prompts are the weakest lever here, and a flat game is a payoff problem
+first.
 
 The roster is Tit-for-Tat, Always Cooperate, Buzzer-Beater, Dealmaker, Underdog's
 Champion, Kingslayer, Sandbagger, Salvager — in that order, because the join UI
@@ -100,13 +101,32 @@ from __future__ import annotations
 from app.games.base import StrategyPreset
 
 # Shared "what winning means" lens, woven into the default and every preset.
+#
+# It carries ONE fact, because one is all the rules do not already give the agent:
+# a clean mutual pact leaves both sides level, so winning takes asymmetry. That is
+# derived from the payoff table, not stated in it.
+#
+# Five bullets were removed. Four restated a rule the agent reads in `base_prompt`
+# on the same turn — the tie split, the tiebreaker, one-action-per-turn, and the
+# score floor — so they cost every agent tokens to be told something twice. The
+# fifth ("decide how aggressively…based on your strategy") told the agent to
+# consult its own strategy, which it does anyway.
+#
+# The one-action bullet is the one worth explaining, because it looks load-bearing.
+# It was added in #681 after M_6442, where four presets helped on 31-35 of 35 turns
+# and never retaliated. But that commit's own root cause was an IMPOSSIBLE
+# INSTRUCTION IN THE PRESET TEXT ("do to each opponent what they did to you", which
+# one action per turn cannot execute), and the same commit rewrote every preset to
+# remove it. The two fixes shipped together and were never separated, so nothing
+# ever showed this bullet doing work of its own — and with the impossible
+# instruction gone, the rules already say "choose exactly one action".
+#
+# The wider reason to keep this block small: eight presets exist for behavioural
+# diversity, and a shared block that hands all of them the same strategic
+# conclusions narrows all eight the same way.
 RANK_FRAMING = """How winning works — weigh every move against this:
-- Prioritize round wins. Sole first place earns a full round win; ties split the win equally among the tied leaders.
-- Track your rank, but do not ignore your score: if agents finish the match tied on round wins, total score is the tiebreaker.
-- You get ONE action against ONE player per turn. You cannot answer everybody, so every turn pick the single player who matters most and act on them.
-- Swapping help evenly with one partner leaves you level with every other pair doing the same, and level is not a win. Getting clear takes one of three things: more players helping you in a turn than anyone else gets, HURTing a player who is HELPing you that same turn (you keep their help and take the bonus on top), or dragging the leader back below you.
-- Damage lands late. A player near zero has little left to lose, so an attack early in a round is mostly absorbed; the same attack near the end can decide the round.
-- As each round nears its end, decide how aggressively to pursue sole first place or deny a rival based on your strategy and the current standings."""
+- Prioritize round wins.
+- Swapping help evenly with one partner leaves you level with every other pair doing the same, and level is not a win. Getting clear takes one of three things: more players helping you in a turn than anyone else gets, HURTing a player who is HELPing you that same turn, or dragging the leader back below you."""
 
 PD_DEFAULT_STRATEGY = f"""{RANK_FRAMING}
 

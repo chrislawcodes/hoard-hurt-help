@@ -127,9 +127,12 @@ Read the files you intend to change in full before proposing a number.
   changes that sharpen the incentive framing.
 
 ### The hard-won lesson — prompts are the weakest lever
-The bot prompts already push hard: `RANK_FRAMING` says "ending level with a
-rival is a failure," the default ends "Be ruthless and win," there's an "Always
-Defect" preset. G_0017 still collapsed into cooperative ties with ~0 HURT. The
+The bot prompts have been pushed hard and it did not help. At G_0017 the framing
+said "ending level with a rival is a failure," the default ended "Be ruthless and
+win," and an "Always Defect" preset shipped. G_0017 still collapsed into
+cooperative ties with ~0 HURT. (Those exact strings are gone now — Always Defect
+was cut in #681 and `RANK_FRAMING` trimmed to one bullet — but the lesson is
+about prompt pressure in general, not that wording.) The
 flatness is **structural**, not a prompt problem. Fix the math first. Only reach
 for prompt changes after the payoffs make betrayal rational.
 
