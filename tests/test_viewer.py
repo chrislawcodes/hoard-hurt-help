@@ -116,6 +116,8 @@ async def test_viewer_does_not_leak_strategy(client, reset_db):
 
 
 async def test_viewer_renders_talk_then_act_and_thinking(client, reset_db):
+    from app.games.hoard_hurt_help.rules import hoard_share
+
     await _seed(reset_db, GameState.COMPLETED)
     await _seed_two_phase_turn(reset_db)
     r = await client.get("/games/hoard-hurt-help/matches/G_001")
@@ -123,7 +125,7 @@ async def test_viewer_renders_talk_then_act_and_thinking(client, reset_db):
     assert "action-card hoard" in r.text
     assert "public talk" in r.text
     assert "Hoard" in r.text
-    assert "+2" in r.text
+    assert f"+{hoard_share(1)}" in r.text  # lone hoarder takes the pot
     assert "private talk reasoning" in r.text
     assert "private act reasoning" in r.text
     # Thinking is shown to humans, paired with each move (no longer a closed toggle).
@@ -511,7 +513,7 @@ def test_compact_chips_match_the_payoff_constants():
     """
     from app.games.hoard_hurt_help.rules import (
         HELP_POINTS,
-        HOARD_POINTS,
+        hoard_share,
         HURT_POINTS,
     )
     from app.games.hoard_hurt_help.viewer import _turn_groups
@@ -526,4 +528,5 @@ def test_compact_chips_match_the_payoff_constants():
     by_kind = {g["kind"]: g["delta"] for g in groups}
     assert by_kind["hurt"] == f"-{HURT_POINTS}"
     assert by_kind["help"] == f"+{HELP_POINTS}"
-    assert by_kind["hoard"] == f"+{HOARD_POINTS}"
+    # One hoarder in this turn, so the chip shows the solo rate.
+    assert by_kind["hoard"] == f"+{hoard_share(1)}"

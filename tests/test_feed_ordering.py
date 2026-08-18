@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from app.games.hoard_hurt_help.rules import hoard_share
+
 from app.games.hoard_hurt_help.viewer import _feed_sort_key, _turn_groups, _turn_summary
 
 
@@ -29,7 +31,8 @@ def test_groups_collapse_hoards_and_state_delta_once() -> None:
     assert len(groups["pact"]["members"]) == 1
     # Hoards collapse to a single group listing all four names.
     assert len(groups["hoard"]["members"]) == 4
-    assert groups["hoard"]["delta"] == "+2"
+    # Four hoarders split the pot, so the chip shows the four-way rate.
+    assert groups["hoard"]["delta"] == f"+{hoard_share(4)}"
     # Betrayal sorts first within the hurt group.
     assert groups["hurt"]["members"][0]["betrayal"] is True
     # Order leads with conflict, ends with the quiet hoard list.

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from app.games.hoard_hurt_help.rules import hoard_share
+
 import json
 from datetime import datetime, timedelta, timezone
 
@@ -446,7 +448,8 @@ async def test_left_player_between_phases_skips_talk_defaulting_and_act_resolves
     assert by_player_sub[players[0].id].was_defaulted is True
     assert by_player_sub[players[0].id].action == "HOARD"
     assert all(p.current_round_score >= 0 for p in refreshed_players)
-    assert sum(p.current_round_score for p in refreshed_players) == 4
+    # Both defaulted to HOARD, so the pot is split between the two of them.
+    assert sum(p.current_round_score for p in refreshed_players) == 2 * hoard_share(2)
 
 
 async def test_begin_act_phase_keeps_turn_token_stable(reset_db):

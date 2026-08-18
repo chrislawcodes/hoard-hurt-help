@@ -233,14 +233,14 @@ def test_the_move_payoffs_are_stated_once():
     from app.games.hoard_hurt_help.rules import (
         BETRAYAL_BONUS,
         HELP_POINTS,
-        HOARD_POINTS,
+        HOARD_POT_POINTS,
         HURT_POINTS,
         help_legend,
         hoard_legend,
         hurt_legend,
     )
 
-    assert hoard_legend() == f"+{HOARD_POINTS} to yourself"
+    assert f"+{HOARD_POT_POINTS}" in hoard_legend()
     assert f"-{HURT_POINTS} to another" in hurt_legend()
     assert f"+{BETRAYAL_BONUS} to you if betraying a helper" in hurt_legend()
     assert help_legend(DEFAULT_MUTUAL_HELP_MODE).startswith(f"+{HELP_POINTS} to another")
@@ -249,7 +249,7 @@ def test_the_move_payoffs_are_stated_once():
     text = get_game_module(PD).semantic_rules_text()
     assert f"the target loses {HURT_POINTS} points" in text
     assert f"the target gains +{HELP_POINTS} points" in text
-    assert f"You gain +{HOARD_POINTS} points" in text
+    assert f"splits +{HOARD_POT_POINTS} points" in text
     assert f"an extra +{BETRAYAL_BONUS} bonus" in text
 
 
@@ -275,3 +275,35 @@ def test_no_surface_hand_types_a_payoff_number():
     for path in watched:
         offenders = pattern.findall(path.read_text())
         assert not offenders, f"{path.name} hand-types a payoff: {offenders}"
+
+
+def test_the_hoard_pot_is_stated_once_and_splits_sanely():
+    """HOARD's payout is a pot split between hoarders — derived everywhere.
+
+    HOARD used to be a flat 2, which four separate places restated as a literal.
+    It is a contested pot now, so its value changes turn to turn and a hand-typed
+    number cannot be right. `hoard_share` is the single source; this pins its
+    shape and that every surface quotes the pot rather than a fixed payout.
+    """
+    from app.games.hoard_hurt_help.rules import (
+        HOARD_POT_POINTS,
+        hoard_legend,
+        hoard_share,
+    )
+
+    # A lone hoarder takes the pot; the slice never grows as company arrives.
+    assert hoard_share(1) == HOARD_POT_POINTS
+    shares = [hoard_share(n) for n in range(1, 21)]
+    assert shares == sorted(shares, reverse=True), shares
+    # Integer division only — scores must stay whole numbers.
+    assert all(isinstance(v, int) for v in shares)
+    # No hoarders means nothing is paid, and callers may ask without guarding.
+    assert hoard_share(0) == 0
+    # A split can never pay more than the pot, however the rounding falls.
+    assert all(hoard_share(n) * n <= HOARD_POT_POINTS for n in range(1, 21))
+    # The legend quotes the pot, not a per-player payout.
+    assert str(HOARD_POT_POINTS) in hoard_legend()
+
+    # And the agent-facing rules describe the split, not a flat number.
+    text = get_game_module(PD).semantic_rules_text()
+    assert f"splits +{HOARD_POT_POINTS} points" in text

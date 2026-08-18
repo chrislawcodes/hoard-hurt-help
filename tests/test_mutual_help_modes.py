@@ -582,19 +582,29 @@ def test_payout_table_for_every_mode():
     assert table[MutualHelpMode.FLAT_6] == [6, 6, 6, 6, 6]
 
 
-def test_decay_never_pays_below_hoard():
-    """However often a pair repeats, decay floors at the HOARD value.
+def test_decay_never_pays_below_the_floor():
+    """However often a pair repeats, decay stops at MUTUAL_HELP_FLOOR.
 
     Otherwise a long-running pact would eventually pay LESS than hoarding, making
     a mutual help actively self-harming rather than merely unrewarding.
+
+    The floor used to be stated as "the HOARD value", back when HOARD was a flat
+    2. HOARD is a contested pot now, so there is no single hoard number to equal —
+    the floor matches what the pot pays once it is split enough ways, which the
+    second assertion pins so the two cannot silently drift apart.
     """
     from app.games.hoard_hurt_help.rules import (
-        HOARD_POINTS,
+        HOARD_POT_POINTS,
+        MUTUAL_HELP_FLOOR,
         MutualHelpMode,
+        hoard_share,
         mutual_help_value,
     )
 
-    assert min(mutual_help_value(MutualHelpMode.DECAY, k) for k in range(50)) == HOARD_POINTS
+    floor = min(mutual_help_value(MutualHelpMode.DECAY, k) for k in range(50))
+    assert floor == MUTUAL_HELP_FLOOR
+    # A pot split this many ways pays the same as a fully decayed pact.
+    assert hoard_share(HOARD_POT_POINTS // MUTUAL_HELP_FLOOR) == floor
 
 
 def test_flat_6_makes_betrayal_out_pay_the_pact():
@@ -644,6 +654,7 @@ async def test_no_repeats_restores_the_bonus_after_a_skipped_turn(db):
     a pair that alternates keeps earning it, which the 'once ever' reading would
     have denied.
     """
+    from app.games.hoard_hurt_help.rules import hoard_share
     from app.games.hoard_hurt_help.scoring import resolve_turn
 
     game, [a, b] = await _make_match(
@@ -660,14 +671,15 @@ async def test_no_repeats_restores_the_bonus_after_a_skipped_turn(db):
     await _submit(db, second, a, "HOARD")
     await _submit(db, second, b, "HOARD")
     await resolve_turn(db, second)
-    assert a.current_round_score == 8 + 2
+    # Both hoarded, so they split the pot two ways.
+    assert a.current_round_score == 8 + hoard_share(2)
 
     # Turn 3: mutual again — the pair did NOT go mutual last turn, so full bonus.
     third = await _open_turn(db, game, 3)
     await _submit(db, third, a, "HELP", target=b)
     await _submit(db, third, b, "HELP", target=a)
     await resolve_turn(db, third)
-    assert a.current_round_score == 8 + 2 + 8
+    assert a.current_round_score == 8 + hoard_share(2) + 8
 
 
 async def test_flat_6_pays_six_every_time(db):

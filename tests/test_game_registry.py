@@ -22,9 +22,13 @@ def test_unknown_type_raises() -> None:
 
 
 def test_pd_rules_and_move_effect() -> None:
+    from app.games.hoard_hurt_help.rules import hoard_share
+
     module = get("hoard-hurt-help")
     assert "Hoard-Hurt-Help" in module.semantic_rules_text()
-    assert module.move_effect("HOARD") == (2, None)
+    # HOARD reports the SOLO rate — the whole pot — because a per-move hook cannot
+    # know how many others hoarded. The replay builder overrides it per turn.
+    assert module.move_effect("HOARD") == (hoard_share(1), None)
     assert module.move_effect("HELP") == (0, 4)
     assert module.move_effect("HURT") == (0, -8)
 

@@ -34,8 +34,8 @@ def test_rules_text_documents_betraying_a_helper():
     assert attacker_net > HELP_POINTS + MUTUAL_HELP_BONUS
 
 
-def test_rules_text_is_versioned_v6():
-    assert "(v6)" in GAME_RULES_TEXT
+def test_rules_text_is_versioned_v7():
+    assert "(v7)" in GAME_RULES_TEXT
 
 
 def test_decay_rules_text_documents_the_decay_ladder_and_floor():

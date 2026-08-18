@@ -22,7 +22,7 @@ from app.games.hoard_hurt_help.match_summary import build_final_summary
 from app.games.hoard_hurt_help.rules import (
     BETRAYAL_BONUS,
     HELP_POINTS,
-    HOARD_POINTS,
+    hoard_share,
     HURT_POINTS,
     LEGACY_MUTUAL_HELP_MODE,
     MUTUAL_HELP_BONUS,
@@ -209,7 +209,11 @@ def _turn_groups(actions: list[dict]) -> list[dict]:
     if helps:
         groups.append({"kind": "help", "delta": f"+{HELP_POINTS}", "members": helps})
     if hoards:
-        groups.append({"kind": "hoard", "delta": f"+{HOARD_POINTS}", "members": hoards})
+        # The pot is split between exactly these hoarders, so the chip reads the
+        # rate this turn actually paid — not a fixed number.
+        groups.append(
+            {"kind": "hoard", "delta": f"+{hoard_share(len(hoards))}", "members": hoards}
+        )
     return groups
 
 
@@ -373,8 +377,14 @@ async def build_pd_replay_view(
     for seq, t in enumerate(timeline, start=1):
         messages, messages_by_agent = project_turn_messages(t)
         actions: list[dict[str, Any]] = []
+        # HOARD's value is decided by the whole turn (the pot is split between the
+        # hoarders), so it cannot come from the per-move `move_effect` hook. Count
+        # this turn's hoarders once and override that move's actor delta below.
+        turn_hoard_each = hoard_share(sum(1 for a in t.actions if a.action == "HOARD"))
         for action in t.actions:
             actor_delta, target_delta = _move_effect_for(g.game, action.action)
+            if action.action == "HOARD":
+                actor_delta = turn_hoard_each
             actions.append(
                 {
                     "agent_id": action.agent_id,

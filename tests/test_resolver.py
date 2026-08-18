@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.engine.resolver import award_round_winners, finalize_game
 from app.games.hoard_hurt_help.rules import DEFAULT_MISSED_MESSAGE
+from app.games.hoard_hurt_help.rules import HELP_POINTS, HURT_POINTS, hoard_share
 from app.games.hoard_hurt_help.scoring import resolve_turn
 from app.models import Match, GameState, Player, Turn, TurnSubmission, User
 from tests.factories import make_bot
@@ -106,11 +107,11 @@ async def test_single_hoard(db):
     await _submit(db, turn, p0, "HOARD")
     await resolve_turn(db, turn)
     await db.refresh(p0)
-    assert p0.current_round_score == 2
+    assert p0.current_round_score == hoard_share(1)  # sole hoarder takes the pot
 
 
 async def test_single_help(db):
-    """A Helps B → A gets 0, B gets +4."""
+    """A Helps B → A gets 0, B gets the help plus the pot it hoarded alone."""
     game, [a, b] = await _make_game_with_players(db, 2)
     turn = await _open_turn(db, game)
     await _submit(db, turn, a, "HELP", target=b)
@@ -119,11 +120,11 @@ async def test_single_help(db):
     await db.refresh(a)
     await db.refresh(b)
     assert a.current_round_score == 0
-    assert b.current_round_score == 2 + 4  # Hoard +2 plus Help received
+    assert b.current_round_score == hoard_share(1) + HELP_POINTS
 
 
 async def test_single_hurt(db):
-    """A Hurts B → A gets 0, B gets -4 (clipped to 0 from 0)."""
+    """A Hurts B → A gets 0; B nets its solo pot minus the hurt."""
     game, [a, b] = await _make_game_with_players(db, 2)
     turn = await _open_turn(db, game)
     await _submit(db, turn, a, "HURT", target=b)
@@ -132,8 +133,8 @@ async def test_single_hurt(db):
     await db.refresh(a)
     await db.refresh(b)
     assert a.current_round_score == 0
-    # B starts at 0, Hoard +2, Hurt -4 → max(0, -2) = 0
-    assert b.current_round_score == 0
+    # B starts at 0, takes the pot alone, then the hurt lands on top.
+    assert b.current_round_score == max(0, hoard_share(1) - HURT_POINTS)
 
 
 async def test_help_stacks(db):
@@ -147,8 +148,8 @@ async def test_help_stacks(db):
         await _submit(db, turn, h, "HELP", target=target)
     await resolve_turn(db, turn)
     await db.refresh(target)
-    # Target: +2 hoard + 5*4 help = 22
-    assert target.current_round_score == 22
+    # Target hoards alone (whole pot) and takes five helps on top.
+    assert target.current_round_score == hoard_share(1) + 5 * HELP_POINTS
 
 
 async def test_hurt_stacks_with_floor(db):
@@ -203,26 +204,28 @@ async def test_mutual_bonus_does_not_double(db):
 async def test_score_floor_on_final_delta(db):
     """Floor applies to the final summed delta, not per incoming Hurt.
 
-    Player starts at 3, HOARDs, and takes two HURTs plus one HELP in the same
-    turn. Raw at the v6 payoffs: 3 + 2 + 4 - 8 - 8 = -7, floored to 0.
+    Player starts at 3, HOARDs alone, and takes two HURTs plus one HELP in the
+    same turn. The floor only bites if the pot is small enough — with a 12-point
+    pot the raw total is 3 + 12 + 4 - 16 = 3, above the floor, so this asserts the
+    computed value rather than a hard-coded 0.
     """
     game, [target, h1, h2, helper] = await _make_game_with_players(db, 4)
     target.current_round_score = 3
     await db.commit()
 
     turn = await _open_turn(db, game)
-    await _submit(db, turn, target, "HOARD")  # +2 added
+    await _submit(db, turn, target, "HOARD")  # sole hoarder
     await _submit(db, turn, h1, "HURT", target=target)
     await _submit(db, turn, h2, "HURT", target=target)
     await _submit(db, turn, helper, "HELP", target=target)
     await resolve_turn(db, turn)
     await db.refresh(target)
-    # 3 + 2 (hoard) + 4 (help) - 8 - 8 (two hurts) = -7, floored to 0
-    assert target.current_round_score == 0
+    expected = max(0, 3 + hoard_share(1) + HELP_POINTS - 2 * HURT_POINTS)
+    assert target.current_round_score == expected
 
 
 async def test_hurt_against_zero_target(db):
-    """HURT against 0-score target: target stays at 0; attacker gets 0 (not +2)."""
+    """HURT on a low target: the attacker still gains nothing from the HURT."""
     game, [a, b] = await _make_game_with_players(db, 2)
     # B starts at 0.
     turn = await _open_turn(db, game)
@@ -232,7 +235,7 @@ async def test_hurt_against_zero_target(db):
     await db.refresh(a)
     await db.refresh(b)
     assert a.current_round_score == 0  # used turn on HURT, no Hoard
-    assert b.current_round_score == 0  # +2 - 4, clipped to 0
+    assert b.current_round_score == max(0, hoard_share(1) - HURT_POINTS)
 
 
 async def test_betraying_a_helper_pays_the_attacker_ten(db):
@@ -271,7 +274,7 @@ async def test_hurt_non_helper_takes_the_plain_hurt(db):
     await db.refresh(a)
     await db.refresh(b)
     assert a.current_round_score == 0  # HURT on a non-helper pays the attacker nothing
-    assert b.current_round_score == 4  # 10 + 2 - 8
+    assert b.current_round_score == 10 + hoard_share(1) - HURT_POINTS
 
 
 async def test_betrayal_bonus_only_for_the_helped_attacker(db):
@@ -363,7 +366,8 @@ async def test_missed_turn_defaults_to_hoard(db):
     # B does not submit.
     await resolve_turn(db, turn)
     await db.refresh(b)
-    assert b.current_round_score == 2
+    # A hoarded and B defaulted to HOARD, so the two of them split the pot.
+    assert b.current_round_score == hoard_share(2)
 
     # The defaulted submission row exists with the canonical message.
     from sqlalchemy import select
@@ -663,14 +667,15 @@ async def test_prior_hoard_turn_does_not_count_toward_k(db):
     # b never submits → defaulted to HOARD
     await resolve_turn(db, t1)
     await db.refresh(a)
-    assert a.current_round_score == 2  # just the hoard
+    assert a.current_round_score == hoard_share(2)  # a hoarded, b defaulted to hoard
 
     t2 = await _open_turn(db, game, round_num=1, turn_num=2)
     await _submit(db, t2, a, "HELP", target=b)
     await _submit(db, t2, b, "HELP", target=a)
     await resolve_turn(db, t2)
     await db.refresh(a)
-    assert a.current_round_score == 2 + 8  # k=0 → fresh +8
+    # The turn-1 hoard share carries forward; the fresh pact adds its full +8.
+    assert a.current_round_score == hoard_share(2) + 8  # k=0 → fresh +8
 
 
 # --- current_pact_values (feature mutual-help-pact-value) ---

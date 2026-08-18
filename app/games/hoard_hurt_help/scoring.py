@@ -18,7 +18,7 @@ from app.games.hoard_hurt_help.rules import (
     DEFAULT_MISSED_MESSAGE,
     DEFAULT_MUTUAL_HELP_MODE,
     HELP_POINTS,
-    HOARD_POINTS,
+    hoard_share,
     HURT_POINTS,
     LEGACY_MUTUAL_HELP_MODE,
     SCORE_FLOOR,
@@ -213,9 +213,15 @@ async def resolve_turn(db: AsyncSession, turn: Turn) -> None:
         s.player_id: s.target_player_id for s in submissions if s.action == "HELP"
     }
 
+    # HOARD is a contested pot: everyone who hoards this turn splits it, so the
+    # per-hoarder payout can only be known once the whole turn is in. Count first,
+    # then pay — a defaulted submission is a HOARD, so it takes a share and thins
+    # everyone else's, exactly as a deliberate hoard would.
+    hoard_each = hoard_share(sum(1 for s in submissions if s.action == "HOARD"))
+
     for s in submissions:
         if s.action == "HOARD":
-            delta[s.player_id] += HOARD_POINTS
+            delta[s.player_id] += hoard_each
         elif s.action == "HELP" and s.target_player_id in delta:
             delta[s.target_player_id] += HELP_POINTS
         elif s.action == "HURT" and s.target_player_id in delta:
@@ -290,6 +296,10 @@ def apply_inround_turn(
     """
     new_inround = dict(inround)
     mutual_help = mutual_help_value(MutualHelpMode.FLAT_8, 0)
+    # Same contested-pot rule as `resolve_turn`: count the hoarders before paying
+    # any of them, or the mirror would credit a solo rate to a crowded pot.
+    actions = list(actions)
+    hoard_each = hoard_share(sum(1 for a in actions if a["action"] == "HOARD"))
     # Who each HELPer targeted — to detect a betrayal HURT (HURTing a same-turn helper).
     help_targets = {
         a["agent_id"]: a.get("target_id") for a in actions if a["action"] == "HELP"
@@ -300,7 +310,7 @@ def apply_inround_turn(
         target = a.get("target_id")
         mutual = a.get("mutual", False)
         if action == "HOARD":
-            new_inround[actor] = new_inround.get(actor, 0) + HOARD_POINTS
+            new_inround[actor] = new_inround.get(actor, 0) + hoard_each
         elif action == "HELP" and mutual:
             new_inround[actor] = new_inround.get(actor, 0) + a.get("mutual_value", mutual_help)
         elif action == "HELP" and target:
