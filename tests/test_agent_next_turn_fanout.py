@@ -1592,8 +1592,10 @@ async def test_turn_static_block_carries_unified_fields(
     assert fanout.status_code == 200, fanout.text
 
     static = fanout.json()["static"]
-    for field in ("match_id", "game_id", "game", "base_prompt", "coach_note"):
+    for field in ("match_id", "game", "base_prompt", "coach_note"):
         assert field in static
+    # One id per block: `game_id` was `match_id` restated, and nothing read it.
+    assert "game_id" not in static
 
 
 async def test_filter_to_candidates_batches_mixed_phase_seats(

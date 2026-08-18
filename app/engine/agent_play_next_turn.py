@@ -635,7 +635,10 @@ async def _build_turn_payload(
         # AgentVersion.model is no longer consulted. A provider-mismatched model
         # never reaches the CLI (which would 404, e.g. claude --model gpt-*).
         "model": resolve_seat_model(player.chosen_provider, agent.preferred_model),
-        "strategy": version.strategy_text,
+        # No top-level `strategy` key: the same text already ships as
+        # `static.your_strategy`, which is the one the connector reads. Sending it
+        # twice cost ~2KB on every turn and gave a future edit two places to keep
+        # in step.
         "version_no": version.version_no,
         "seat_name": seat_name_by_agent_id[player.agent_id],
         "turn_token": turn.turn_token,

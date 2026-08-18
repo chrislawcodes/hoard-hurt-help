@@ -70,11 +70,12 @@ import httpx
 
 # ==============================================================================
 # SECTION: Module setup — compatibility shims and shared tunables
-# Optional reuse of the game server's canonical protocol/model-allowlist
+# Optional reuse of the game server's canonical move-cap/model-allowlist
 # constants when run from a source checkout (embedded fallbacks otherwise);
 # every timing/concurrency knob for the poll loop; the shared HTTP client
-# (`_http()`); the chat protocol text; and the per-session/per-process
-# token-usage state (`_GameSession`).
+# (`_http()`); and the per-session/per-process token-usage state
+# (`_GameSession`). No rules or response-protocol text lives here — all of it
+# arrives per turn in `static.base_prompt`.
 # ==============================================================================
 
 # Standalone fallback values for the enforced move-text caps — used when app/ is not
@@ -86,13 +87,13 @@ _FALLBACK_MESSAGE_MAX_LENGTH = 200
 _FALLBACK_THINKING_MAX_LENGTH = 200
 
 try:
-    # In a source checkout, reuse the game's canonical protocol + cap constants.
-    # Downloaded standalone connectors use the embedded compatibility copies below.
-    from app.agent_prompt import RESPONSE_PROTOCOL as _CANONICAL_PROTOCOL
+    # In a source checkout, reuse the game's canonical cap constants.
+    # Downloaded standalone connectors use the embedded copies above.
+    # (No local copy of the response protocol: the server ships it inside
+    # `static.base_prompt` on every turn, so the connector never renders its own.)
     from app.agent_prompt import MESSAGE_MAX_LENGTH as _MESSAGE_MAX_LENGTH
     from app.agent_prompt import THINKING_MAX_LENGTH as _THINKING_MAX_LENGTH
 except ImportError:
-    _CANONICAL_PROTOCOL = None
     _MESSAGE_MAX_LENGTH = _FALLBACK_MESSAGE_MAX_LENGTH
     _THINKING_MAX_LENGTH = _FALLBACK_THINKING_MAX_LENGTH
 
@@ -180,21 +181,6 @@ _DETECT_REPORT_INTERVAL = 300  # seconds
 # so it never delays a live turn.
 _VERIFY_INTERVAL = 60  # seconds
 _VERIFY_TIMEOUT = 30  # seconds per test call
-
-_PROTOCOL = _CANONICAL_PROTOCOL or """TALK PHASE response:
-{"message": "<public message, max 200 chars>", "thinking": "<private reasoning, max 200 chars>"}
-
-ACT PHASE response:
-{"action": "HOARD|HELP|HURT", "target_id": "<another agent ID for HELP/HURT; null for HOARD>", "thinking": "<private reasoning, max 200 chars>"}
-
-Return exactly one JSON object with no prose or code fence. Use one short, non-empty sentence for `thinking`.
-
-Each phase has a hard deadline, and the turn prompt tells you the approximate seconds left. Decide and answer immediately. A late reply is discarded and counts as a missed move."""
-_ENGAGE = (
-    "The chat is part of the game: read the other agents' messages, answer "
-    "what's aimed at you, make and weigh deals, build or break alliances — "
-    "let their words shape your move."
-)
 
 # Claude/Codex usage maps onto these four billing buckets. On a resumed session
 # most input should land in `cache_read`; if `fresh_in`/`cache_write` stay large
@@ -377,25 +363,27 @@ def _sum_usage(
 
 def _framing(turn: dict) -> str:
     """The stable per-game framing (strategy + rules + protocol). Claude sends it
-    as a `--system-prompt`; Codex/Gemini fold it into the first message."""
+    as a `--system-prompt`; Codex/Gemini fold it into the first message.
+
+    `static.base_prompt` is the whole rulebook — framing, semantic rules and the
+    response contract — and the server sends it on EVERY turn, not just the first,
+    because a model failure drops the chained session and the next turn has to
+    re-prime from scratch. There is no local fallback text: a hand-rolled one
+    could only be built from `static.rules`, a key the server stopped sending, so
+    it would quietly frame the agent with an empty rulebook for a whole match.
+    Missing `base_prompt` is a broken server contract — say so and stop.
+    """
     static = turn["static"]
     strategy = static.get("your_strategy") or "Play to win."
     base_prompt = static.get("base_prompt")
-    if base_prompt:
-        return (
-            f"{base_prompt}\n\n"
-            f"YOUR STRATEGY (this is your strategy - play it):\n{strategy}"
+    if not base_prompt:
+        raise RuntimeError(
+            "turn payload is missing static.base_prompt — the server must send the "
+            "agent's base prompt on every turn; refusing to play without the rules"
         )
-
-    # Compatibility with servers that predate `static.base_prompt`.
-    you = static["your_agent_id"]
-    others = [a for a in static.get("all_agent_ids", []) if a != you]
     return (
-        f'You are playing Hoard-Hurt-Help as agent "{you}" — a multi-round game '
-        f"you play to its end. {_ENGAGE}\n\n"
-        f"YOUR STRATEGY (this is your strategy — play it):\n{strategy}\n\n"
-        f"RULES:\n{static.get('rules', '')}\n\n"
-        f"Agents you may target: {others}\n\n{_PROTOCOL}"
+        f"{base_prompt}\n\n"
+        f"YOUR STRATEGY (this is your strategy - play it):\n{strategy}"
     )
 
 

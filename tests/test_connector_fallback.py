@@ -77,7 +77,9 @@ def _make_turn(
             "your_agent_id": "seat-A",
             "all_agent_ids": ["seat-A", "seat-other"],
             "your_strategy": "Play to win.",
-            "rules": "Rules",
+            # The whole rulebook rides in base_prompt — the only framing source
+            # the connector has (there is no separate `rules` key any more).
+            "base_prompt": "Base prompt",
         },
         "history": [],
         "scoreboard": [],
@@ -776,12 +778,6 @@ def test_phase_suffix_includes_the_clock(connector) -> None:
     suffix = connector._phase_suffix(cur)
     assert "TALK PHASE" in suffix
     assert "to reply" in suffix
-
-
-def test_protocol_states_the_deadline_and_200_character_limits(connector) -> None:
-    assert "hard deadline" in connector._PROTOCOL
-    assert "max 200 chars" in connector._PROTOCOL
-    assert "max 500 chars" not in connector._PROTOCOL
 
 
 # ---------------------------------------------------------------------------

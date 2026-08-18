@@ -42,7 +42,9 @@ def _turn(
             "your_agent_id": f"seat-{agent_id}",
             "all_agent_ids": [f"seat-{agent_id}", "seat-other"],
             "your_strategy": "Play to win.",
-            "rules": "Rules",
+            # The whole rulebook rides in base_prompt — the only framing source
+            # the connector has (there is no separate `rules` key any more).
+            "base_prompt": "Base prompt",
         },
         "history": history or [],
         "scoreboard": [],

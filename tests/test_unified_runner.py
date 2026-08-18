@@ -173,13 +173,14 @@ def test_run_executes_cli_in_a_neutral_workspace(runner, monkeypatch, tmp_path):
 
 
 def _full_turn():
+    """A turn shaped like the server's: the rulebook rides in `base_prompt`."""
     return {
         "match_id": "M1",
         "static": {
             "your_agent_id": "you",
             "all_agent_ids": ["you", "rival"],
             "your_strategy": "win",
-            "rules": "the rules",
+            "base_prompt": "CANONICAL BASE",
         },
         "scoreboard": [{"agent_id": "you", "round_score": 0}],
         "history": [],
@@ -187,14 +188,23 @@ def _full_turn():
     }
 
 
-def test_framing_prefers_server_base_prompt(runner):
-    turn = _full_turn()
-    turn["static"]["base_prompt"] = "CANONICAL BASE"
-    framing = runner._framing(turn)
+def test_framing_is_the_server_base_prompt_plus_the_strategy(runner):
+    framing = runner._framing(_full_turn())
     assert framing.startswith("CANONICAL BASE")
     assert "YOUR STRATEGY" in framing
     assert framing.endswith("win")
-    assert "the rules" not in framing
+
+
+def test_framing_fails_loudly_without_a_base_prompt(runner):
+    """No local rulebook to fall back on: the connector must refuse, not improvise.
+
+    Silently framing the agent with no rules would leave it playing blind for a
+    whole match — the failure has to name the missing key instead.
+    """
+    turn = _full_turn()
+    del turn["static"]["base_prompt"]
+    with pytest.raises(RuntimeError, match="static.base_prompt"):
+        runner._framing(turn)
 
 
 def test_hermes_adapter_is_sessionless_and_modelless(runner):

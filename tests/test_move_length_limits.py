@@ -155,7 +155,9 @@ def test_connector_loads_with_app_unimportable() -> None:
     finally:
         builtins.__import__ = real_import
 
-    assert mod._CANONICAL_PROTOCOL is None  # confirms the except-branch actually ran
+    # Confirms `app` really was unimportable: the connector's other app-backed
+    # constant falls back to None in exactly the same situation.
+    assert mod._authoritative_provider_for_model is None
     assert mod._MESSAGE_MAX_LENGTH == MESSAGE_MAX_LENGTH
     assert mod._THINKING_MAX_LENGTH == THINKING_MAX_LENGTH
 
@@ -166,3 +168,9 @@ def test_connector_loads_with_app_unimportable() -> None:
 def test_protocol_text_renders_the_source_value() -> None:
     assert f"max {MESSAGE_MAX_LENGTH} chars" in RESPONSE_PROTOCOL
     assert f"max {THINKING_MAX_LENGTH} chars" in RESPONSE_PROTOCOL
+    # No stale cap survives anywhere in the text an agent is actually shown.
+    assert "max 500 chars" not in RESPONSE_PROTOCOL
+    # The deadline warning rides in the same block; it reaches the agent through
+    # `static.base_prompt`, which embeds RESPONSE_PROTOCOL verbatim. The connector
+    # keeps no copy of this text to check instead.
+    assert "hard deadline" in RESPONSE_PROTOCOL
