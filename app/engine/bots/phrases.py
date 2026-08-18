@@ -211,7 +211,7 @@ PHRASES: dict[str, dict[str, list[str]]] = {
         ],
         "false": [
             "{target_name}, I've got your back this turn. Count on my help.",
-            "{target_name}, let's help each other — mutual +8, you in?",
+            "{target_name}, let's help each other — mutual points, you in?",
             "{target_name}, my help is going your way. We climb together.",
             "{target_name}, partner with me this turn. I'm helping you, promise.",
             "{target_name}, you and me — mutual help, easy points. Deal?",

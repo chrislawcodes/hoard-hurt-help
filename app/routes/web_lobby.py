@@ -40,7 +40,7 @@ from app.deps import DbSession, get_current_user
 from app.engine.scheduler import cancel_overdue_unfilled_games
 from app.games import get as get_game_module
 from app.games.base import GameError
-from app.games.hoard_hurt_help.rules import mutual_help_legend
+from app.games.hoard_hurt_help.rules import help_legend
 from app.models.match import Match, GameState
 from app.ops_events import log_ops_event
 from app.read_models.matches import count_players_by_match
@@ -239,7 +239,7 @@ async def game_lobby(request: Request, db: DbSession, game: Annotated[str, Path(
             "show_cancelled_all": show_cancelled_all,
             "rc_game_id": rc_game_id,
             "rc_data": rc_data,
-            "rc_mutual_help_legend": mutual_help_legend(rc_mutual_help_mode),
+            "rc_help_legend": help_legend(rc_mutual_help_mode),
             "show_onboarding_banner": show_onboarding_banner,
             # Tint the lobby's content with this game's scheme; the shared chrome
             # (defined outside <main>) is untouched. See GameModule.theme().

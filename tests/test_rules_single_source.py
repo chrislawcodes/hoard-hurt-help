@@ -216,3 +216,62 @@ def test_a_match_keeps_its_own_rules_when_the_shipped_default_moves():
     assert f"**{DEFAULT_TOTAL_ROUNDS + 1} rounds**" in text
     assert f"**{DEFAULT_TURNS_PER_ROUND + 1} turns**" in text
     assert f"net +{mutual_help_value(MutualHelpMode.FLAT_8, 0)}" in _pact_line(text)
+
+
+def test_the_move_payoffs_are_stated_once():
+    """Every surface quoting a payoff must derive it, agent-facing or human-facing.
+
+    The three viewer legend lines were typed literals ("+2 to yourself",
+    "-4 to another; +4 ...") in two templates, and a bot chat line advertised a
+    "mutual +8" the flat_6 default never paid. When the v6 payoffs moved
+    HURT_POINTS 4 -> 8 and BETRAYAL_BONUS 4 -> 6, the engine changed and those
+    lines did not — so spectators would have been shown one number while the
+    resolver used another. They are built from the constants now; this is the
+    guard. `hurt_legend` quotes the BONUS alone, matching the `+N betrayal` chip
+    the turn feed renders, not the attacker's net for the turn.
+    """
+    from app.games.hoard_hurt_help.rules import (
+        BETRAYAL_BONUS,
+        HELP_POINTS,
+        HOARD_POINTS,
+        HURT_POINTS,
+        help_legend,
+        hoard_legend,
+        hurt_legend,
+    )
+
+    assert hoard_legend() == f"+{HOARD_POINTS} to yourself"
+    assert f"-{HURT_POINTS} to another" in hurt_legend()
+    assert f"+{BETRAYAL_BONUS} to you if betraying a helper" in hurt_legend()
+    assert help_legend(DEFAULT_MUTUAL_HELP_MODE).startswith(f"+{HELP_POINTS} to another")
+
+    # The agent-facing rules state the same payoffs the legends do.
+    text = get_game_module(PD).semantic_rules_text()
+    assert f"the target loses {HURT_POINTS} points" in text
+    assert f"the target gains +{HELP_POINTS} points" in text
+    assert f"You gain +{HOARD_POINTS} points" in text
+    assert f"an extra +{BETRAYAL_BONUS} bonus" in text
+
+
+def test_no_surface_hand_types_a_payoff_number():
+    """No template or bot line may restate a payoff as a literal.
+
+    Scans the two legend templates and the bot phrase bank for a bare payoff
+    figure. This is the check that would have caught the stale "mutual +8" chat
+    line, which was wrong from the moment flat_6 became the default — long before
+    the v6 change — because nothing tied it to `mutual_help_value`.
+    """
+    import re
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    watched = [
+        root / "app" / "templates" / "fragments" / "move_legend.html",
+        root / "app" / "templates" / "fragments" / "robot_circle" / "_markup.html",
+        root / "app" / "engine" / "bots" / "phrases.py",
+    ]
+    # A signed number next to a payoff word is the shape that drifts.
+    pattern = re.compile(r"[+-]\d+\s*(?:to (?:you|another|yourself)|each)")
+    for path in watched:
+        offenders = pattern.findall(path.read_text())
+        assert not offenders, f"{path.name} hand-types a payoff: {offenders}"

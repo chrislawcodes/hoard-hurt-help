@@ -3,8 +3,8 @@
 Pure function (dict in, dict out). It approximates `resolve_turn` for lead
 tracking, including betraying a helper: when a player HURTs someone who HELPs
 them this same turn, the victim takes the normal HURT_POINTS and the attacker
-gains a BETRAYAL_BONUS on top of the +HELP_POINTS they receive (attacker +8 /
-victim -4), mirroring `resolve_turn`.
+gains a BETRAYAL_BONUS on top of the +HELP_POINTS they receive (attacker +10 /
+victim -8 at the v6 payoffs), mirroring `resolve_turn`.
 """
 
 from __future__ import annotations
@@ -37,8 +37,8 @@ def _viewer_mutual_value(k: int) -> int:
     return max(MUTUAL_HELP_FLOOR, HELP_POINTS + MUTUAL_HELP_BONUS - k)
 
 
-def test_mirror_normal_hurt_is_four():
-    """A HURT on a non-helper drops the target by 4."""
+def test_mirror_normal_hurt_is_eight():
+    """A HURT on a non-helper drops the target by HURT_POINTS (8 at v6)."""
     out = apply_inround_turn(
         {"A": 0, "B": 10},
         [
@@ -46,15 +46,15 @@ def test_mirror_normal_hurt_is_four():
             {"action": "HURT", "agent_id": "A", "target_id": "B"},
         ],
     )
-    assert out == {"A": 0, "B": 8}  # 10 + 2 hoard - 4 hurt
+    assert out == {"A": 0, "B": 4}  # 10 + 2 hoard - 8 hurt
 
 
-def test_mirror_betraying_a_helper_pays_the_attacker_eight():
-    """Betraying a same-turn helper: attacker +8, victim -4 (mirrors resolve_turn).
+def test_mirror_betraying_a_helper_pays_the_attacker_ten():
+    """Betraying a same-turn helper: attacker +10, victim -8 (mirrors resolve_turn).
 
-    A HURTs B while B HELPs A. A gets +4 (B's help) + +4 (BETRAYAL_BONUS) = +8;
-    B (from 10) takes the normal -4 → 6. The explicit dict pins the victim at
-    start-4 so a stale victim -8 cannot pass.
+    A HURTs B while B HELPs A. A gets +4 (B's help) + +6 (BETRAYAL_BONUS) = +10;
+    B (from 10) takes the normal -8 → 2. The explicit dict pins the victim at
+    start-HURT_POINTS so a stale victim delta cannot pass.
     """
     out = apply_inround_turn(
         {"A": 0, "B": 10},
@@ -63,14 +63,14 @@ def test_mirror_betraying_a_helper_pays_the_attacker_eight():
             {"action": "HELP", "agent_id": "B", "target_id": "A"},
         ],
     )
-    assert out == {"A": 8, "B": 6}  # A: +4 help + +4 bonus; B: 10 - 4
+    assert out == {"A": 10, "B": 2}  # A: +4 help + +6 bonus; B: 10 - 8
 
 
 def test_mirror_betrayed_victim_floors_per_hurt():
     """The mirror floors the betrayal victim per-hurt (its deliberate divergence).
 
-    B HELPs A (A +8 via betrayal). A HURTs B. B starts at 5 → 5 - 4 = 1 (the
-    changed damage of 4, not the old 8, moves this boundary: old would floor to 0).
+    B HELPs A (A +10 via betrayal). A HURTs B. B starts at 5 and takes the v6
+    damage of 8, so the floor bites: 5 - 8 clips to 0 rather than going negative.
     """
     out = apply_inround_turn(
         {"A": 0, "B": 5},
@@ -79,7 +79,7 @@ def test_mirror_betrayed_victim_floors_per_hurt():
             {"action": "HELP", "agent_id": "B", "target_id": "A"},
         ],
     )
-    assert out == {"A": 8, "B": 1}  # A: +8; B: 5 - 4 = 1 (would be 0 under the old -8)
+    assert out == {"A": 10, "B": 0}  # A: +10; B: 5 - 8 clipped at the floor
 
 
 def test_mirror_mutual_help_is_eight_each():

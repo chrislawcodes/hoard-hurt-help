@@ -6,9 +6,9 @@ import enum
 # and the watch view's per-move effect display (app/routes/web.py).
 HOARD_POINTS = 2  # HOARD: actor gains this, no target
 HELP_POINTS = 4  # HELP: target gains this, actor gains 0
-HURT_POINTS = 4  # HURT: target loses this, actor gains 0
+HURT_POINTS = 8  # HURT: target loses this, actor gains 0
 MUTUAL_HELP_BONUS = 4  # extra to each side on a pair's FIRST mutual HELP this match
-BETRAYAL_BONUS = 4  # extra to the ATTACKER when they HURT a player HELPing them this turn
+BETRAYAL_BONUS = 6  # extra to the ATTACKER when they HURT a player HELPing them this turn
 # Mutual help decays -1 each time the SAME pair repeats it within a match, flooring
 # the pair's per-side total at MUTUAL_HELP_FLOOR (= HOARD_POINTS, so a farmed pact is
 # no better than hoarding): total = max(MUTUAL_HELP_FLOOR, HELP_POINTS + MUTUAL_HELP_BONUS - k).
@@ -44,7 +44,7 @@ DEFAULT_TURNS_PER_ROUND = 5
 # moves: match length and `mutual_help_mode` are stored per match in their own
 # columns, so they are already recorded exactly, and bumping this for them would
 # make the version say a match is unlike another that differs only by a setting.
-RULES_VERSION = "v5"
+RULES_VERSION = "v6"
 
 
 class MutualHelpMode(str, enum.Enum):
@@ -52,12 +52,12 @@ class MutualHelpMode(str, enum.Enum):
 
     The lever these exist to explore is cooperation-vs-betrayal, not
     cooperation-vs-hoarding. Betraying a helper pays the attacker
-    HELP_POINTS + BETRAYAL_BONUS (= 8) and costs the victim HURT_POINTS,
-    mode-independent — every mode pays a betrayer the same 8. DECAY's first hit
-    and FLAT_8 also land a pact at 8, tying betrayal on points there (it wins
-    only on rank — a weak pull). Every point taken off the pact's payout widens
-    that gap; today's default, FLAT_6, is the mode where betrayal actually
-    out-pays the pact.
+    HELP_POINTS + BETRAYAL_BONUS (= 10) and costs the victim HURT_POINTS (= 8),
+    mode-independent — every mode pays a betrayer the same 10. Betrayal now
+    out-pays every pact rate, including FLAT_8: the pull is on points, not only
+    on rank. Under today's default FLAT_6 a knife swings 18 points between the
+    two players in one turn (attacker 6 -> 10, victim 6 -> -8), which is what
+    makes a last-turn betrayal able to decide a round.
     """
 
     DECAY = "decay"  # 8, 7, 6 … floored at 2
@@ -68,7 +68,7 @@ class MutualHelpMode(str, enum.Enum):
     NO_REPEATS = "no_repeats"
     FLAT_8 = "flat_8"  # 8 every time — no decay, no floor
     FLAT_7 = "flat_7"  # 7 every time
-    FLAT_6 = "flat_6"  # 6 every time — betrayal (8) now out-pays the pact
+    FLAT_6 = "flat_6"  # 6 every time — betrayal (10) out-pays the pact most
 
 
 # The rule a NEW match gets when its creator doesn't pick one. Every create path
@@ -148,6 +148,35 @@ def mutual_help_legend(mode: MutualHelpMode | str) -> str:
     if mode is MutualHelpMode.NO_REPEATS:
         return f"mutual +{first} each, but not two turns in a row with the same partner"
     return f"mutual +{first} each, every time"
+
+
+def hoard_legend() -> str:
+    """The one-line Hoard description for a replay legend.
+
+    Sibling of `mutual_help_legend`, and here for the same reason: a legend must
+    never advertise a number the resolver doesn't pay. These two lines were typed
+    literals in two templates until the v6 payoff change moved HURT_POINTS and
+    left both showing the old value to spectators.
+    """
+    return f"+{HOARD_POINTS} to yourself"
+
+
+def hurt_legend() -> str:
+    """The one-line Hurt description for a replay legend.
+
+    The second number is the betrayal BONUS alone, matching the `+N betrayal`
+    chip the turn feed renders — not the attacker's net for the turn, which also
+    includes the help they still receive.
+    """
+    return (
+        f"-{HURT_POINTS} to another; "
+        f"+{BETRAYAL_BONUS} to you if betraying a helper"
+    )
+
+
+def help_legend(mode: MutualHelpMode | str) -> str:
+    """The one-line Help description for a replay legend, for this mode."""
+    return f"+{HELP_POINTS} to another; {mutual_help_legend(mode)}"
 
 
 def mode_needs_history(mode: MutualHelpMode | str) -> bool:

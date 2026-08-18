@@ -22,6 +22,8 @@ from app.games.hoard_hurt_help.match_summary import build_final_summary
 from app.games.hoard_hurt_help.rules import (
     BETRAYAL_BONUS,
     HELP_POINTS,
+    HOARD_POINTS,
+    HURT_POINTS,
     LEGACY_MUTUAL_HELP_MODE,
     MUTUAL_HELP_BONUS,
     mutual_help_value,
@@ -195,7 +197,7 @@ def _turn_groups(actions: list[dict]) -> list[dict]:
 
     groups: list[dict] = []
     if hurts:
-        groups.append({"kind": "hurt", "delta": "-4", "members": hurts})
+        groups.append({"kind": "hurt", "delta": f"-{HURT_POINTS}", "members": hurts})
     if pacts:
         if len(pact_values) == 1:
             pact_delta = f"+{next(iter(pact_values))}"
@@ -205,9 +207,9 @@ def _turn_groups(actions: list[dict]) -> list[dict]:
             pact_delta = f"+{HELP_POINTS + MUTUAL_HELP_BONUS}"  # fresh-pact fallback
         groups.append({"kind": "pact", "delta": pact_delta, "members": pacts})
     if helps:
-        groups.append({"kind": "help", "delta": "+4", "members": helps})
+        groups.append({"kind": "help", "delta": f"+{HELP_POINTS}", "members": helps})
     if hoards:
-        groups.append({"kind": "hoard", "delta": "+2", "members": hoards})
+        groups.append({"kind": "hoard", "delta": f"+{HOARD_POINTS}", "members": hoards})
     return groups
 
 

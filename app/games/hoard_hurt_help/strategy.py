@@ -32,15 +32,23 @@ change agents that already exist; the prompt text is copied into the agent at
 creation time.
 
 Every surviving preset must have a route past the tie. Income in a turn is
-``4N + 2`` where N is how many players HELP you (``4N + 4`` if you betray one of
-them), so an extra helper is worth 4 while the choice of action is worth at most
-2 — the game is a contest for helpers, and every preset is a different bid for
-them. Three routes were considered and rejected for failing this test: coercion
-("help me or I HURT you" loses, because comply pays 0 and refuse pays 6 - 4 = 2,
-so one attack is smaller than the pact it asks a player to give up); pure denial
-(HURTing the leader leaves you below the bystanders who did nothing); and
-courting two backers at once, since one HELP a turn rotated between two of them
-pays each only 3 against the 6 any ordinary pact pays, so they leave.
+``4N + 2`` where N is how many players HELP you (``4N + 6`` if you betray one of
+them), so an extra helper is worth 4 while betraying one is worth 6. Under the v5
+payoffs those were 4 and 4 — recruiting tied the knife, so the game was purely a
+contest for helpers. At v6 the knife edges ahead, which is the whole point of the
+change: a preset may now bid for the strike as well as for the helpers.
+
+Two routes remain rejected. Pure denial still fails, because HURTing a player who
+is not helping you pays the attacker nothing however large HURT_POINTS grows — it
+leaves you below the bystanders who did nothing. Courting two backers at once
+still fails, since one HELP a turn rotated between two of them pays each only 3
+against the 6 any ordinary pact pays, so they leave.
+
+Coercion ("help me or I HURT you") was rejected under v5 and is NOT rejected under
+v6. The old arithmetic was that refusing paid 6 - 4 = 2 against complying's 0, so
+the threat was smaller than the pact it asked a player to give up. At
+HURT_POINTS = 8 refusing pays 6 - 8 = -2, so the threat now bites. No preset bids
+for it yet; it is an open route, not a covered one.
 
 Salvager is the exception that proves that last rule, and it is worth spelling
 out because it looks like the rejected route. Nobody in contention will help you
@@ -134,7 +142,7 @@ PD_STRATEGY_PRESETS: list[StrategyPreset] = [
 Strategy: Tit-for-Tat.
 * HELP whoever has repaid you most reliably. Never HURT first.
 * When a player HURTs you, answer that ONE player next turn. One grudge at a time, the most recent, dropped when they stop.
-* Answer while they are still HELPing you: that pays you 8. HURTing a player who is not HELPing you pays 0.
+* Answer while they are still HELPing you: that pays you 10. HURTing a player who is not HELPing you pays 0.
 * Never HELP a player who has HURT you before on a round's last turn.
 * Line up a second helper. One partner leaves you level.""",
     ),
@@ -197,7 +205,7 @@ Strategy: Underdog's Champion.
 Strategy: Kingslayer.
 * Partner whoever is winning. Offer a real pact and mean it.
 * HELP them every turn.
-* HURT them only when it wins you the round. HELP pays you 6; HURT while they HELP you pays you 8 and costs them 4, so the gap closes twelve points in one turn.
+* HURT them only when it wins you the round. HELP pays you 6; HURT while they HELP you pays you 10 and costs them 8, so the gap closes eighteen points in one turn.
 * Next round, whoever leads is your partner. No grudges.
 * HOARD if you think your partner will HURT you.""",
     ),

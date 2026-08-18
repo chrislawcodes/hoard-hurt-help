@@ -60,9 +60,9 @@
       </div>
 
       <div class="rc-legend">
-        <span><span class="rc-sw" style="background:var(--hoard,#b07e0d)"></span><strong>Hoard</strong> — +2 to yourself</span>
-        <span><span class="rc-sw" style="background:var(--hurt,#c0392b)"></span><strong>Hurt</strong> — -4 to another; +4 to you if betraying a helper</span>
-        <span><span class="rc-sw" style="background:var(--help,#1a8f4c)"></span><strong>Help</strong> — +4 to another; {{ rc_mutual_help_legend | mandatory }}</span>
+        <span><span class="rc-sw" style="background:var(--hoard,#b07e0d)"></span><strong>Hoard</strong> — {{ hoard_legend() }}</span>
+        <span><span class="rc-sw" style="background:var(--hurt,#c0392b)"></span><strong>Hurt</strong> — {{ hurt_legend() }}</span>
+        <span><span class="rc-sw" style="background:var(--help,#1a8f4c)"></span><strong>Help</strong> — {{ rc_help_legend | mandatory }}</span>
       </div>
     </div>
 </div>
