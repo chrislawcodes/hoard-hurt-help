@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Path, status
+from fastapi import APIRouter, Depends, Form, HTTPException, Path, Query, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy import delete, func, select
 
@@ -15,7 +15,11 @@ from app.models.agent import Agent, AgentStatus
 from app.models.agent_version import AgentVersion
 from app.models.player import Player
 from app.models.user import User
-from app.read_models.matches import agent_has_active_match, version_has_active_match
+from app.read_models.matches import (
+    agent_has_active_match,
+    count_agent_live_seats,
+    version_has_active_match,
+)
 from app.routes.agents_queries import load_owned_agent, version_has_rated_history
 from app.routes.agents_setup import clean_agent_blurb, clean_agent_name
 from app.routes.web_support import safe_internal_next
@@ -117,8 +121,25 @@ async def pause_agent(
     agent_id: Annotated[int, Path()],
     db: DbSession,
     user: Annotated[User, Depends(require_user_with_handle)],
+    confirm: Annotated[bool, Query()] = False,
 ) -> RedirectResponse:
+    """Pause an agent, warning first when it is seated in an unfinished match.
+
+    Every turn-serving query filters on ``status == ACTIVE``
+    (``playable_agent_filter``), so pausing a seated agent silently stops it
+    playing: the seat stays in the match and the overdue sweeper defaults its
+    moves for every remaining turn. Pausing mid-match is still allowed on
+    purpose — a broken or expensive AI has to be stoppable — so this warns
+    rather than blocks, and ``confirm=true`` goes straight through.
+    """
     agent = await load_owned_agent(db, user, agent_id)
+    if not confirm:
+        live_seats = await count_agent_live_seats(db, agent.id)
+        if live_seats > 0:
+            return RedirectResponse(
+                url=f"/me/agents/{agent.id}?pause_live_seats={live_seats}",
+                status_code=status.HTTP_303_SEE_OTHER,
+            )
     agent.status = AgentStatus.PAUSED
     await db.commit()
     return RedirectResponse(url=f"/me/agents/{agent.id}", status_code=status.HTTP_303_SEE_OTHER)

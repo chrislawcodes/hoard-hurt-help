@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Path, Request
+from fastapi import APIRouter, Depends, Path, Query, Request
 from fastapi.responses import HTMLResponse
 from sqlalchemy import select
 from starlette.responses import Response
@@ -227,6 +227,7 @@ async def agent_detail(
     db: DbSession,
     user: Annotated[User, Depends(require_user_with_handle)],
     next: str | None = None,
+    pause_live_seats: Annotated[int, Query(ge=0)] = 0,
 ) -> Response:
     agent = await load_owned_agent(db, user, agent_id)
     context = await _build_agent_detail_context(db, request, user, agent)
@@ -258,4 +259,8 @@ async def agent_detail(
     # Carried through to the Resume form so a user sent here from the join picker
     # lands back on the match they were filling. Sanitised (internal paths only).
     context["next_url"] = safe_internal_next(next)
+    # Set only when the pause route bounced back here: how many unfinished
+    # matches this agent is seated in, which the page turns into the
+    # "pause anyway?" warning.
+    context["pause_live_seats"] = pause_live_seats
     return templates.TemplateResponse(request, "agents/detail.html", context)
