@@ -203,8 +203,8 @@ async def test_mutual_bonus_does_not_double(db):
 async def test_score_floor_on_final_delta(db):
     """Floor applies to the final summed delta, not per incoming Hurt.
 
-    Player starts at 3, gets two -4 Hurts and one +4 Help in same turn.
-    Raw: 3 - 4 - 4 + 4 = -1, floored to 0.
+    Player starts at 3, HOARDs, and takes two HURTs plus one HELP in the same
+    turn. Raw at the v6 payoffs: 3 + 2 + 4 - 8 - 8 = -7, floored to 0.
     """
     game, [target, h1, h2, helper] = await _make_game_with_players(db, 4)
     target.current_round_score = 3
@@ -217,8 +217,8 @@ async def test_score_floor_on_final_delta(db):
     await _submit(db, turn, helper, "HELP", target=target)
     await resolve_turn(db, turn)
     await db.refresh(target)
-    # 3 + 2 (hoard) + 4 (help) - 4 - 4 (two hurts) = 1, no floor needed
-    assert target.current_round_score == 1
+    # 3 + 2 (hoard) + 4 (help) - 8 - 8 (two hurts) = -7, floored to 0
+    assert target.current_round_score == 0
 
 
 async def test_hurt_against_zero_target(db):
@@ -235,11 +235,11 @@ async def test_hurt_against_zero_target(db):
     assert b.current_round_score == 0  # +2 - 4, clipped to 0
 
 
-async def test_betraying_a_helper_pays_the_attacker_eight(db):
+async def test_betraying_a_helper_pays_the_attacker_ten(db):
     """Betraying a same-turn helper: attacker +8, victim -4 (the "8/4" split).
 
     B HELPs A (A gets +4). A HURTs B → betrays the helper: A gains a +4
-    BETRAYAL_BONUS on top of the help (net +8), B takes the normal -4.
+    BETRAYAL_BONUS on top of the help (net +10), B takes the normal -8.
     A ends +8; B (starting at 10) ends 10 - 4 = 6.
     """
     game, [a, b] = await _make_game_with_players(db, 2)
@@ -251,11 +251,11 @@ async def test_betraying_a_helper_pays_the_attacker_eight(db):
     await resolve_turn(db, turn)
     await db.refresh(a)
     await db.refresh(b)
-    assert a.current_round_score == 8  # +4 from B's help + +4 betrayal bonus
-    assert b.current_round_score == 6  # 10 - 4 (normal HURT, no longer -8)
+    assert a.current_round_score == 10  # +4 from B's help + +6 betrayal bonus
+    assert b.current_round_score == 2  # 10 - 8 (the normal HURT)
 
 
-async def test_hurt_non_helper_stays_four(db):
+async def test_hurt_non_helper_takes_the_plain_hurt(db):
     """A normal HURT (target did NOT help the attacker) still lands for -4.
 
     B HOARDs (does not help A). A HURTs B → base -4, and A gets NO bonus.
@@ -271,7 +271,7 @@ async def test_hurt_non_helper_stays_four(db):
     await db.refresh(a)
     await db.refresh(b)
     assert a.current_round_score == 0  # HURT on a non-helper pays the attacker nothing
-    assert b.current_round_score == 8  # 10 + 2 - 4
+    assert b.current_round_score == 4  # 10 + 2 - 8
 
 
 async def test_betrayal_bonus_only_for_the_helped_attacker(db):
@@ -291,9 +291,9 @@ async def test_betrayal_bonus_only_for_the_helped_attacker(db):
     await db.refresh(a)
     await db.refresh(b)
     await db.refresh(c)
-    assert a.current_round_score == 8  # +4 help + +4 betrayal bonus
+    assert a.current_round_score == 10  # +4 help + +6 betrayal bonus
     assert c.current_round_score == 0  # C HURT someone who did not help C → no bonus
-    assert b.current_round_score == 12  # 20 - 4 (A) - 4 (C), both normal HURTs
+    assert b.current_round_score == 4  # 20 - 8 (A) - 8 (C), both normal HURTs
 
 
 async def test_betrayal_victim_floored_at_zero(db):
@@ -311,8 +311,8 @@ async def test_betrayal_victim_floored_at_zero(db):
     await resolve_turn(db, turn)
     await db.refresh(a)
     await db.refresh(b)
-    assert a.current_round_score == 8  # attacker gain unaffected by the victim's floor
-    assert b.current_round_score == 0  # 3 - 4 clipped at 0
+    assert a.current_round_score == 10  # attacker gain unaffected by the victim's floor
+    assert b.current_round_score == 0  # 3 - 8 clipped at 0
 
 
 async def test_betrayer_bonus_is_inside_summed_floor_no_floor(db):
@@ -331,7 +331,7 @@ async def test_betrayer_bonus_is_inside_summed_floor_no_floor(db):
     await _submit(db, turn, c, "HURT", target=a)
     await resolve_turn(db, turn)
     await db.refresh(a)
-    assert a.current_round_score == 10  # 6 + 4 help + 4 bonus - 4 (C), NOT 6
+    assert a.current_round_score == 8  # 6 + 4 help + 6 bonus - 8 (C), NOT 6
 
 
 async def test_betrayer_floors_on_summed_delta(db):

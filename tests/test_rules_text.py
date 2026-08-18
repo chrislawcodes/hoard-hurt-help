@@ -14,6 +14,7 @@ from app.games.hoard_hurt_help.rules import (
     HELP_POINTS,
     HURT_POINTS,
     LEGACY_MUTUAL_HELP_MODE,
+    MUTUAL_HELP_BONUS,
     MUTUAL_HELP_FLOOR,
     MutualHelpMode,
     make_game_rules_text,
@@ -23,16 +24,18 @@ from app.games.hoard_hurt_help.rules import (
 
 def test_rules_text_documents_betraying_a_helper():
     assert "Betraying a helper" in GAME_RULES_TEXT
-    # The 8/4 split must be stated: attacker nets +8 (help + bonus), victim -4.
+    # The split must be stated: attacker nets help + bonus, victim takes -HURT.
     attacker_net = HELP_POINTS + BETRAYAL_BONUS
     assert f"+{attacker_net}" in GAME_RULES_TEXT  # attacker's net gain
     assert f"-{HURT_POINTS}" in GAME_RULES_TEXT  # victim takes the normal HURT
-    # The attacker's bonus equals the base HURT under 8/4 — that's intentional.
-    assert BETRAYAL_BONUS == HURT_POINTS
+    # Betrayal must out-pay the best pact rate, or the knife is never worth it.
+    # This is the point of the v6 payoffs; under v5 it tied FLAT_8 and only won
+    # on rank. The bonus no longer equals the base HURT — do not re-couple them.
+    assert attacker_net > HELP_POINTS + MUTUAL_HELP_BONUS
 
 
-def test_rules_text_is_versioned_v5():
-    assert "(v5)" in GAME_RULES_TEXT
+def test_rules_text_is_versioned_v6():
+    assert "(v6)" in GAME_RULES_TEXT
 
 
 def test_decay_rules_text_documents_the_decay_ladder_and_floor():

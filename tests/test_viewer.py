@@ -363,13 +363,13 @@ async def test_viewer_shows_attacker_bonus_on_betrayal(client, reset_db):
 
     r = await client.get("/games/hoard-hurt-help/matches/G_001")
     assert r.status_code == 200
-    # The attacker's +4 betrayal bonus is rendered (not buried) ...
-    assert "+4 betrayal" in r.text
-    # ... and the victim's delta chip is the normal -4, never a stale -8. Match the
-    # rendered delta span content specifically (a bare "-8" substring false-matches
-    # "utf-8" in the page <head>).
-    assert ">-8<" not in r.text
-    assert ">-4<" in r.text
+    # The attacker's +6 betrayal bonus is rendered (not buried) ...
+    assert "+6 betrayal" in r.text
+    # ... and the victim's delta chip is the v6 HURT of -8, never the stale -4.
+    # Match the rendered delta span content specifically (a bare "-8" substring
+    # false-matches "utf-8" in the page <head>).
+    assert ">-8<" in r.text
+    assert ">-4<" not in r.text
 
 
 async def test_guide_serves_doc(client, reset_db):
@@ -498,3 +498,32 @@ async def test_replay_history_carries_per_turn_score_that_resets_each_round():
     assert [h["score_after"]["AI_0"] for h in history] == [2, 4, 2]
     # The round-2 reset turn shows 2, not the round-1 peak of 4.
     assert history[-1]["score_after"] == {"AI_0": 2, "AI_1": 2}
+
+
+def test_compact_chips_match_the_payoff_constants():
+    """The Compact view's delta chips must be derived, never typed by hand.
+
+    These three chips were literal strings ("-4", "+4", "+2"). When the v6
+    payoffs moved HURT_POINTS 4 -> 8 the engine paid -8 while the chip still read
+    -4, so the viewer told players a number the resolver did not use. That is the
+    same rule living in two places; this test is the second form's guard. If a
+    payoff constant moves and nobody updates the chips, this fails.
+    """
+    from app.games.hoard_hurt_help.rules import (
+        HELP_POINTS,
+        HOARD_POINTS,
+        HURT_POINTS,
+    )
+    from app.games.hoard_hurt_help.viewer import _turn_groups
+
+    groups = _turn_groups(
+        [
+            {"action": "HURT", "agent_id": "A", "target_id": "B"},
+            {"action": "HELP", "agent_id": "C", "target_id": "D"},
+            {"action": "HOARD", "agent_id": "E", "target_id": None},
+        ]
+    )
+    by_kind = {g["kind"]: g["delta"] for g in groups}
+    assert by_kind["hurt"] == f"-{HURT_POINTS}"
+    assert by_kind["help"] == f"+{HELP_POINTS}"
+    assert by_kind["hoard"] == f"+{HOARD_POINTS}"

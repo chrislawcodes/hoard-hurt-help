@@ -598,10 +598,12 @@ def test_decay_never_pays_below_hoard():
 
 
 def test_flat_6_makes_betrayal_out_pay_the_pact():
-    """The point of flat_6: betrayal (8) beats keeping the pact (6).
+    """Betrayal must out-pay the pact — at v6 it beats EVERY mode, not just flat_6.
 
-    Under the modes that pay 8, betraying and cooperating are worth the same in
-    points, so betrayal only wins on rank. This pins the intended reversal.
+    Under the v5 payoffs betrayal paid 8, which merely tied the modes that pay a
+    pact 8 (flat_8, and decay's first hit), so there it won only on rank. The v6
+    bonus lifts betrayal to 10, clearing every pact rate outright. This pins that
+    reversal: if a future mode pays 10 or more, the knife goes dead again.
     """
     from app.games.hoard_hurt_help.rules import (
         BETRAYAL_BONUS,
@@ -611,8 +613,8 @@ def test_flat_6_makes_betrayal_out_pay_the_pact():
     )
 
     betrayal = HELP_POINTS + BETRAYAL_BONUS
-    assert mutual_help_value(MutualHelpMode.FLAT_8, 0) == betrayal  # a wash today
-    assert mutual_help_value(MutualHelpMode.FLAT_6, 0) < betrayal  # betrayal now wins
+    for mode in MutualHelpMode:
+        assert mutual_help_value(mode, 0) < betrayal, mode
 
 
 async def test_no_repeats_withholds_the_bonus_on_back_to_back_turns(db):

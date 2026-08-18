@@ -354,13 +354,14 @@ def test_presets_do_not_carry_the_three_measured_bugs() -> None:
     presets = {p.id: p for p in get_game_module("hoard-hurt-help").strategy_presets()}
 
     # 1. Kingslayer's reach was understated. Betraying the leader swings the gap
-    #    by ~12, not "a few points" — the old text stood it down when it should
+    #    by a lot, not "a few points" — the old text stood it down when it should
     #    have struck. The earlier arithmetic gave the leader a full mutual bonus
     #    while they were HELPing the Kingslayer, which one action per turn makes
-    #    impossible.
+    #    impossible. The figure moved 12 -> 18 at the v6 payoffs (BETRAYAL_BONUS
+    #    4 -> 6, HURT_POINTS 4 -> 8): attacker 6 -> 10, victim 6 -> -8.
     king = presets["kingslayer"].prompt
     assert "a lead of a few points" not in king
-    assert "twelve points" in king
+    assert "eighteen points" in king
 
     # 2. Buzzer-Beater. This assertion previously required the prompt to say
     #    "every round" — it pinned a MISTAKE, and three matches proved it.
