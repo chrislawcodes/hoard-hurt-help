@@ -287,7 +287,7 @@ def test_core_presets_pick_one_target_and_stay_distinct() -> None:
     module = get_game_module("hoard-hurt-help")
     presets = {p.id: p for p in module.strategy_presets()}
 
-    for pid in ("tit_for_tat", "always_cooperate", "buzzer_beater", "dealmaker",
+    for pid in ("tit_for_tat", "loyal_partner", "buzzer_beater", "dealmaker",
                 "underdogs_champion", "kingslayer", "sandbagger", "salvager"):
         assert pid in presets, f"{pid} preset is missing"
 
@@ -319,16 +319,25 @@ def test_core_presets_pick_one_target_and_stay_distinct() -> None:
     # Each of the four leads on a different engine; if two ever say the same
     # thing we are back to the collapse this rewrite exists to fix.
     assert "answer that ONE player" in presets["tit_for_tat"].prompt
-    assert "without exception" in presets["always_cooperate"].prompt
+    # Loyal Partner is the only preset that never HURTs anyone, which is what
+    # keeps it distinct from Tit-for-Tat (same loyalty, but it retaliates).
+    # This used to pin "without exception" — from when the preset kept HELPing
+    # a player who had HURT it. It no longer does: betrayal ends the pact and
+    # it finds a new partner, so the old wording described a strategy that is
+    # gone. Renamed from always_cooperate for the same reason.
+    assert "Never HURT anyone" in presets["loyal_partner"].prompt
     assert "LAST turn of a round" in presets["buzzer_beater"].prompt
     assert "helped more than anyone else" in presets["dealmaker"].prompt
     assert "Recruit the freshly abandoned" in presets["underdogs_champion"].prompt
     assert "whoever is winning" in presets["kingslayer"].prompt
-    assert "credibility can only be spent once" in presets["sandbagger"].prompt
+    # Was "credibility can only be spent once" — that line was trimmed. The
+    # distinguishing behaviour is the DELAY, so pin that instead: Sandbagger is
+    # the only preset that forbids HURT for a fixed opening stretch of the match.
+    assert "first two thirds" in presets["sandbagger"].prompt
     assert "mathematically out of it" in presets["salvager"].prompt
 
     bodies = [presets[p].prompt for p in
-              ("tit_for_tat", "always_cooperate", "buzzer_beater", "dealmaker",
+              ("tit_for_tat", "loyal_partner", "buzzer_beater", "dealmaker",
                "underdogs_champion", "kingslayer", "sandbagger", "salvager")]
     assert len(set(bodies)) == 8
 
@@ -370,15 +379,32 @@ def test_presets_do_not_carry_the_three_measured_bugs() -> None:
     buzz = presets["buzzer_beater"].prompt
     assert "LAST turn of a round, never earlier" in buzz
     assert "late in the MATCH" in buzz
-    assert "Only strike when it actually wins you the round" in buzz
+    # Was "Only strike when it actually wins you the round". Same rule, said in
+    # the action names the agent answers with — a vocabulary change, not a
+    # behaviour one. The measured correction it guards (do not HURT unless the
+    # round is actually won by it) is unchanged.
+    assert "Only HURT when it wins you the round" in buzz
     assert "every round" not in buzz
     # It also arrived under-helped BEFORE striking (0.47/turn vs ~1.0 for the
     # field), because it only ever fed one partner. It must court help too.
-    assert "Do not settle for one loyal partner" in buzz
+    # Was "Do not settle for one loyal partner" — reworded because "Loyal Partner"
+    # is now a preset name, so the old phrasing read as a reference to it. Same
+    # instruction: court a second helper, do not rely on a single one.
+    assert "Do not settle for one helper" in buzz
 
     # 3. The Champion's ban was meant to cover third parties only, but read as a
     #    blanket "never attack" and suppressed its own conditional strike.
     champ = presets["underdogs_champion"].prompt
     assert "Never attack anyone else" not in champ
     assert "THIRD PARTY" in champ
-    assert "not a ban on striking at all" in champ
+    # The reassurance clause ("not a ban on striking at all") is gone — owner
+    # call. What it protected is pinned directly instead, which is a stronger
+    # test: the preset must still carry a conditional HURT on its OWN partner.
+    # In M_6484 a blanket-sounding ban suppressed exactly that and the Champion
+    # HURT zero times all match. The ban is now scoped by naming THIRD PARTY,
+    # with no general "never attack" wording for a model to over-read.
+    #
+    # UNMEASURED: #686 fixed this with BOTH the scoping and the clause, and only
+    # the pair was ever played. If the Champion goes quiet again, the dropped
+    # clause is the first thing to put back.
+    assert "HURT them only on a round's last turn" in champ
