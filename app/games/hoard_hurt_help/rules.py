@@ -53,7 +53,7 @@ DEFAULT_TURNS_PER_ROUND = 5
 # moves: match length and `mutual_help_mode` are stored per match in their own
 # columns, so they are already recorded exactly, and bumping this for them would
 # make the version say a match is unlike another that differs only by a setting.
-RULES_VERSION = "v7"
+RULES_VERSION = "v8"
 
 
 class MutualHelpMode(str, enum.Enum):

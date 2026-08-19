@@ -16,6 +16,7 @@ from app.games.hoard_hurt_help.rules import (
     LEGACY_MUTUAL_HELP_MODE,
     MUTUAL_HELP_BONUS,
     MUTUAL_HELP_FLOOR,
+    RULES_VERSION,
     MutualHelpMode,
     make_game_rules_text,
     mutual_help_value,
@@ -34,8 +35,17 @@ def test_rules_text_documents_betraying_a_helper():
     assert attacker_net > HELP_POINTS + MUTUAL_HELP_BONUS
 
 
-def test_rules_text_is_versioned_v7():
-    assert "(v7)" in GAME_RULES_TEXT
+def test_rules_text_is_versioned():
+    """The rules text an agent reads must carry the version it was built from.
+
+    This asserted the literal "(v7)" until the pot moved to v8, which is the
+    duplicate-rule shape this repo keeps getting bitten by: the version lived
+    here as well as in `RULES_VERSION`, so every bump broke a test that was not
+    guarding anything about the bump. Deriving it keeps the real guarantee — the
+    text is stamped, and stamped with the version the module reports — while
+    surviving a payoff change, which is exactly when the stamp matters most.
+    """
+    assert f"({RULES_VERSION})" in GAME_RULES_TEXT
 
 
 def test_decay_rules_text_documents_the_decay_ladder_and_floor():
