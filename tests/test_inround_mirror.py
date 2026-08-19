@@ -14,6 +14,7 @@ import json
 import pytest
 
 from app.games.hoard_hurt_help.rules import (
+    hoard_share,
     HELP_POINTS,
     MUTUAL_HELP_BONUS,
     MUTUAL_HELP_FLOOR,
@@ -46,7 +47,7 @@ def test_mirror_normal_hurt_is_eight():
             {"action": "HURT", "agent_id": "A", "target_id": "B"},
         ],
     )
-    assert out == {"A": 0, "B": 4}  # 10 + 2 hoard - 8 hurt
+    assert out == {"A": 0, "B": 10 + hoard_share(1) - 8}  # solo pot, then the hurt
 
 
 def test_mirror_betraying_a_helper_pays_the_attacker_ten():

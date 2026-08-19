@@ -4,14 +4,23 @@ import enum
 
 # Point values — single source of truth for the resolver (app/engine/resolver.py)
 # and the watch view's per-move effect display (app/routes/web.py).
-HOARD_POINTS = 2  # HOARD: actor gains this, no target
+# HOARD is a CONTESTED POT, not a flat payout: everyone who HOARDs on a turn
+# splits this many points between them. Alone you take the lot; the more
+# company you have, the thinner your slice. This is the game's temptation —
+# the one move that pays best when nobody else copies you. Tune it here and
+# nowhere else: the resolver, the viewer mirror, the replay legend and the
+# rules text agents read all derive from `hoard_share`.
+HOARD_POT_POINTS = 12
 HELP_POINTS = 4  # HELP: target gains this, actor gains 0
 HURT_POINTS = 8  # HURT: target loses this, actor gains 0
 MUTUAL_HELP_BONUS = 4  # extra to each side on a pair's FIRST mutual HELP this match
 BETRAYAL_BONUS = 6  # extra to the ATTACKER when they HURT a player HELPing them this turn
 # Mutual help decays -1 each time the SAME pair repeats it within a match, flooring
-# the pair's per-side total at MUTUAL_HELP_FLOOR (= HOARD_POINTS, so a farmed pact is
-# no better than hoarding): total = max(MUTUAL_HELP_FLOOR, HELP_POINTS + MUTUAL_HELP_BONUS - k).
+# the pair's per-side total at MUTUAL_HELP_FLOOR: total =
+# max(MUTUAL_HELP_FLOOR, HELP_POINTS + MUTUAL_HELP_BONUS - k). The floor was set to
+# match the old flat HOARD payout of 2 — a fully farmed pact was meant to be worth
+# no more than hoarding. HOARD is a shared pot now, so that equivalence is only
+# exact when six players crowd the pot; the floor stays 2 as its own number.
 MUTUAL_HELP_FLOOR = 2
 
 # The three moves, in the canonical display order the insight engines tally them
@@ -44,7 +53,7 @@ DEFAULT_TURNS_PER_ROUND = 5
 # moves: match length and `mutual_help_mode` are stored per match in their own
 # columns, so they are already recorded exactly, and bumping this for them would
 # make the version say a match is unlike another that differs only by a setting.
-RULES_VERSION = "v6"
+RULES_VERSION = "v7"
 
 
 class MutualHelpMode(str, enum.Enum):
@@ -150,6 +159,24 @@ def mutual_help_legend(mode: MutualHelpMode | str) -> str:
     return f"mutual +{first} each, every time"
 
 
+def hoard_share(hoarders: int) -> int:
+    """What ONE hoarder takes when *hoarders* of them split the pot this turn.
+
+    The single source for the HOARD payout — the resolver, the viewer's running
+    mirror, the replay legend and the per-move feed chip all call this, so the
+    number a spectator reads can never differ from the one the resolver paid.
+
+    Integer division, so the remainder is simply not awarded (a 12-point pot
+    split five ways pays 2 each and drops 2). That keeps every score a whole
+    number, which the whole scoring path assumes.
+
+    Returns 0 for a turn with no hoarders, so callers can ask without guarding.
+    """
+    if hoarders <= 0:
+        return 0
+    return HOARD_POT_POINTS // hoarders
+
+
 def hoard_legend() -> str:
     """The one-line Hoard description for a replay legend.
 
@@ -158,7 +185,7 @@ def hoard_legend() -> str:
     literals in two templates until the v6 payoff change moved HURT_POINTS and
     left both showing the old value to spectators.
     """
-    return f"+{HOARD_POINTS} to yourself"
+    return f"share of a +{HOARD_POT_POINTS} pot, split between everyone who Hoards"
 
 
 def hurt_legend() -> str:
@@ -192,7 +219,7 @@ def mode_needs_history(mode: MutualHelpMode | str) -> bool:
 # have to combine two bullets to work out what a mutual help is worth, and the
 # flat modes must not carry decay/floor/reset language that doesn't apply to them.
 _MUTUAL_HELP_DECAY = f"""- **Mutual-help bonus.** If A HELPs B and B HELPs A in the same turn, each gets an extra +{MUTUAL_HELP_BONUS} on top of the base +{HELP_POINTS} — net +{HELP_POINTS + MUTUAL_HELP_BONUS} each the first time a pair does it.
-- **Mutual-help decays.** Each time the *same pair* repeats a mutual help in a match, the bonus drops by 1. So that pair's net falls +{HELP_POINTS + MUTUAL_HELP_BONUS}, +{HELP_POINTS + MUTUAL_HELP_BONUS - 1}, +{HELP_POINTS + MUTUAL_HELP_BONUS - 2}, … down to a floor of +{MUTUAL_HELP_FLOOR} each (no better than HOARD). The count is match-wide, not per round. Helping a *fresh* partner resets to +{HELP_POINTS + MUTUAL_HELP_BONUS} — farming one ally pays less over time than spreading pacts around."""
+- **Mutual-help decays.** Each time the *same pair* repeats a mutual help in a match, the bonus drops by 1. So that pair's net falls +{HELP_POINTS + MUTUAL_HELP_BONUS}, +{HELP_POINTS + MUTUAL_HELP_BONUS - 1}, +{HELP_POINTS + MUTUAL_HELP_BONUS - 2}, … down to a floor of +{MUTUAL_HELP_FLOOR} each. The count is match-wide, not per round. Helping a *fresh* partner resets to +{HELP_POINTS + MUTUAL_HELP_BONUS} — farming one ally pays less over time than spreading pacts around."""
 
 _MUTUAL_HELP_NO_REPEATS = f"""- **Mutual-help bonus — no repeats.** If A HELPs B and B HELPs A in the same turn, each gets an extra +{MUTUAL_HELP_BONUS} on top of the base +{HELP_POINTS} — net +{HELP_POINTS + MUTUAL_HELP_BONUS} each. But a pair cannot take that bonus **two turns in a row**: if the same two players mutually helped on the previous turn, this one pays the plain +{HELP_POINTS} each. Skip a turn with that partner and the full +{HELP_POINTS + MUTUAL_HELP_BONUS} is available again — so rotating between partners keeps paying, hammering the same one back-to-back does not."""
 
@@ -235,7 +262,7 @@ The goal is to win more rounds than any other agent over the course of the game.
 
 In the act phase, choose exactly one action. You cannot target yourself.
 
-- **HOARD** — You gain +{HOARD_POINTS} points.
+- **HOARD** — You join this turn's pot. **Everyone who HOARDs splits +{HOARD_POT_POINTS} points between them**, rounded down: alone you take +{HOARD_POT_POINTS}, two of you take +{HOARD_POT_POINTS // 2} each, three take +{HOARD_POT_POINTS // 3} each, and so on. Hoarding pays best when nobody else does it.
 - **HELP [target]** — You gain 0 points; the target gains +{HELP_POINTS} points.
 - **HURT [target]** — You gain 0 points; the target loses {HURT_POINTS} points.
 

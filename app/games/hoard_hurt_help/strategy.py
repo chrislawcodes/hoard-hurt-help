@@ -52,12 +52,19 @@ for it yet; it is an open route, not a covered one.
 
 Salvager is the exception that proves that last rule, and it is worth spelling
 out because it looks like the rejected route. Nobody in contention will help you
-for free — they give up a pact worth 6. But a player who is mathematically OUT of
-the round gives up only a hoard worth 2, and their in-round score resets to zero
-at the round boundary anyway, so those 2 points only ever touch the match
-tiebreak. Their help is close to free for them and worth a full share to you.
-That asymmetry between players' round positions is the only place a second helper
-can come from, and no other preset looks for it. In M_6442's round 4 the scores
+for free — they give up a pact worth 6. A player who is mathematically OUT of the
+round gives up only a hoard, and their in-round score resets to zero at the round
+boundary anyway, so those points only ever touch the match tiebreak. Their help is
+cheap for them and worth a full share to you. That asymmetry between players'
+round positions is the only place a second helper can come from, and no other
+preset looks for it.
+
+**The v7 pot weakens this premise and it has not been re-measured.** When HOARD
+paid a flat 2, a dead player really was giving up almost nothing. Now hoarding
+pays a share of a contested pot — up to the whole pot if they go alone — and a
+player out of the round is exactly who has no reason not to take it. Salvager is
+asking them to give up their best remaining move, not their worst. Whether the
+preset still earns its place is an open question for the first v7 matches. In M_6442's round 4 the scores
 were 30/30/30/30/10/10/8/4 — four players out of the round, four donors, ignored
 by everyone.
 

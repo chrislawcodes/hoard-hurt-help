@@ -29,7 +29,7 @@ from app.games.hoard_hurt_help.rules import (
     DEFAULT_TOTAL_ROUNDS,
     DEFAULT_TURNS_PER_ROUND,
     HELP_POINTS,
-    HOARD_POINTS,
+    hoard_share,
     HURT_POINTS,
     LEGACY_MUTUAL_HELP_MODE,
     MUTUAL_HELP_FLOOR,
@@ -344,9 +344,17 @@ class HoardHurtHelp(BaseGameModule):
         }
 
     def move_effect(self, action: str) -> tuple[int, int | None]:
+        """Nominal per-move effect for the feed. HOARD is the SOLO rate.
+
+        HOARD pays a share of a contested pot, so its real value depends on how
+        many others hoarded that same turn — which this signature cannot express.
+        It reports the best case (a lone hoarder taking the whole pot); the replay
+        builder overrides it with the turn's actual share, because it has the
+        turn's actions and this does not.
+        """
         a = action.upper()
         if a == "HOARD":
-            return HOARD_POINTS, None
+            return hoard_share(1), None
         if a == "HELP":
             return 0, HELP_POINTS
         if a == "HURT":
