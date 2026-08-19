@@ -10,7 +10,7 @@ import enum
 # the one move that pays best when nobody else copies you. Tune it here and
 # nowhere else: the resolver, the viewer mirror, the replay legend and the
 # rules text agents read all derive from `hoard_share`.
-HOARD_POT_POINTS = 12
+HOARD_POT_POINTS = 8
 HELP_POINTS = 4  # HELP: target gains this, actor gains 0
 HURT_POINTS = 8  # HURT: target loses this, actor gains 0
 MUTUAL_HELP_BONUS = 4  # extra to each side on a pair's FIRST mutual HELP this match
@@ -20,7 +20,7 @@ BETRAYAL_BONUS = 6  # extra to the ATTACKER when they HURT a player HELPing them
 # max(MUTUAL_HELP_FLOOR, HELP_POINTS + MUTUAL_HELP_BONUS - k). The floor was set to
 # match the old flat HOARD payout of 2 — a fully farmed pact was meant to be worth
 # no more than hoarding. HOARD is a shared pot now, so that equivalence is only
-# exact when six players crowd the pot; the floor stays 2 as its own number.
+# exact when four players crowd the pot; the floor stays 2 as its own number.
 MUTUAL_HELP_FLOOR = 2
 
 # The three moves, in the canonical display order the insight engines tally them
@@ -166,8 +166,8 @@ def hoard_share(hoarders: int) -> int:
     mirror, the replay legend and the per-move feed chip all call this, so the
     number a spectator reads can never differ from the one the resolver paid.
 
-    Integer division, so the remainder is simply not awarded (a 12-point pot
-    split five ways pays 2 each and drops 2). That keeps every score a whole
+    Integer division, so the remainder is simply not awarded (an 8-point pot
+    split three ways pays 2 each and drops 2). That keeps every score a whole
     number, which the whole scoring path assumes.
 
     Returns 0 for a turn with no hoarders, so callers can ask without guarding.
