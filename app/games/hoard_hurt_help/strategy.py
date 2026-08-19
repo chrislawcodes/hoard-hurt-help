@@ -18,7 +18,7 @@ G_0017: prompts are the weakest lever here, and a flat game is a payoff problem
 first.
 
 The roster is Tit-for-Tat, Loyal Partner, Buzzer-Beater, Dealmaker, Underdog's
-Champion, Kingslayer, Sandbagger, Salvager — in that order, because the join UI
+Champion, Kingslayer, Sandbagger, Hoarder — in that order, because the join UI
 pre-selects the first one. Eight is the practical ceiling: once the only route
 past the tie is a betrayal, a strategy is fully described by who you partner and
 when you strike, and those combinations are now covered. A ninth would duplicate
@@ -31,12 +31,14 @@ finished last on 12 points against a winner on 184. Dropping a preset does not
 change agents that already exist; the prompt text is copied into the agent at
 creation time.
 
-Every surviving preset must have a route past the tie. Income in a turn is
-``4N + 2`` where N is how many players HELP you (``4N + 6`` if you betray one of
-them), so an extra helper is worth 4 while betraying one is worth 6. Under the v5
-payoffs those were 4 and 4 — recruiting tied the knife, so the game was purely a
-contest for helpers. At v6 the knife edges ahead, which is the whole point of the
-change: a preset may now bid for the strike as well as for the helpers.
+Every surviving preset must have a route past the tie, and at v7 there are three
+rather than one. Income in a turn is ``4N`` from helpers, plus whichever ONE move
+you make: a mutual pact, a betrayal of a helper, or a share of the HOARD pot. Up
+to v6 the pot was a flat 2 that nobody would ever choose, so every preset was a
+different bid for helpers and the roster was eight variations on one idea. The
+contested pot adds a second economy — points you take rather than points you are
+given — and a real defect move, because hoarding while a partner still HELPs you
+now out-earns the pact you broke. Half the roster reaches for it.
 
 Two routes remain rejected. Pure denial still fails, because HURTing a player who
 is not helping you pays the attacker nothing however large HURT_POINTS grows — it
@@ -50,23 +52,14 @@ the threat was smaller than the pact it asked a player to give up. At
 HURT_POINTS = 8 refusing pays 6 - 8 = -2, so the threat now bites. No preset bids
 for it yet; it is an open route, not a covered one.
 
-Salvager is the exception that proves that last rule, and it is worth spelling
-out because it looks like the rejected route. Nobody in contention will help you
-for free — they give up a pact worth 6. A player who is mathematically OUT of the
-round gives up only a hoard, and their in-round score resets to zero at the round
-boundary anyway, so those points only ever touch the match tiebreak. Their help is
-cheap for them and worth a full share to you. That asymmetry between players'
-round positions is the only place a second helper can come from, and no other
-preset looks for it.
-
-**The v7 pot weakens this premise and it has not been re-measured.** When HOARD
-paid a flat 2, a dead player really was giving up almost nothing. Now hoarding
-pays a share of a contested pot — up to the whole pot if they go alone — and a
-player out of the round is exactly who has no reason not to take it. Salvager is
-asking them to give up their best remaining move, not their worst. Whether the
-preset still earns its place is an open question for the first v7 matches. In M_6442's round 4 the scores
-were 30/30/30/30/10/10/8/4 — four players out of the round, four donors, ignored
-by everyone.
+Hoarder replaces Salvager, which asked players whose round was already lost for
+cheap HELP on the grounds that they were giving up only a flat-2 hoard. The pot
+makes that the most valuable move those players have, so the premise died with
+the rule it rested on. Hoarder inherits the slot from the other side: it lives in
+the pot and works the talk phase to keep everyone else paired off and out of it.
+It is the only preset whose default move is not HELP, which is what makes the new
+mechanic testable — a pot nobody reaches for would measure as no change at all,
+the way the v6 knife did.
 
 Sandbagger works at match scale rather than turn scale. Round wins accumulate all
 match but credibility is spent once, so it hoards credibility and spends it late:
@@ -143,101 +136,100 @@ PD_STRATEGY_PRESETS: list[StrategyPreset] = [
     StrategyPreset(
         id="tit_for_tat",
         name="Tit-for-Tat",
-        description="Cooperate by default, then answer the one player who crossed you.",
+        description="Hold one mutual HELP. Move on from anyone who stops repaying.",
         prompt=f"""{RANK_FRAMING}
 
 Strategy: Tit-for-Tat.
-* HELP whoever has repaid you most reliably. Never HURT first.
-* When a player HURTs you, answer that ONE player next turn. One grudge at a time, the most recent, dropped when they stop.
-* Answer while they are still HELPing you: that pays you 10. HURTing a player who is not HELPing you pays 0.
-* Never HELP a player who has HURT you before on a round's last turn.
-* Line up a second helper. One partner leaves you level.""",
+* Get a mutual HELP with one player and keep it.
+* If they don't repay, move on. Return if they do.
+* If a partner betrays you, HURT them next round.
+* Never give up a mutual bonus to answer a HURT from anyone else.
+* In talk, ask for HELP and promise to repay.
+* Don't HOARD.""",
     ),
     StrategyPreset(
         id="loyal_partner",
         name="Loyal Partner",
-        description="Back one partner completely — until they HURT you, then find another.",
+        description="Back one partner and never attack. Leave only after two unpaid turns.",
         prompt=f"""{RANK_FRAMING}
 
 Strategy: Loyal Partner.
-* Pick one partner and HELP them every turn. Never HURT anyone.
-* If your partner HURTs you, stop HELPing them. Pick a new partner and say why.
-* Ask other players for HELP in the talk phase. Say openly that you always repay.
-* Two players HELPing you in one turn pays 10; a clean pair banks 6.""",
+* Pick one partner and HELP them every turn.
+* Never HURT anyone.
+* Leave only if they fail to repay twice in a row. Say why, then pick a new partner.
+* In talk, ask for HELP and promise to repay.
+* Don't HOARD.""",
     ),
     StrategyPreset(
         id="buzzer_beater",
         name="Buzzer-Beater",
-        description="Court help all match, then HURT at the buzzer — but only when it wins the round.",
+        description="Take the pot when it's quiet, and strike on a round's last turn.",
         prompt=f"""{RANK_FRAMING}
 
 Strategy: Buzzer-Beater.
-* Be worth helping all match. Ask for HELP in the talk phase every turn and repay reliably. Do not settle for one helper — your HURT is only ever worth the HELP coming your way that turn.
-* HURT on the LAST turn of a round, never earlier. An early HURT is absorbed by the score floor; the same move at a round's end can decide it.
-* HURT late in the MATCH too. Betray early and you spend the rest of the match as the player nobody helps.
-* Only HURT when it wins you the round. Compare where you finish if you HELP against where you finish if you HURT. If HELP already wins, or HURT still leaves you short of first, HELP.
-* HURTing a player who is not HELPing you that turn pays 0 and costs you the turn. Never HURT someone who has gone quiet, started hoarding, or been burned by you before.""",
+* HELP and repay to keep helpers coming. Ask for HELP in talk every turn.
+* HOARD whenever few others look likely to. Take the pot when it's uncontested.
+* Never HURT before a round's last turn.
+* On the last turn: if the leader is HELPing you, HURT them. Otherwise HOARD.
+* Never HURT a player who isn't HELPing you.""",
     ),
     StrategyPreset(
         id="dealmaker",
         name="Dealmaker",
-        description="Win the competition for help — get two players helping you at once.",
+        description="Offer a named trade every turn, and take the pot when nobody bites.",
         prompt=f"""{RANK_FRAMING}
 
 Strategy: Dealmaker.
-* You win by being helped more than anyone else, not by attacking. Never HURT.
-* Work the talk phase every turn. Ask directly, name who you will repay next turn, then do it.
-* You have one HELP. Spend it on whoever is closest to giving up on you — the player you have owed longest.
-* Two players HELPing you in one turn pays 10; a clean pair banks 6.""",
+* Each turn, name one player in talk and offer a trade: they HELP you now, you HELP them next turn.
+* If nobody takes it, HOARD.
+* Always keep a promise you made.""",
     ),
     StrategyPreset(
         id="underdogs_champion",
         name="Underdog's Champion",
-        description="Take in the freshly abandoned, stay loyal, and HURT only when it wins the round.",
+        description="Recruit from the bottom of the table and never betray a recruit.",
         prompt=f"""{RANK_FRAMING}
 
 Strategy: Underdog's Champion.
-* Recruit the freshly abandoned. When a pact breaks — betrayed, dropped, or a HELP left unanswered — reach that player the same turn. Do not waste talk on the paired.
-* Say what they earn alone, what they earn with you, and that you will repay every turn.
-* HELP them every turn.
-* HURT them only on a round's last turn, and only when it wins you the round. If HELP already wins, or HURT still leaves you short of first, HELP.
-* Never HURT a THIRD PARTY: it pays 0 and burns the reputation that brings the abandoned to you.""",
+* Recruit from the bottom half of the standings. Reach them in talk.
+* Sell the pact: it pays every turn, while the pot shrinks with every taker.
+* HELP your recruit and never betray them.
+* If they stop repaying, recruit someone else.""",
     ),
     StrategyPreset(
         id="kingslayer",
         name="Kingslayer",
-        description="Partner whoever is winning, stay genuinely loyal, then take them down when it wins the round.",
+        description="Get the leader to invest in you, then cash out immediately.",
         prompt=f"""{RANK_FRAMING}
 
 Strategy: Kingslayer.
-* Partner whoever is winning. Offer a real pact and mean it.
-* HELP them every turn.
-* HURT them only when it wins you the round. HELP pays you 6; HURT while they HELP you pays you 10 and costs them 8, so the gap closes eighteen points in one turn.
-* Next round, whoever leads is your partner. No grudges.
-* HOARD if you think your partner will HURT you.""",
+* Offer the leader a pact so they HELP you.
+* HURT them the first turn they do.
+* After the hit, HOARD until you land another pact.
+* Never HELP a leader twice in a row.
+* Each round, target whoever leads now.""",
     ),
     StrategyPreset(
         id="sandbagger",
         name="Sandbagger",
-        description="Look harmless for most of the match, then take the last two rounds.",
+        description="Play honest for most of the match, then spend that record late.",
         prompt=f"""{RANK_FRAMING}
 
 Strategy: Sandbagger.
-* Spend the early rounds buying trust, not points. HELP generously, keep every promise, and let others take the early rounds.
-* Never HURT anyone in the first two thirds of the match, and say so out loud: point out, honestly, that you have never attacked.
-* From the second-to-last round, cash in. Partner whoever is winning, HELP them all round, then HURT them on the final turn.
-* If a round is out of reach even with the HURT, HELP instead. A wasted HURT costs you the partner you need for the final round.""",
+* Until the second-to-last round: HELP, repay every promise, and never HURT.
+* Say often that you have never attacked anyone.
+* From the second-to-last round: partner the leader, then HURT them on a round's last turn.
+* HOARD any turn nobody will pact with you.""",
     ),
     StrategyPreset(
-        id="salvager",
-        name="Salvager",
-        description="Buy turns from players whose round is already lost — their help is nearly free.",
+        id="hoarder",
+        name="Hoarder",
+        description="Live in the pot, and talk everyone else into pairing off.",
         prompt=f"""{RANK_FRAMING}
 
-Strategy: Salvager.
-* Every turn, split the table into players whose round is still live and players who are mathematically out of it. That second group is your whole strategy.
-* Ask that group directly for HELP and say why it is cheap: their turn is about to be wiped and yours is not. Promise repayment next round, then pay it.
-* Two players HELPing you in one turn pays 10; a clean pair banks 6. Players who are out are the only place that second helper comes from.
-* When YOUR round is the dead one, run it in reverse: stop chasing points about to vanish and buy goodwill for the rounds that still matter.""",
+Strategy: Hoarder.
+* HOARD by default.
+* In talk, push everyone else to pair up with each other, so the pot stays yours.
+* If too many are hoarding, HURT the leader instead.""",
     ),
 ]

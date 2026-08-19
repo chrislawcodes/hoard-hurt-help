@@ -288,7 +288,7 @@ def test_core_presets_pick_one_target_and_stay_distinct() -> None:
     presets = {p.id: p for p in module.strategy_presets()}
 
     for pid in ("tit_for_tat", "loyal_partner", "buzzer_beater", "dealmaker",
-                "underdogs_champion", "kingslayer", "sandbagger", "salvager"):
+                "underdogs_champion", "kingslayer", "sandbagger", "hoarder"):
         assert pid in presets, f"{pid} preset is missing"
 
     # The join UI selects the first preset by default, and a test elsewhere
@@ -318,136 +318,94 @@ def test_core_presets_pick_one_target_and_stay_distinct() -> None:
 
     # Each of the four leads on a different engine; if two ever say the same
     # thing we are back to the collapse this rewrite exists to fix.
-    assert "answer that ONE player" in presets["tit_for_tat"].prompt
+    # Each preset leads on a different engine; if two ever say the same thing we
+    # are back to the collapse this roster exists to fix. Every line below moved
+    # in the v7 rewrite, when HOARD became a contested pot and the presets were
+    # cut to bare instructions with no payoff numbers in them.
+    assert "move on" in presets["tit_for_tat"].prompt
     # Loyal Partner is the only preset that never HURTs anyone, which is what
     # keeps it distinct from Tit-for-Tat (same loyalty, but it retaliates).
-    # This used to pin "without exception" — from when the preset kept HELPing
-    # a player who had HURT it. It no longer does: betrayal ends the pact and
-    # it finds a new partner, so the old wording described a strategy that is
-    # gone. Renamed from always_cooperate for the same reason.
     assert "Never HURT anyone" in presets["loyal_partner"].prompt
-    assert "LAST turn of a round" in presets["buzzer_beater"].prompt
-    assert "helped more than anyone else" in presets["dealmaker"].prompt
-    assert "Recruit the freshly abandoned" in presets["underdogs_champion"].prompt
-    assert "whoever is winning" in presets["kingslayer"].prompt
-    # Was "credibility can only be spent once" — that line was trimmed. The
-    # distinguishing behaviour is the DELAY, so pin that instead: Sandbagger is
-    # the only preset that forbids HURT for a fixed opening stretch of the match.
-    assert "first two thirds" in presets["sandbagger"].prompt
-    assert "mathematically out of it" in presets["salvager"].prompt
+    assert "last turn" in presets["buzzer_beater"].prompt
+    assert "offer a trade" in presets["dealmaker"].prompt
+    assert "bottom half of the standings" in presets["underdogs_champion"].prompt
+    assert "target whoever leads now" in presets["kingslayer"].prompt
+    # Sandbagger is the only preset that forbids HURT for an opening stretch.
+    assert "second-to-last round" in presets["sandbagger"].prompt
+    # Hoarder (renamed from Salvager) is the only preset whose default is the pot.
+    assert "HOARD by default" in presets["hoarder"].prompt
 
     bodies = [presets[p].prompt for p in
               ("tit_for_tat", "loyal_partner", "buzzer_beater", "dealmaker",
-               "underdogs_champion", "kingslayer", "sandbagger", "salvager")]
+               "underdogs_champion", "kingslayer", "sandbagger", "hoarder")]
     assert len(set(bodies)) == 8
 
 
-def test_presets_do_not_carry_the_three_measured_bugs() -> None:
-    """Three prompts told their agent the wrong thing. Pin the corrections.
+def test_presets_do_not_carry_the_measured_bugs() -> None:
+    """Prompts that were measured telling their agent the wrong thing.
 
-    Kingslayer and the Champion were measured in M_6484, where both under-fired:
-    Kingslayer struck twice and came 6th, the Champion never struck at all.
-    Buzzer-Beater's entry is different — see the comment on it below. Its first
-    correction was itself wrong, and this test pinned that error until three
-    matches (M_6547 / M_6556 / M_6557) showed it scoring zero round wins in 21.
+    Each entry here cost real matches to find. The list grew at v7, when the
+    guard clause below was measured dead and cut from every preset that had it.
     """
-    presets = {p.id: p for p in get_game_module("hoard-hurt-help").strategy_presets()}
+    presets = {p.id: p.prompt for p in get_game_module("hoard-hurt-help").strategy_presets()}
 
-    # 1. Kingslayer's reach was understated. Betraying the leader swings the gap
-    #    by a lot, not "a few points" — the old text stood it down when it should
-    #    have struck. The earlier arithmetic gave the leader a full mutual bonus
-    #    while they were HELPing the Kingslayer, which one action per turn makes
-    #    impossible. The figure moved 12 -> 18 at the v6 payoffs (BETRAYAL_BONUS
-    #    4 -> 6, HURT_POINTS 4 -> 8): attacker 6 -> 10, victim 6 -> -8.
-    king = presets["kingslayer"].prompt
-    assert "a lead of a few points" not in king
-    assert "eighteen points" in king
+    # 1. THE GUARD CLAUSE — the big one. Four presets carried a version of "only
+    #    HURT when it wins you the round". Measured across twelve matches (nine
+    #    v5 + three v6) the HURT rate never rose above 2% and the analyzer called
+    #    HURT a DEAD ACTION in every single one, because once anyone edges ahead
+    #    the clause never evaluates true and every guarded agent stands down
+    #    forever — which quietly hands the leader the match. It is gone from all
+    #    eight presets and must not come back without new evidence.
+    for pid, body in presets.items():
+        assert "wins you the round" not in body, pid
+        assert "still leaves you short" not in body, pid
 
-    # 2. Buzzer-Beater. This assertion previously required the prompt to say
-    #    "every round" — it pinned a MISTAKE, and three matches proved it.
-    #
-    #    The original prompt contradicted itself: strike every round, but also
-    #    wait for the final round. The contradiction was real; resolving it
-    #    toward "every round" was the wrong half to keep. Measured: with the old
-    #    self-contradicting text it struck twice and finished 3rd of 8 (M_6484).
-    #    Told to strike every round it struck up to 8 times, half of them at
-    #    players who were not helping it (so they paid nothing), bled helpers
-    #    from 0.80/turn to 0.33, and took ZERO round wins across 21 rounds in
-    #    M_6547 / M_6556 / M_6557.
-    #
-    #    So the timing is pinned in both directions now: late in the round AND
-    #    late in the match, and only when the arithmetic actually wins it.
-    buzz = presets["buzzer_beater"].prompt
-    assert "LAST turn of a round, never earlier" in buzz
-    assert "late in the MATCH" in buzz
-    # Was "Only strike when it actually wins you the round". Same rule, said in
-    # the action names the agent answers with — a vocabulary change, not a
-    # behaviour one. The measured correction it guards (do not HURT unless the
-    # round is actually won by it) is unchanged.
-    assert "Only HURT when it wins you the round" in buzz
-    assert "every round" not in buzz
-    # It also arrived under-helped BEFORE striking (0.47/turn vs ~1.0 for the
-    # field), because it only ever fed one partner. It must court help too.
-    # Was "Do not settle for one loyal partner" — reworded because "Loyal Partner"
-    # is now a preset name, so the old phrasing read as a reference to it. Same
-    # instruction: court a second helper, do not rely on a single one.
-    assert "Do not settle for one helper" in buzz
+    # 2. Kingslayer under-fired in M_6484 (struck twice, came 6th). It must not
+    #    describe the leader's lead as small enough to ignore. It now strikes the
+    #    first turn the leader HELPs it, rather than feeding them all round —
+    #    partnering the leader hands them the mutual bonus every turn, so the old
+    #    version was a net donor of points to the player it meant to stop.
+    assert "a lead of a few points" not in presets["kingslayer"]
+    assert "the first turn they do" in presets["kingslayer"]
 
-    # 3. The Champion's ban was meant to cover third parties only, but read as a
-    #    blanket "never attack" and suppressed its own conditional strike.
-    champ = presets["underdogs_champion"].prompt
-    assert "Never attack anyone else" not in champ
-    assert "THIRD PARTY" in champ
-    # The reassurance clause ("not a ban on striking at all") is gone — owner
-    # call. What it protected is pinned directly instead, which is a stronger
-    # test: the preset must still carry a conditional HURT on its OWN partner.
-    # In M_6484 a blanket-sounding ban suppressed exactly that and the Champion
-    # HURT zero times all match. The ban is now scoped by naming THIRD PARTY,
-    # with no general "never attack" wording for a model to over-read.
-    #
-    # UNMEASURED: #686 fixed this with BOTH the scoping and the clause, and only
-    # the pair was ever played. If the Champion goes quiet again, the dropped
-    # clause is the first thing to put back.
-    assert "HURT them only on a round's last turn" in champ
+    # 3. Buzzer-Beater was once told to strike "every round". That was the wrong
+    #    half of a self-contradiction to keep: it struck up to 8 times, half of
+    #    them at players who were not helping it (so they paid nothing), and took
+    #    ZERO round wins across 21 rounds in M_6547 / M_6556 / M_6557.
+    assert "every round" not in presets["buzzer_beater"]
+    assert "last turn" in presets["buzzer_beater"]
+
+    # 4. The Champion's ban was meant to cover third parties only but read as a
+    #    blanket "never attack", which stood it down completely. It now simply
+    #    never betrays its own recruit, which is the behaviour that ban protected.
+    assert "Never attack anyone else" not in presets["underdogs_champion"]
+    assert "never betray them" in presets["underdogs_champion"]
 
 
-def test_preset_prose_quotes_the_real_payoffs():
-    """Every number a preset states must be the number the resolver pays.
+def test_presets_state_behaviour_not_payoff_numbers() -> None:
+    """No preset may quote a payoff figure. The rules text owns the numbers.
 
-    The presets deliberately quote figures — an LLM reasons better with them than
-    without. That makes them the same rule in two places, and the riskiest copy:
-    a stale legend misinforms a spectator, a stale preset misinforms the player
-    making the move. At v6 (BETRAYAL_BONUS 4 -> 6, HURT_POINTS 4 -> 8) every one
-    of these moved, and nothing but this test would have caught a missed one.
+    Presets used to spell out payouts ("pays you 10", "banks 6", "the gap closes
+    eighteen points") so the model could reason with them. That made the same
+    rule live in two places, and the riskiest copy of all: a stale legend
+    misinforms a spectator, a stale preset misinforms the player choosing the
+    move. Every one of those figures moved twice in a single day — at v6 when
+    BETRAYAL_BONUS and HURT_POINTS changed, and again at v7 when HOARD became a
+    pot whose value is not even fixed within one turn.
 
-    Derived here rather than typed, so the next payoff change fails loudly.
+    The v7 rewrite removed them all. The agent still gets every number, because
+    the rules text it is handed states the full payoff table and is interpolated
+    straight from the constants. The presets say what to DO. This keeps it that
+    way: tune a payoff and no preset can be left describing the old game.
     """
-    from app.games.hoard_hurt_help.rules import (
-        BETRAYAL_BONUS,
-        DEFAULT_MUTUAL_HELP_MODE,
-        HELP_POINTS,
-        HURT_POINTS,
-        mutual_help_value,
-    )
+    import re
 
     presets = {p.id: p.prompt for p in get_game_module("hoard-hurt-help").strategy_presets()}
-    pact = mutual_help_value(DEFAULT_MUTUAL_HELP_MODE, 0)  # a clean mutual pair
-    betrayal_net = HELP_POINTS + BETRAYAL_BONUS  # the knife's take that turn
-    two_helpers = pact + HELP_POINTS  # a pact plus one one-way helper
-
-    # Betraying a same-turn helper.
-    assert f"pays you {betrayal_net}" in presets["tit_for_tat"]
-    assert f"pays you {betrayal_net} and costs them {HURT_POINTS}" in presets["kingslayer"]
-    assert f"HELP pays you {pact}" in presets["kingslayer"]
-
-    # The second-helper arithmetic, quoted by the three recruiting presets.
-    for pid in ("loyal_partner", "dealmaker", "salvager"):
-        assert (
-            f"pays {two_helpers}; a clean pair banks {pact}" in presets[pid]
-        ), pid
-
-    # Kingslayer states the one-turn swing between the two players in words.
-    swing = (betrayal_net - pact) + (pact + HURT_POINTS)
-    words = {12: "twelve", 18: "eighteen", 20: "twenty"}
-    assert swing in words, f"no word for a swing of {swing} — add it"
-    assert f"{words[swing]} points" in presets["kingslayer"]
+    spelled = re.compile(
+        r"\b(one|two|three|four|five|six|seven|eight|nine|ten|twelve|eighteen|twenty)\b"
+        r"\s+(points?|each)\b",
+        re.I,
+    )
+    for pid, body in presets.items():
+        assert not re.search(r"\d", body), f"{pid} quotes a digit: {body!r}"
+        assert not spelled.search(body), f"{pid} spells out a payoff: {body!r}"
