@@ -10,20 +10,42 @@ the OAuth connection you already signed in with. The `sk_conn_` connector
 (`scripts/agentludum_connector.py`) is a different, always-on route — you do not
 need it for a one-off measurement run.
 
-## What only a human can do
+## The order is load-bearing — get it wrong and the match dies silently
 
-There is no `create_agent` or `create_match` MCP tool, so two steps need a
-signed-in browser and cannot be scripted:
+**START THE PLAY LOOPS BEFORE YOU JOIN.** This is not a preference; joining in
+the wrong order destroys the match without an error message anywhere.
 
-1. **Create the agents** — one per seat, each picking the preset you want to
-   test. Note each agent's numeric id; the runner keys off it.
-2. **Create the match, and join every agent to it.** Joining is deliberately a
-   per-match click ([[match-entry-manual-join-by-choice]] — auto-join was
-   proposed and rejected).
+Joining with an AI that is not already running creates a **held** seat
+(`players.seat_reserved_until` set). A held seat is not a real player: it does
+not count toward the start floor, and `release_held_seats` **DELETES** every
+still-held seat the moment the match starts. So a match whose eight seats are all
+held starts, loses all eight players, and is then cancelled for having fewer than
+`MIN_PLAYERS_TO_START` (3). The lobby shows eight agents right up until you press
+start, so nothing looks wrong until it is over. This cost a match on 2026-08-19.
 
-**Create the agents AFTER the preset change you are testing has deployed.** A
-preset's text is copied into the agent at creation time, so an agent made before
-the deploy carries the old wording and silently measures the old strategy.
+`sweep_held_seats` runs every ~2s and confirms a held seat as soon as its chosen
+provider reads LIVE, so once the loops are polling the seats fix themselves
+within seconds. The working order:
+
+1. **Create the agents** — one per seat, each picking the preset you are testing.
+   Note each agent's numeric id; the runner keys off it. **Do this AFTER the
+   change has deployed** — a preset's text is copied into the agent at creation,
+   so an agent made too early silently measures the old strategy.
+2. **Create the match**, scheduled far enough out that the auto-start poller does
+   not fire before you are ready (it cancels a due match with too few confirmed
+   players).
+3. **Start the play loops.** They will poll, get `no_game`, exit, and be
+   relaunched by their supervisor — that is fine and expected. What matters is
+   that the provider now reads LIVE. Confirm on `/me/connections`: it should say
+   **"Your AI is playing"**.
+4. **Join every agent.** Seats confirm within a couple of seconds.
+5. **Start the match**, and check `get_game_state` immediately — the agents list
+   should still hold every seat, with `model_self_report` filled in. If the list
+   came back empty, the seats were held and you are already dead.
+
+Steps 1, 2, 4 and 5 need a signed-in browser: there is no `create_agent` or
+`create_match` MCP tool, and joining is deliberately a per-match action
+(auto-join was proposed and rejected).
 
 ## What the scripts do
 
