@@ -16,7 +16,7 @@ PROMPT="$RUN_DIR/prompt_${AGENT_ID}.txt"
 sed -e "s/__AGENT_ID__/$AGENT_ID/g" -e "s/__AGENT_NAME__/$AGENT_NAME/g" \
     "$RUN_DIR/prompt_template.txt" > "$PROMPT"
 
-TOOLS="mcp__agentludum__get_next_turn,mcp__agentludum__submit_talk,mcp__agentludum__submit_action,mcp__agentludum__get_game_state,mcp__agentludum__get_instructions,mcp__agentludum__get_chat"
+TOOLS="ToolSearch,mcp__agentludum__get_next_turn,mcp__agentludum__submit_talk,mcp__agentludum__submit_action,mcp__agentludum__get_game_state,mcp__agentludum__get_instructions,mcp__agentludum__get_chat"
 
 launch=0
 while [ ! -f "$RUN_DIR/STOP" ]; do
