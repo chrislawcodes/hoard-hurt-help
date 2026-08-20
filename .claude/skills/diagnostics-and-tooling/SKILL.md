@@ -88,6 +88,14 @@ procedure. Read that before starting a measurement run; the short version:
 - It is the **MCP path** — `claude --print` / `codex exec` driving the
   `mcp__agentludum__*` tools over your existing OAuth sign-in. **No API key.**
   The `sk_conn_` connector is the separate always-on route, not this.
+- **THE WORKING PATTERN IS WRITTEN DOWN.** `scripts/match_runner/README.md` has
+  a verified start-to-finish sequence (M_6879: 280/280 moves, 39 launches, zero
+  backoffs). Follow it in order — every earlier attempt failed at one of its
+  steps.
+- **WATCH QUIETLY: poll every 15 min, report only three things** — it ended, it
+  is backing off, it has not moved in 30 minutes. A monitor that reports every
+  turn fires ~20 times a match and each one wakes the agent for a full turn of
+  context, which costs more than the match does.
 - **PROVE ONE AGENT CAN CALL A TOOL BEFORE YOU START ANYTHING.** One `claude
   --print` call that returns raw JSON. A match cannot be cancelled once ACTIVE,
   so a broken loop found afterwards is unrecoverable. The exact command is in the
