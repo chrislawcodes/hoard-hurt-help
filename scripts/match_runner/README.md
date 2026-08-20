@@ -74,14 +74,25 @@ in 30 minutes**. A healthy match then produces one notification, at the end.
 
 ## Checking whether the loops are alive — two traps that cost real time
 
-**`pgrep -fc` is not reliable here.** It returned 0 while `ps` showed 32 running
-processes. Acting on that reading, a healthy set of loops was "restarted" on top
-of itself twice, ending with FOUR supervisors per agent all claiming the same
-turns. Use:
+**`pgrep -fc` NEVER WORKS ON macOS — and it fails silently.** On Linux `-c`
+means "count". On macOS `-c` takes an ARGUMENT, so `pgrep -fc play_agent.sh`
+parses as `-f -c play_agent.sh`: the pattern is swallowed as `-c`'s argument,
+pgrep prints a usage error, and **exits 0**. Wrap that in the usual
+`2>/dev/null || echo 0` and you get a confident, permanent zero no matter what is
+running.
+
+That is exactly what happened here: it read 0 while `ps` showed 32 live
+processes, and acting on it a healthy set of loops was "restarted" on top of
+itself twice, ending with FOUR supervisors per agent all claiming the same turns.
+Use:
 
 ```bash
-ps -eo pid,ppid,command | grep 'play_agent.sh' | grep -v grep
+ps -eo pid,ppid,command | grep 'play_agent.sh' | grep -v grep   # or: pgrep -f play_agent.sh | wc -l
 ```
+
+The wider lesson: `2>/dev/null` on a status check turns a broken command into a
+confident wrong answer. If a check keeps returning the same number, run it once
+WITHOUT the error suppression before believing it.
 
 **Two lines per agent is correct, not a duplicate.** Each supervisor forks a
 subshell for the `( cd ... && claude ... )` block, so a healthy agent shows a

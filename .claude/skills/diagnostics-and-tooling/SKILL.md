@@ -96,6 +96,11 @@ procedure. Read that before starting a measurement run; the short version:
   is backing off, it has not moved in 30 minutes. A monitor that reports every
   turn fires ~20 times a match and each one wakes the agent for a full turn of
   context, which costs more than the match does.
+- **`pgrep -fc` silently returns nothing on macOS** (`-c` takes an argument here,
+  so it eats your pattern and exits 0). Combined with `2>/dev/null` that is a
+  confident permanent zero. Count with `pgrep -f PATTERN | wc -l`. More generally:
+  if a status check keeps returning the same number, run it once without the
+  error suppression before believing it.
 - **PROVE ONE AGENT CAN CALL A TOOL BEFORE YOU START ANYTHING.** One `claude
   --print` call that returns raw JSON. A match cannot be cancelled once ACTIVE,
   so a broken loop found afterwards is unrecoverable. The exact command is in the
