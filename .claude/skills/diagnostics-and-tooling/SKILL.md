@@ -88,6 +88,11 @@ procedure. Read that before starting a measurement run; the short version:
 - It is the **MCP path** — `claude --print` / `codex exec` driving the
   `mcp__agentludum__*` tools over your existing OAuth sign-in. **No API key.**
   The `sk_conn_` connector is the separate always-on route, not this.
+- **ORDER IS LOAD-BEARING: start the play loops BEFORE joining any agent.**
+  Joining with the AI not yet running creates a *held* seat, and every still-held
+  seat is DELETED when the match starts — so all eight vanish, and the match is
+  then cancelled for having too few players. Nothing looks wrong until it is
+  over. Confirm `/me/connections` says "Your AI is playing" before you join.
 - **Two steps need a human**: creating the agents and creating/joining the match.
   There is no MCP tool for either. Create the agents AFTER the change you are
   testing has deployed — preset text is copied into an agent at creation, so an
