@@ -287,8 +287,8 @@ def test_core_presets_pick_one_target_and_stay_distinct() -> None:
     module = get_game_module("hoard-hurt-help")
     presets = {p.id: p for p in module.strategy_presets()}
 
-    for pid in ("tit_for_tat", "loyal_partner", "buzzer_beater", "dealmaker",
-                "underdogs_champion", "kingslayer", "sandbagger", "hoarder"):
+    for pid in ("tit_for_tat", "loyal_partner", "turncoat", "dealmaker",
+                "underdogs_champion", "sandbagger", "hoarder"):
         assert pid in presets, f"{pid} preset is missing"
 
     # The join UI selects the first preset by default, and a test elsewhere
@@ -326,19 +326,26 @@ def test_core_presets_pick_one_target_and_stay_distinct() -> None:
     # Loyal Partner is the only preset that never HURTs anyone, which is what
     # keeps it distinct from Tit-for-Tat (same loyalty, but it retaliates).
     assert "Never HURT anyone" in presets["loyal_partner"].prompt
-    assert "last turn" in presets["buzzer_beater"].prompt
+    assert "never betrayed" in presets["turncoat"].prompt
     assert "offer a trade" in presets["dealmaker"].prompt
     assert "bottom half of the standings" in presets["underdogs_champion"].prompt
-    assert "target whoever leads now" in presets["kingslayer"].prompt
     # Sandbagger is the only preset that forbids HURT for an opening stretch.
     assert "second-to-last round" in presets["sandbagger"].prompt
     # Hoarder (renamed from Salvager) is the only preset whose default is the pot.
     assert "HOARD by default" in presets["hoarder"].prompt
 
     bodies = [presets[p].prompt for p in
-              ("tit_for_tat", "loyal_partner", "buzzer_beater", "dealmaker",
-               "underdogs_champion", "kingslayer", "sandbagger", "hoarder")]
-    assert len(set(bodies)) == 8
+              ("tit_for_tat", "loyal_partner", "turncoat", "dealmaker",
+               "underdogs_champion", "sandbagger", "hoarder")]
+    assert len(set(bodies)) == 7
+    # Kingslayer is RETIRED, not renamed. It courted the current leader and
+    # betrayed them, which needs the one player in the field with the least
+    # reason to help you. It struck 0.3 times per 35-move match and scored by
+    # hoarding instead. Raising BETRAYAL_BONUS 6 -> 14 left it on 0.60 round
+    # wins either way, and the best rebuild scored 0.07 against a plain
+    # cooperator's 0.49. Turncoat covers "befriend then betray" properly,
+    # because it may partner anyone.
+    assert "kingslayer" not in presets
 
 
 def test_presets_do_not_carry_the_measured_bugs() -> None:
@@ -360,20 +367,32 @@ def test_presets_do_not_carry_the_measured_bugs() -> None:
         assert "wins you the round" not in body, pid
         assert "still leaves you short" not in body, pid
 
-    # 2. Kingslayer under-fired in M_6484 (struck twice, came 6th). It must not
-    #    describe the leader's lead as small enough to ignore. It now strikes the
-    #    first turn the leader HELPs it, rather than feeding them all round —
-    #    partnering the leader hands them the mutual bonus every turn, so the old
-    #    version was a net donor of points to the player it meant to stop.
-    assert "a lead of a few points" not in presets["kingslayer"]
-    assert "the first turn they do" in presets["kingslayer"]
+    # 2. Kingslayer is gone at v8 (see the roster test for the measurements).
+    #    No preset may pick up its rule, because the rule is what failed: a
+    #    profitable HURT needs the victim to be HELPing you that turn, and the
+    #    leader is the player least likely to. Aiming a betrayal at the leader
+    #    BY RANK is the shape to keep out; Sandbagger may still partner the
+    #    leader, but it spends a whole match earning that first.
+    for pid, body in presets.items():
+        assert "target whoever leads now" not in body, pid
 
-    # 3. Buzzer-Beater was once told to strike "every round". That was the wrong
+    # 3. Turncoat (then Buzzer-Beater) was once told to strike "every round". That was the wrong
     #    half of a self-contradiction to keep: it struck up to 8 times, half of
     #    them at players who were not helping it (so they paid nothing), and took
-    #    ZERO round wins across 21 rounds in M_6547 / M_6556 / M_6557.
-    assert "every round" not in presets["buzzer_beater"]
-    assert "last turn" in presets["buzzer_beater"]
+    #    ZERO round wins across 21 rounds in M_6547 / M_6556 / M_6557. The ban on
+    #    attacking a non-helper is what that fix actually bought, and it survives
+    #    the v8 rewrite below.
+    assert "every round" not in presets["turncoat"]
+    assert "isn't HELPing you" in presets["turncoat"]
+
+    #    Its calendar timing is GONE, and must not come back. "Never HURT before a
+    #    round's last turn" was measured meaningless at v8: a round score is
+    #    clipped at zero and nothing else, so the damage a HURT does is identical
+    #    on turns two through five — waiting bought nothing and cost the preset
+    #    every earlier chance to strike. The replacement times the strike off the
+    #    victim's score (strike once the hit will not drop them to zero), which is
+    #    the only timing the scoring actually rewards.
+    assert "round's last turn" not in presets["turncoat"]
 
     # 4. The Champion's ban was meant to cover third parties only but read as a
     #    blanket "never attack", which stood it down completely. It now simply

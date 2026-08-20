@@ -17,12 +17,12 @@ true or useful. `.claude/skills/game-design/` records the wider lesson from
 G_0017: prompts are the weakest lever here, and a flat game is a payoff problem
 first.
 
-The roster is Tit-for-Tat, Loyal Partner, Buzzer-Beater, Dealmaker, Underdog's
-Champion, Kingslayer, Sandbagger, Hoarder — in that order, because the join UI
-pre-selects the first one. Eight is the practical ceiling: once the only route
-past the tie is a betrayal, a strategy is fully described by who you partner and
-when you strike, and those combinations are now covered. A ninth would duplicate
-one of these. Grim
+The roster is Tit-for-Tat, Loyal Partner, Turncoat, Dealmaker, Underdog's
+Champion, Sandbagger, Hoarder — in that order, because the join UI pre-selects
+the first one. Seven is the practical ceiling: once the only route past the tie
+is a betrayal, a strategy is fully described by who you partner and when you
+strike, and those combinations are now covered. An eighth would duplicate one of
+these — which is exactly why KINGSLAYER was retired at v8, see below. Grim
 Trigger, Pavlov, Always Defect and Generous Tit-for-Tat were dropped rather than
 rewritten: none of them can win. In M_6442 each either played out as plain
 Tit-for-Tat or, for Always Defect, aimed at the highest-scoring opponent — the
@@ -31,20 +31,37 @@ finished last on 12 points against a winner on 184. Dropping a preset does not
 change agents that already exist; the prompt text is copied into the agent at
 creation time.
 
-Every surviving preset must have a route past the tie, and at v7 there are three
-rather than one. Income in a turn is ``4N`` from helpers, plus whichever ONE move
-you make: a mutual pact, a betrayal of a helper, or a share of the HOARD pot. Up
-to v6 the pot was a flat 2 that nobody would ever choose, so every preset was a
-different bid for helpers and the roster was eight variations on one idea. The
-contested pot adds a second economy — points you take rather than points you are
-given — and a real defect move, because hoarding while a partner still HELPs you
-now out-earns the pact you broke. Half the roster reaches for it.
+Every surviving preset must have a route past the tie. Income in a turn is ``4N``
+from helpers, plus whichever ONE move you make: a mutual pact, a betrayal of a
+helper, or a share of the HOARD pot. Up to v6 the pot was a flat 2 that nobody
+would ever choose, so every preset was a different bid for helpers and the roster
+was variations on one idea.
+
+The v8 payoffs put those three routes in a strict order, and every preset below
+is written to it. When somebody is HELPing you, your turn is worth 6 for a pact,
+HOARD_POT_POINTS plus their help for the pot (12 alone, 8 with company, less
+after that), and HELP_POINTS + BETRAYAL_BONUS for betraying them (18). So
+betrayal is the best single turn in the game, hoarding alone is second, and a
+pact is the best REPEATABLE turn — the only one that still pays on turn thirty.
+That ordering is the whole design: cooperate to earn, defect once to cash out,
+and take the pot when nobody will deal with you.
+
+Timing note, because three presets used to get it wrong: a HURT does the SAME
+damage on every turn but the first. A round score is clipped at zero and nothing
+else, so an early hit is only wasted when it would push the victim below zero —
+after that, waiting changes nothing and merely risks the chance never coming
+round again. Presets time a strike off the VICTIM'S SCORE ("as soon as the hit
+will not drop them to zero"), never off the calendar.
 
 Two routes remain rejected. Pure denial still fails, because HURTing a player who
 is not helping you pays the attacker nothing however large HURT_POINTS grows — it
-leaves you below the bystanders who did nothing. Courting two backers at once
-still fails, since one HELP a turn rotated between two of them pays each only 3
-against the 6 any ordinary pact pays, so they leave.
+leaves you below the bystanders who did nothing. HURT_POINTS is deliberately held
+at parity with a turn's income for that reason: raising it to 12 was tested and
+turned two thirds of turns into a pile-on, halving winning scores, because denial
+needs no precondition and so nothing rate-limits it. Betrayal is where the knife
+belongs; it needs a willing victim, which limits it on its own. Courting two
+backers at once still fails, since one HELP a turn rotated between two of them
+pays each only 3 against the 6 any ordinary pact pays, so they leave.
 
 Coercion ("help me or I HURT you") was rejected under v5 and is NOT rejected under
 v6. The old arithmetic was that refusing paid 6 - 4 = 2 against complying's 0, so
@@ -62,34 +79,45 @@ mechanic testable — a pot nobody reaches for would measure as no change at all
 the way the v6 knife did.
 
 Sandbagger works at match scale rather than turn scale. Round wins accumulate all
-match but credibility is spent once, so it hoards credibility and spends it late:
-sharing every round pays about 0.9 round wins, one late betrayal pays 1.75, and
-playing harmless for five rounds then taking the last two pays about 2.6.
+match but credibility is spent once, so it hoards credibility and spends it late.
+v8 roughly tripled what that saved-up strike is worth: a betrayal beats a pact
+turn by 12 where it used to beat it by 4, which is about 0.43 of a round rather
+than 0.14. It is the one preset that must NOT answer a betrayal in kind — hitting
+back would spend the clean record it is saving, so its only early answer is to
+stop helping the offender.
 
 That last dead end is what shapes Underdog's Champion, and it is why the preset
 keeps ONE partner rather than building a bloc. Its route past the tie is a
-betrayal, the same route Buzzer-Beater uses, but the two differ in both halves
-of the decision. Buzzer-Beater picks any partner and times the knife by the
-calendar (the last turn, so nobody can answer). The Champion picks a partner who
+betrayal, the same route Turncoat uses, but the two differ in both halves of the
+decision. Turncoat buys a partner's trust, spends it, and moves on to someone it
+has not burned yet. The Champion picks a partner who
 has just been abandoned and times the knife by the scoreboard, striking only in
 the narrow band where +8 clears the leader but +6 does not. The target choice is
 what makes it repeatable: a rescued partner's alternative is hoarding alone for
 about 10 a round against roughly 25 with the Champion even counting the knife,
-so unlike Buzzer-Beater's victim they have no better offer and come back.
+so unlike Turncoat's victim they have no better offer and come back.
 
-Three presets now win by betrayal, and what separates them is WHO they partner
-and WHEN they strike, not the strike itself — betraying anyone pays the attacker
-the same, so the choice of victim is worth nothing to your own score and
-everything to the other side of the table. Buzzer-Beater takes whatever partner
-is handy and times the knife by the calendar. The Champion takes a partner who
-was just abandoned, which is what makes it repeatable. Kingslayer takes the
-current leader, because that is the only betrayal that both pays you AND moves
-the player you are chasing, so it can overhaul a lead no other single action
-reaches. Kingslayer's limit is reach: the strike shifts the gap by a fixed
-amount, so a big enough lead is out of range, and the preset says to stay honest
-rather than strike on hope. Note that the bare version of its move — HURTing the
-leader when they are NOT helping you — is the pure denial already rejected
-above. The returning help is what makes it pay.
+Two presets now win by betrayal, and what separates them is WHO they partner and
+WHEN they strike, not the strike itself — betraying anyone pays the attacker the
+same, so the choice of victim is worth nothing to your own score and everything
+to the other side of the table. Turncoat takes whatever partner will trust it and
+burns through them one at a time. Sandbagger takes the leader, but only once, and
+only after a whole match of provable honesty has made the leader willing.
+
+KINGSLAYER WAS RETIRED AT v8, and the reason generalises — do not rebuild it.
+Its rule was to court the current leader and betray them. Every measurement of it
+failed the same way: it struck 0.3 times in a 35-move match and scored by hoarding
+instead, because a profitable HURT needs the victim to be HELPing you that turn
+and the leader is the player in the field with the least reason to. It is not a
+tuning problem. Raising BETRAYAL_BONUS 6 -> 14 moved it from 0.60 round wins to
+0.60; the best rebuild anyone could write (free knife plus denial only in a close
+round) scored 0.07 against a plain cooperator's 0.49. The lesson is that
+"befriend, then betray" only works when you may partner ANYONE — which is exactly
+what Turncoat does, and why one works and the other cannot. The bare version of
+Kingslayer's move — HURTing a leader who is NOT helping you — is the pure denial
+already rejected above, and it stays rejected: HURT_POINTS is deliberately held
+at parity with a turn's income so denial cannot pay, because denial has no
+precondition and a profitable one lets the whole table mob the leader.
 
 Phrasing constraint: `tests/test_per_game_strategy.py` forbids these prompts
 from repeating the base prompt's wording, so they must not contain the literal
@@ -121,7 +149,9 @@ from app.games.base import StrategyPreset
 # Two tests before adding a line here: (a) is it true in EVERY mode, and (b) can
 # the rules not already give it? Anything failing either belongs in the one preset
 # that needs it — which is what #689 did with "damage lands late", pushing it down
-# into Buzzer-Beater rather than back up here.
+# into what is now Turncoat rather than back up here. That line has since gone
+# too: at v8 a HURT does identical damage on every turn but the first, so there
+# was no "late" for it to describe.
 #
 # "Prioritize round wins" is deliberately not "…not points": total score is the
 # match tiebreaker, so points decide when round wins are level.
@@ -142,47 +172,49 @@ PD_STRATEGY_PRESETS: list[StrategyPreset] = [
 Strategy: Tit-for-Tat.
 * Get a mutual HELP with one player and keep it.
 * If they don't repay, move on. Return if they do.
-* If a partner betrays you, HURT them next round.
+* If a partner betrays you, stop HELPing them, and HURT them as soon as the hit will not drop them to zero.
 * Never give up a mutual bonus to answer a HURT from anyone else.
-* In talk, ask for HELP and promise to repay.
-* Don't HOARD.""",
+* In talk, ask for HELP, promise to repay, and warn that you always answer a betrayal.
+* HOARD only on a turn when you have no partner.""",
     ),
     StrategyPreset(
         id="loyal_partner",
         name="Loyal Partner",
-        description="Back one partner and never attack. Leave only after two unpaid turns.",
+        description="Back one partner and never attack. Walk at once if attacked, slowly if ignored.",
         prompt=f"""{RANK_FRAMING}
 
 Strategy: Loyal Partner.
 * Pick one partner and HELP them every turn.
 * Never HURT anyone.
-* Leave only if they fail to repay twice in a row. Say why, then pick a new partner.
-* In talk, ask for HELP and promise to repay.
-* Don't HOARD.""",
+* If a partner HURTs you, leave at once and never partner them again. Say why.
+* Otherwise leave only if they fail to repay twice in a row, then pick a new partner.
+* In talk, ask for HELP and promise to repay.""",
     ),
     StrategyPreset(
-        id="buzzer_beater",
-        name="Buzzer-Beater",
-        description="Take the pot when it's quiet, and strike on a round's last turn.",
+        id="turncoat",
+        name="Turncoat",
+        description="Befriend, betray, then start again with someone new.",
         prompt=f"""{RANK_FRAMING}
 
-Strategy: Buzzer-Beater.
-* HELP and repay to keep helpers coming. Ask for HELP in talk every turn.
-* HOARD whenever few others look likely to. Take the pot when it's uncontested.
-* Never HURT before a round's last turn.
-* On the last turn: if the leader is HELPing you, HURT them. Otherwise HOARD.
-* Never HURT a player who isn't HELPing you.""",
+Strategy: Turncoat.
+* Get a mutual HELP going with someone, and repay once so they trust you.
+* HURT that partner as soon as the hit will not drop them to zero.
+* Then start again with a player you have never betrayed.
+* Never HURT a player who isn't HELPing you.
+* HOARD any turn nobody will pact with you.""",
     ),
     StrategyPreset(
         id="dealmaker",
         name="Dealmaker",
-        description="Offer a named trade every turn, and take the pot when nobody bites.",
+        description="Offer a named swap every turn, and take the pot when nobody bites.",
         prompt=f"""{RANK_FRAMING}
 
 Strategy: Dealmaker.
-* Each turn, name one player in talk and offer a trade: they HELP you now, you HELP them next turn.
+* Each turn, name one player in talk and offer a trade: you both HELP each other this turn.
+* Rotate the offer until someone takes it, then keep dealing with whoever does.
 * If nobody takes it, HOARD.
-* Always keep a promise you made.""",
+* Always keep a promise you made.
+* If a partner betrays you, never deal with them again, and say so publicly.""",
     ),
     StrategyPreset(
         id="underdogs_champion",
@@ -194,20 +226,8 @@ Strategy: Underdog's Champion.
 * Recruit from the bottom half of the standings. Reach them in talk.
 * Sell the pact: it pays every turn, while the pot shrinks with every taker.
 * HELP your recruit and never betray them.
+* If a recruit betrays you, stop HELPing them, and HURT them as soon as the hit will not drop them to zero. Say so publicly.
 * If they stop repaying, recruit someone else.""",
-    ),
-    StrategyPreset(
-        id="kingslayer",
-        name="Kingslayer",
-        description="Get the leader to invest in you, then cash out immediately.",
-        prompt=f"""{RANK_FRAMING}
-
-Strategy: Kingslayer.
-* Offer the leader a pact so they HELP you.
-* HURT them the first turn they do.
-* After the hit, HOARD until you land another pact.
-* Never HELP a leader twice in a row.
-* Each round, target whoever leads now.""",
     ),
     StrategyPreset(
         id="sandbagger",
@@ -218,7 +238,8 @@ Strategy: Kingslayer.
 Strategy: Sandbagger.
 * Until the second-to-last round: HELP, repay every promise, and never HURT.
 * Say often that you have never attacked anyone.
-* From the second-to-last round: partner the leader, then HURT them on a round's last turn.
+* If anyone betrays you before then, stop HELPing them and say why, but do not strike back — that would spend the record you are saving.
+* From the second-to-last round: partner the leader, then HURT them as soon as the hit will not drop them to zero.
 * HOARD any turn nobody will pact with you.""",
     ),
     StrategyPreset(
@@ -228,8 +249,9 @@ Strategy: Sandbagger.
         prompt=f"""{RANK_FRAMING}
 
 Strategy: Hoarder.
-* HOARD by default.
+* HOARD by default, and never draw attention to it.
 * In talk, push everyone else to pair up with each other, so the pot stays yours.
-* If too many are hoarding, HURT the leader instead.""",
+* If others start joining the pot, take a mutual HELP that turn instead.
+* Keep one player willing to pact with you, and repay them whenever you use them.""",
     ),
 ]
