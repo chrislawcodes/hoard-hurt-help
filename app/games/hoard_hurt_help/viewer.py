@@ -408,7 +408,7 @@ async def build_pd_replay_view(
                     "mutual": False,
                     "betrayal": False,
                     # HURT against a player who is HELPing you this same turn: the
-                    # attacker gains BETRAYAL_BONUS (the victim takes the normal -4).
+                    # attacker gains BETRAYAL_BONUS (the victim takes the normal HURT_POINTS).
                     "betrayed_helper": False,
                     "betrayal_bonus": 0,
                 }
@@ -432,7 +432,7 @@ async def build_pd_replay_view(
                 this_mutual.add(pair)
             elif a["action"] == "HURT":
                 # Betraying a helper: HURT a player who is HELPing you this turn.
-                # The attacker gains BETRAYAL_BONUS (victim takes the normal -4).
+                # The attacker gains BETRAYAL_BONUS (victim takes the normal HURT_POINTS).
                 if helps.get(tgt) == a["agent_id"]:
                     a["betrayed_helper"] = True
                     a["betrayal_bonus"] = BETRAYAL_BONUS

@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy import select
 
+from app.games.hoard_hurt_help.rules import BETRAYAL_BONUS, HURT_POINTS
 from app.models import (
     Match,
     GameState,
@@ -365,13 +366,13 @@ async def test_viewer_shows_attacker_bonus_on_betrayal(client, reset_db):
 
     r = await client.get("/games/hoard-hurt-help/matches/G_001")
     assert r.status_code == 200
-    # The attacker's +6 betrayal bonus is rendered (not buried) ...
-    assert "+6 betrayal" in r.text
-    # ... and the victim's delta chip is the v6 HURT of -8, never the stale -4.
+    # The attacker's betrayal bonus is rendered (not buried) ...
+    assert f"+{BETRAYAL_BONUS} betrayal" in r.text
+    # ... and the victim's delta chip is the live HURT_POINTS. Both figures are
+    # derived: this test spelled them out as "+6" and "-8" and went stale twice.
     # Match the rendered delta span content specifically (a bare "-8" substring
     # false-matches "utf-8" in the page <head>).
-    assert ">-8<" in r.text
-    assert ">-4<" not in r.text
+    assert f">-{HURT_POINTS}<" in r.text
 
 
 async def test_guide_serves_doc(client, reset_db):

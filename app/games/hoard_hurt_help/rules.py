@@ -14,7 +14,18 @@ HOARD_POT_POINTS = 8
 HELP_POINTS = 4  # HELP: target gains this, actor gains 0
 HURT_POINTS = 8  # HURT: target loses this, actor gains 0
 MUTUAL_HELP_BONUS = 4  # extra to each side on a pair's FIRST mutual HELP this match
-BETRAYAL_BONUS = 6  # extra to the ATTACKER when they HURT a player HELPing them this turn
+# Extra to the ATTACKER when they HURT a player HELPing them this turn. Sized
+# from what a betrayal DESTROYS, not from what it feels like it should pay: the
+# victim never partners with you again, so the move has to cover several turns of
+# the pact income you just ended. At 14 a betrayal turn pays HELP_POINTS + 14 =
+# 18, which is three normal pact turns (6 each) under the shipped FLAT_6 mode.
+#
+# Two bounds hold it there. It must exceed HOARD_POT_POINTS, or hoarding on your
+# partner is always the better way to defect and the knife stays dead — that was
+# the v7 bug, bonus 6 against a pot of 8. And it must stay under about 0.75 of a
+# round (~28 points), or one betrayal wins a round on its own and the other four
+# turns stop mattering.
+BETRAYAL_BONUS = 14
 # Mutual help decays -1 each time the SAME pair repeats it within a match, flooring
 # the pair's per-side total at MUTUAL_HELP_FLOOR: total =
 # max(MUTUAL_HELP_FLOOR, HELP_POINTS + MUTUAL_HELP_BONUS - k). The floor was set to
@@ -61,12 +72,15 @@ class MutualHelpMode(str, enum.Enum):
 
     The lever these exist to explore is cooperation-vs-betrayal, not
     cooperation-vs-hoarding. Betraying a helper pays the attacker
-    HELP_POINTS + BETRAYAL_BONUS (= 10) and costs the victim HURT_POINTS (= 8),
-    mode-independent — every mode pays a betrayer the same 10. Betrayal now
-    out-pays every pact rate, including FLAT_8: the pull is on points, not only
-    on rank. Under today's default FLAT_6 a knife swings 18 points between the
-    two players in one turn (attacker 6 -> 10, victim 6 -> -8), which is what
-    makes a last-turn betrayal able to decide a round.
+    HELP_POINTS + BETRAYAL_BONUS and costs the victim HURT_POINTS,
+    mode-independent — every mode pays a betrayer the same. Betrayal out-pays
+    every pact rate, including FLAT_8: the pull is on points, not only on rank.
+
+    Note what sets a pact's value, because it is easy to misread: the pair total
+    is the MODE's, not MUTUAL_HELP_BONUS on its own. HELP_POINTS + the bonus is
+    8, and FLAT_6 — today's default — subtracts 2 to reach 6. So the pot is a
+    temptation only under FLAT_6/FLAT_7; at FLAT_8 a solo pot and a pact both pay
+    8 and the temptation disappears.
     """
 
     DECAY = "decay"  # 8, 7, 6 … floored at 2
