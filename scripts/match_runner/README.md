@@ -10,6 +10,75 @@ the OAuth connection you already signed in with. The `sk_conn_` connector
 (`scripts/agentludum_connector.py`) is a different, always-on route — you do not
 need it for a one-off measurement run.
 
+## Before you touch anything: prove ONE agent can call a tool
+
+Run this first, every time. It takes seconds and it is the check whose absence
+cost the M_6817 run:
+
+```bash
+cd /tmp && printf 'First call ToolSearch with query "select:mcp__agentludum__get_next_turns" to load the tool. Then CALL mcp__agentludum__get_next_turns. Reply with only its raw JSON.\n' \
+  | claude --print --model claude-haiku-4-5 --allowedTools "ToolSearch,mcp__agentludum__get_next_turns"
+```
+
+Raw JSON back = good. A paragraph explaining it cannot call the tool = **stop**,
+and fix that before creating agents or starting a match. A match cannot be
+cancelled once ACTIVE, so a broken loop discovered afterwards is unrecoverable.
+
+## MCP TOOLS ARE DEFERRED — the trap that broke a live match
+
+**Symptom:** the agent writes prose instead of playing, saying something like
+*"the tools are listed as deferred and now loaded… however I cannot invoke
+them."* Turns then silently default to HOARD and the match looks like it is
+running normally.
+
+**Cause:** Claude Code refreshes feature flags from a server, and
+`tengu_deferred_stub_tool` turned MCP tools into *deferred* tools — a session
+must call `ToolSearch` to load them before it can use them. This changed under a
+running setup on 2026-08-19 with **no local change at all**: `~/.claude.json`
+diffed byte-identical against its backup apart from the flag cache. Same
+scripts, same version, same MCP config, working one hour and broken the next.
+
+`tengu_tool_search_unsupported_models` exempts the OLD haikus but **not
+`claude-haiku-4-5`**, which is the model these loops use — so haiku got handed
+the new flow and could not work it. Sonnet could.
+
+**Fix (keeps haiku, which is the cheap model):** two things together.
+
+1. Put `ToolSearch` FIRST in `--allowedTools`, before the mcp__ tools.
+2. Open the prompt with an explicit instruction to ToolSearch the game tools
+   before playing. `prompt_template.txt` already does this — do not delete it.
+
+Verified working on `claude-haiku-4-5` after both changes.
+
+**If it breaks again**, check the flags rather than the config:
+
+```bash
+python3 -c "import json,os;d=json.load(open(os.path.expanduser('~/.claude.json')));f=d['cachedGrowthBookFeatures'];print({k:v for k,v in f.items() if 'tool' in k or 'mcp' in k})"
+```
+
+## Launch the loops so the harness cannot reap them
+
+`nohup ... &` from an agent's Bash call is NOT enough — the harness kills those
+children when the call returns, and the loops die a minute later having written
+nothing. Symptom: `agent_*.log` shows a `launch #1` line and no output, and
+`pgrep play_agent.sh` returns nothing.
+
+Use `run_all.sh`, which starts every supervisor and then `wait`s, so one
+long-lived process holds them all:
+
+```bash
+scripts/match_runner/run_all.sh "$RUN"      # run this in the BACKGROUND
+```
+
+`start_loops.sh` remains for a human terminal, where nothing reaps it.
+
+## Check your monitor's endpoint before trusting it
+
+`/api/spectator/matches/<id>` returns **404**. A monitor polling it never fires
+and never reports, which looks identical to a quiet, healthy match. Curl the URL
+once and confirm it returns JSON before arming anything on it. Read match state
+through the `mcp__agentludum__get_game_state` tool instead.
+
 ## The order is load-bearing — get it wrong and the match dies silently
 
 **START THE PLAY LOOPS BEFORE YOU JOIN.** This is not a preference; joining in

@@ -88,6 +88,18 @@ procedure. Read that before starting a measurement run; the short version:
 - It is the **MCP path** — `claude --print` / `codex exec` driving the
   `mcp__agentludum__*` tools over your existing OAuth sign-in. **No API key.**
   The `sk_conn_` connector is the separate always-on route, not this.
+- **PROVE ONE AGENT CAN CALL A TOOL BEFORE YOU START ANYTHING.** One `claude
+  --print` call that returns raw JSON. A match cannot be cancelled once ACTIVE,
+  so a broken loop found afterwards is unrecoverable. The exact command is in the
+  README.
+- **MCP tools are DEFERRED.** A session must call `ToolSearch` to load them
+  first, or it writes prose instead of playing and every turn silently defaults
+  to HOARD. Put `ToolSearch` first in `--allowedTools` AND tell the prompt to
+  load the tools before playing. This arrived via a server-side feature flag with
+  no local change — same scripts working one hour and broken the next — so check
+  `cachedGrowthBookFeatures`, not your config, when play mysteriously stops.
+- **Launch the loops with `run_all.sh` in the background**, not `nohup &` from a
+  Bash call — the harness reaps those children when the call returns.
 - **ORDER IS LOAD-BEARING: start the play loops BEFORE joining any agent.**
   Joining with the AI not yet running creates a *held* seat, and every still-held
   seat is DELETED when the match starts — so all eight vanish, and the match is
