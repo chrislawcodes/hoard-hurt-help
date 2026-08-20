@@ -10,6 +10,27 @@ the OAuth connection you already signed in with. The `sk_conn_` connector
 (`scripts/agentludum_connector.py`) is a different, always-on route — you do not
 need it for a one-off measurement run.
 
+## The retry storm — check this if you keep hitting your quota
+
+The subscription wall reads **"You've hit your session limit"**. The supervisor's
+backoff used to grep for `quota reached|rate limit|usage limit|too many
+requests`, none of which match it, so it fell through to a three-second retry and
+hammered the wall for hours.
+
+One agent in M_6855 logged **3,873 launches to play 24 turns** — 3,848 of them
+were the wall. Times eight agents, that is roughly 30,000 rejected calls to run a
+single match, and the quota it burned is what stalled the final round.
+
+The supervisor now backs off on **the shape of the failure, not its wording**: a
+session exiting non-zero in under 15 seconds did not play a turn, whatever the
+message says. Waits grow 30s, 60s, 90s… to a 15-minute ceiling, and reset the
+moment a session runs long enough to have played. Measured against a constant
+wall: 2 launches in 75 seconds where the old code managed 25.
+
+**Do not "fix" this by adding another phrase to a grep list.** That list is what
+failed. If you see a hot retry loop, check `elapsed` in the log lines
+(`exited rc=1 after 0s`) — that is the signal, and it survives a reworded error.
+
 ## When the MCP token expires mid-session (it expires hourly)
 
 Symptom: the preflight check comes back with *"the agentludum MCP server requires

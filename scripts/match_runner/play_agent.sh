@@ -18,10 +18,18 @@ sed -e "s/__AGENT_ID__/$AGENT_ID/g" -e "s/__AGENT_NAME__/$AGENT_NAME/g" \
 
 TOOLS="ToolSearch,mcp__agentludum__get_next_turn,mcp__agentludum__submit_talk,mcp__agentludum__submit_action,mcp__agentludum__get_game_state,mcp__agentludum__get_instructions,mcp__agentludum__get_chat"
 
+# A session exiting non-zero faster than this did not play a turn.
+FAST_FAIL_SECONDS=15
+# Ceiling on the wait between retries. The subscription wall can last hours, so
+# this is generous — a stuck supervisor costs nothing, a hot loop costs quota.
+MAX_BACKOFF_SECONDS=900
+
 launch=0
+fast_fails=0
 while [ ! -f "$RUN_DIR/STOP" ]; do
   launch=$((launch + 1))
   echo "=== launch #$launch ($PROVIDER) $(date -u +%H:%M:%S)Z ===" >> "$LOG"
+  started_at=$(date +%s)
 
   if [ "$PROVIDER" = "claude" ]; then
     # Run from the isolated run dir, NOT the repo: the repo's CLAUDE.md is a
@@ -39,16 +47,32 @@ while [ ! -f "$RUN_DIR/STOP" ]; do
       >> "$LOG" 2>&1
   fi
   rc=$?
-  echo "--- exited rc=$rc $(date -u +%H:%M:%S)Z ---" >> "$LOG"
+  elapsed=$(( $(date +%s) - started_at ))
+  echo "--- exited rc=$rc after ${elapsed}s $(date -u +%H:%M:%S)Z ---" >> "$LOG"
 
   [ -f "$RUN_DIR/STOP" ] && break
 
-  # A subscription quota wall is not a crash — retrying every few seconds just
-  # burns relaunches, so wait it out instead.
-  if tail -40 "$LOG" | grep -qiE "quota reached|rate limit|usage limit|too many requests"; then
-    echo "!!! quota/rate wall hit — backing off 300s" >> "$LOG"
-    sleep 300
+  # BACK OFF ON THE SHAPE OF THE FAILURE, NOT ON ITS WORDING.
+  #
+  # This used to grep the log for "quota reached|rate limit|usage limit|too many
+  # requests". The real subscription wall says "You've hit your session limit",
+  # which matches NONE of those, so the supervisor fell through to `sleep 3` and
+  # retried every three seconds for hours. One agent in M_6855 logged 3,873
+  # launches to play 24 turns: 3,848 of them were the wall, hammered in a tight
+  # loop, and the quota it burned is what stalled the match's final round.
+  #
+  # A session that exits non-zero within seconds did not play a turn — it hit a
+  # wall of some kind. That is true whatever the message says, and it stays true
+  # when the wording changes again. Wait longer each time, and reset the moment a
+  # session runs long enough to have actually played.
+  if [ "$rc" -ne 0 ] && [ "$elapsed" -lt "$FAST_FAIL_SECONDS" ]; then
+    fast_fails=$(( fast_fails + 1 ))
+    backoff=$(( 30 * fast_fails ))
+    [ "$backoff" -gt "$MAX_BACKOFF_SECONDS" ] && backoff=$MAX_BACKOFF_SECONDS
+    echo "!!! fast failure #$fast_fails (rc=$rc after ${elapsed}s) — waiting ${backoff}s" >> "$LOG"
+    sleep "$backoff"
   else
+    fast_fails=0
     sleep 3
   fi
 done
