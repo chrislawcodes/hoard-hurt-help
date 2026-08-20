@@ -80,6 +80,26 @@ Both methods route the change through normal delivery (preflight, PR,
 `Validation` section) — a good measurement justifies a change, it never
 bypasses the gate.
 
+## Running a real-LLM match — the runbook
+
+`scripts/match_runner/` holds the working scripts and a README with the full
+procedure. Read that before starting a measurement run; the short version:
+
+- It is the **MCP path** — `claude --print` / `codex exec` driving the
+  `mcp__agentludum__*` tools over your existing OAuth sign-in. **No API key.**
+  The `sk_conn_` connector is the separate always-on route, not this.
+- **Two steps need a human**: creating the agents and creating/joining the match.
+  There is no MCP tool for either. Create the agents AFTER the change you are
+  testing has deployed — preset text is copied into an agent at creation, so an
+  agent made too early silently measures the old strategy.
+- **Run from an isolated directory, never the repo** — a model that reads the
+  repo's `CLAUDE.md` decides it was handed a coding task and refuses to play.
+- **Every `get_next_turn` must pin `agent_id`**, or it claims another agent's
+  turn.
+- **One match at a time.** Throughput is fixed at ~1 match / 23 min; concurrency
+  only raises the default rate (a default IS a HOARD, which corrupts hoard-rate
+  measurements).
+
 ## Real-LLM runs: check the agents actually PLAYED before believing the result
 
 A game where agents cannot answer in time still completes and still looks normal.
