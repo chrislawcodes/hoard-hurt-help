@@ -232,6 +232,8 @@ def test_the_move_payoffs_are_stated_once():
     """
     from app.games.hoard_hurt_help.rules import (
         BETRAYAL_BONUS,
+        HURT_TAKE_HELPER,
+        HURT_TAKE_HOARDER,
         HELP_POINTS,
         HOARD_POT_POINTS,
         HURT_POINTS,
@@ -242,12 +244,22 @@ def test_the_move_payoffs_are_stated_once():
 
     assert f"+{HOARD_POT_POINTS}" in hoard_legend()
     assert f"-{HURT_POINTS} to another" in hurt_legend()
-    assert f"+{BETRAYAL_BONUS} to you if betraying a helper" in hurt_legend()
+    # The legend now advertises every tier, because at v9 a HURT's payout depends
+    # on what the TARGET was doing — a legend showing only the betrayal figure
+    # would hide two rates the resolver actually pays.
+    assert f"+{HELP_POINTS + BETRAYAL_BONUS} betraying a helper" in hurt_legend()
+    assert f"+{HURT_TAKE_HELPER} off a helper" in hurt_legend()
+    assert f"+{HURT_TAKE_HOARDER} off a hoarder" in hurt_legend()
     assert help_legend(DEFAULT_MUTUAL_HELP_MODE).startswith(f"+{HELP_POINTS} to another")
 
     # The agent-facing rules state the same payoffs the legends do.
     text = get_game_module(PD).semantic_rules_text()
-    assert f"the target loses {HURT_POINTS} points" in text
+    assert f"The target loses {HURT_POINTS} points" in text
+    # ...and the tier table below it must state every rate the resolver pays, or
+    # an agent reads a HURT as all-or-nothing the way it was before v9.
+    assert f"**+{HURT_TAKE_HELPER}**" in text
+    assert f"**+{HURT_TAKE_HOARDER}**" in text
+    assert "Blocked." in text
     assert f"the target gains +{HELP_POINTS} points" in text
     assert f"splits +{HOARD_POT_POINTS} points" in text
     assert f"an extra +{BETRAYAL_BONUS} bonus" in text
@@ -307,3 +319,48 @@ def test_the_hoard_pot_is_stated_once_and_splits_sanely():
     # And the agent-facing rules describe the split, not a flat number.
     text = get_game_module(PD).semantic_rules_text()
     assert f"splits +{HOARD_POT_POINTS} points" in text
+
+
+def test_the_hurt_tiers_keep_their_design_order() -> None:
+    """The tiers are tunable, but three relationships must hold.
+
+    Each was derived before v9 shipped and each has a failure mode attached:
+
+    1. A betrayal must out-pay every other tier, or the one attack that needs a
+       relationship built first is worth less than one that needs nothing.
+    2. HURT_TAKE_HELPER must stay BELOW a pact. At parity, attacking a cooperator
+       pays exactly what cooperating pays AND damages them, so in a head-to-head
+       endgame there is no reason not to swing and the final turn stops being a
+       decision.
+    3. Hoarding must be the smallest paying tier, and attacking someone who is
+       themselves attacking must pay nothing — that ordering is what makes HURT a
+       read on the target rather than a flat move.
+    """
+    from app.games.hoard_hurt_help.rules import (
+        BETRAYAL_BONUS,
+        DEFAULT_MUTUAL_HELP_MODE,
+        HELP_POINTS,
+        HURT_TAKE_HELPER,
+        HURT_TAKE_HOARDER,
+        hurt_take,
+        mutual_help_value,
+    )
+
+    betrayal = HELP_POINTS + BETRAYAL_BONUS
+    pact = mutual_help_value(DEFAULT_MUTUAL_HELP_MODE, 0)
+
+    assert betrayal > HURT_TAKE_HELPER > HURT_TAKE_HOARDER > 0
+    assert HURT_TAKE_HELPER < pact, (
+        "at or above a pact, attacking a cooperator is free in a head-to-head"
+    )
+    assert hurt_take("HURT", target_helps_attacker=False) == 0
+
+    # A betrayal is never shared, however many pile onto the same victim.
+    assert (
+        hurt_take("HELP", target_helps_attacker=True, attackers_on_target=4)
+        == BETRAYAL_BONUS
+    )
+    # The grab tiers ARE shared.
+    assert hurt_take(
+        "HELP", target_helps_attacker=False, attackers_on_target=2
+    ) == HURT_TAKE_HELPER // 2

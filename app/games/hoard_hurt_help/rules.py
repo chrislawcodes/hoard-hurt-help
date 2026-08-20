@@ -26,6 +26,25 @@ MUTUAL_HELP_BONUS = 4  # extra to each side on a pair's FIRST mutual HELP this m
 # round (~28 points), or one betrayal wins a round on its own and the other four
 # turns stop mattering.
 BETRAYAL_BONUS = 14
+# What a HURT pays the ATTACKER when the target is NOT helping them. At v8 this
+# was zero in every such case, which made HURT a move you could only afford
+# against someone who had already chosen to trust you — so a player with no
+# partner and no share of the pot had literally nothing to do. Measured in
+# M_6809: Sandbagger narrated its own defeat ("pacts lock 30 and claim the
+# round-win split") and cooperated into last place, because the board offered it
+# no alternative.
+#
+# The payout now scales with what the target was DOING, i.e. with how much they
+# had on the table for you to take:
+HURT_TAKE_HELPER = 5  # they were HELPing someone else — you interrupt that
+HURT_TAKE_HOARDER = 3  # they were HOARDing — you take a cut of the grab
+# ...and a target who was HURTing someone gets nothing taken, because they were
+# producing nothing to take. See `hurt_take`, which is the single source.
+#
+# HURT_TAKE_HELPER is deliberately BELOW a pact (6). At 6 an attack on a
+# cooperator pays exactly what cooperating pays and damages them as well, so in a
+# head-to-head endgame there is no reason not to swing and the final turn stops
+# being a decision. One point of cost is what keeps it a choice.
 # Mutual help decays -1 each time the SAME pair repeats it within a match, flooring
 # the pair's per-side total at MUTUAL_HELP_FLOOR: total =
 # max(MUTUAL_HELP_FLOOR, HELP_POINTS + MUTUAL_HELP_BONUS - k). The floor was set to
@@ -64,7 +83,7 @@ DEFAULT_TURNS_PER_ROUND = 5
 # moves: match length and `mutual_help_mode` are stored per match in their own
 # columns, so they are already recorded exactly, and bumping this for them would
 # make the version say a match is unlike another that differs only by a setting.
-RULES_VERSION = "v8"
+RULES_VERSION = "v9"
 
 
 class MutualHelpMode(str, enum.Enum):
@@ -202,6 +221,62 @@ def hoard_legend() -> str:
     return f"share of a +{HOARD_POT_POINTS} pot, split between everyone who Hoards"
 
 
+def hurt_take(
+    target_action: str | None,
+    *,
+    target_helps_attacker: bool,
+    attackers_on_target: int = 1,
+) -> int:
+    """What ONE attacker gains from a HURT, given what the TARGET did this turn.
+
+    The single source for the attacker's side of a HURT — resolver, viewer mirror,
+    replay legend, per-move chip and the rules text agents read all call this, so
+    the number a spectator sees can never differ from the one the resolver paid.
+
+    Returns the attacker's DIRECT take only. On a betrayal that is
+    ``BETRAYAL_BONUS``, not the full 18: the target's HELP still lands and is
+    credited separately by the normal HELP payout, so adding it here would pay it
+    twice. Every other tier is a pure take — the target is not helping the
+    attacker, so nothing else arrives.
+
+    ``attackers_on_target`` splits the take between everyone who hit the same
+    player this turn, the same self-limiting shape `hoard_share` uses: mobbing one
+    player is allowed, it just pays each attacker less. Integer division, so the
+    remainder is simply not awarded.
+
+    A target who is HURTing the attacker BACK is handled by the caller, not here —
+    that pair blocks (see the rules text), so no take and no damage either way.
+    """
+    if attackers_on_target <= 0:
+        return 0
+    if target_helps_attacker:
+        # NOT split. The bonus is earned from a relationship you built, not
+        # grabbed off the table — so a third party piling onto the same victim
+        # must not be able to halve it. Splitting it would also hand anyone a
+        # cheap way to spoil someone else's betrayal by swinging at the victim.
+        return BETRAYAL_BONUS
+    if target_action == "HELP":
+        take = HURT_TAKE_HELPER
+    elif target_action == "HOARD":
+        take = HURT_TAKE_HOARDER
+    else:
+        return 0  # they were HURTing someone — nothing on the table to take
+    # These tiers ARE a grab off what the target had going, so several attackers
+    # share one target's worth between them.
+    return take // attackers_on_target
+
+
+def hurt_blocks(target_action: str | None, target_of_target: int | str | None,
+                attacker: int | str) -> bool:
+    """True when the target is HURTing the attacker back, so both swings miss.
+
+    Kept beside `hurt_take` because the two together are the whole of a HURT's
+    outcome, and a caller that applied one without the other would pay a take on
+    an attack that never landed.
+    """
+    return target_action == "HURT" and target_of_target == attacker
+
+
 def hurt_legend() -> str:
     """The one-line Hurt description for a replay legend.
 
@@ -210,8 +285,10 @@ def hurt_legend() -> str:
     includes the help they still receive.
     """
     return (
-        f"-{HURT_POINTS} to another; "
-        f"+{BETRAYAL_BONUS} to you if betraying a helper"
+        f"-{HURT_POINTS} to another; you take "
+        f"+{HELP_POINTS + BETRAYAL_BONUS} betraying a helper, "
+        f"+{HURT_TAKE_HELPER} off a helper, "
+        f"+{HURT_TAKE_HOARDER} off a hoarder"
     )
 
 
@@ -278,19 +355,33 @@ In the act phase, choose exactly one action. You cannot target yourself.
 
 - **HOARD** — You join this turn's pot. **Everyone who HOARDs splits +{HOARD_POT_POINTS} points between them**, rounded down: alone you take +{HOARD_POT_POINTS}, two of you take +{HOARD_POT_POINTS // 2} each, three take +{HOARD_POT_POINTS // 3} each, and so on. Hoarding pays best when nobody else does it.
 - **HELP [target]** — You gain 0 points; the target gains +{HELP_POINTS} points.
-- **HURT [target]** — You gain 0 points; the target loses {HURT_POINTS} points.
+- **HURT [target]** — The target loses {HURT_POINTS} points. **What YOU gain depends on what your target does this same turn** — see "What a HURT pays you" below. Moves resolve simultaneously, so this is a read on what they are about to do.
 
 ## Stacking and combos
 
 - **HELP stacks.** Multiple players HELPing the same target each contribute +{HELP_POINTS}.
-- **HURT stacks.** Multiple players HURTing the same target each contribute -{HURT_POINTS}.
+- **HURT stacks, but the payout is shared.** Multiple players HURTing the same target each contribute -{HURT_POINTS}, so the damage adds up. What they *gain* is split between them, rounded down — ganging up on one player costs them plenty, and pays each of you less.
 {mutual_section}
-- **Betraying a helper.** If you HURT a player who is HELPing *you* on the same turn, you gain an extra +{BETRAYAL_BONUS} bonus on top of the +{HELP_POINTS} help you still receive — so you net +{HELP_POINTS + BETRAYAL_BONUS} that turn. The player you HURT takes the normal -{HURT_POINTS}. Net swing: attacker +{HELP_POINTS + BETRAYAL_BONUS} / victim -{HURT_POINTS}. (Moves resolve simultaneously, so this is a read on whether your target will help you.)
+- **Betraying a helper.** If you HURT a player who is HELPing *you* on the same turn, you gain an extra +{BETRAYAL_BONUS} bonus on top of the +{HELP_POINTS} help you still receive — so you net +{HELP_POINTS + BETRAYAL_BONUS} that turn. The player you HURT takes the normal -{HURT_POINTS}.
 - HELP and HURT against the same target both resolve; the target's score moves by the net.
+
+## What a HURT pays you
+
+Your target always loses {HURT_POINTS}. What **you** get depends on what they were doing — the more they had on the table, the more there is to take:
+
+| Your target this turn | You gain |
+| --- | --- |
+| Is HELPing **you** (a betrayal) | **+{HELP_POINTS + BETRAYAL_BONUS}** — their help still lands, plus a +{BETRAYAL_BONUS} bonus. Never shared, even if others hit the same player. |
+| Is HELPing **someone else** | **+{HURT_TAKE_HELPER}** |
+| Is HOARDing | **+{HURT_TAKE_HOARDER}** |
+| Is HURTing someone else | **0** — they were making nothing to take |
+| Is HURTing **you** | **Blocked.** You both swing and both miss: no damage, no points, either way. |
+
+So HURT is a read on your target, not a coin flip. Attacking a player who is about to attack you wastes both your turns.
 
 ## Score floor
 
-Round scores are clipped at {SCORE_FLOOR}. HURTing a player already at {SCORE_FLOOR} still costs the attacker their turn but has no effect on the target.
+Round scores are clipped at {SCORE_FLOOR}, so a HURT can only take a player down to {SCORE_FLOOR} — hitting someone already there does nothing to them. **You are still paid for the swing** at the rate in the table above, so the attack is not wasted on your side.
 
 ## Round and game structure
 

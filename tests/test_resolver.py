@@ -15,6 +15,8 @@ from app.games.hoard_hurt_help.rules import (
     BETRAYAL_BONUS,
     HELP_POINTS,
     HURT_POINTS,
+    HURT_TAKE_HELPER,
+    HURT_TAKE_HOARDER,
     hoard_share,
 )
 from app.games.hoard_hurt_help.scoring import resolve_turn
@@ -134,7 +136,11 @@ async def test_single_help(db):
 
 
 async def test_single_hurt(db):
-    """A Hurts B → A gets 0; B nets its solo pot minus the hurt."""
+    """A HURTs a HOARDer → A takes the hoarder rate; B nets its pot minus the hurt.
+
+    At v9 a HURT pays the attacker off what the TARGET was doing, so attacking a
+    hoarder is no longer free of charge to nobody — it pays HURT_TAKE_HOARDER.
+    """
     game, [a, b] = await _make_game_with_players(db, 2)
     turn = await _open_turn(db, game)
     await _submit(db, turn, a, "HURT", target=b)
@@ -142,7 +148,7 @@ async def test_single_hurt(db):
     await resolve_turn(db, turn)
     await db.refresh(a)
     await db.refresh(b)
-    assert a.current_round_score == 0
+    assert a.current_round_score == HURT_TAKE_HOARDER
     # B starts at 0, takes the pot alone, then the hurt lands on top.
     assert b.current_round_score == max(0, hoard_share(1) - HURT_POINTS)
 
@@ -235,7 +241,13 @@ async def test_score_floor_on_final_delta(db):
 
 
 async def test_hurt_against_zero_target(db):
-    """HURT on a low target: the attacker still gains nothing from the HURT."""
+    """A HURT on a target the floor will clip still PAYS the attacker.
+
+    The victim's side is capped by the score floor, but the attacker's take is
+    priced off what the target was DOING, not off how much damage actually
+    landed — so a swing at someone already near zero is never wasted on your
+    side. The rules text says so explicitly; this pins it.
+    """
     game, [a, b] = await _make_game_with_players(db, 2)
     # B starts at 0.
     turn = await _open_turn(db, game)
@@ -244,7 +256,7 @@ async def test_hurt_against_zero_target(db):
     await resolve_turn(db, turn)
     await db.refresh(a)
     await db.refresh(b)
-    assert a.current_round_score == 0  # used turn on HURT, no Hoard
+    assert a.current_round_score == HURT_TAKE_HOARDER  # paid off B's HOARD
     assert b.current_round_score == max(0, hoard_share(1) - HURT_POINTS)
 
 
@@ -268,11 +280,11 @@ async def test_betraying_a_helper_pays_help_plus_the_bonus(db):
 
 
 async def test_hurt_non_helper_takes_the_plain_hurt(db):
-    """A normal HURT (target did NOT help the attacker) lands for HURT_POINTS.
+    """A HURT on a non-helper lands for HURT_POINTS and pays the hoarder rate.
 
-    B HOARDs (does not help A). A HURTs B → plain damage, and A gets NO bonus.
-    B takes their solo pot share and then the hurt. A ends 0 — HURT pays the
-    attacker nothing, which is what keeps unprovoked denial a losing move.
+    B HOARDs (does not help A), so A gets no BETRAYAL_BONUS — but at v9 it is no
+    longer nothing either: A takes HURT_TAKE_HOARDER, the smallest tier, because
+    a hoarder had the least on the table.
     """
     game, [a, b] = await _make_game_with_players(db, 2)
     b.current_round_score = 10
@@ -283,7 +295,7 @@ async def test_hurt_non_helper_takes_the_plain_hurt(db):
     await resolve_turn(db, turn)
     await db.refresh(a)
     await db.refresh(b)
-    assert a.current_round_score == 0  # HURT on a non-helper pays the attacker nothing
+    assert a.current_round_score == HURT_TAKE_HOARDER  # priced off B's HOARD
     assert b.current_round_score == 10 + hoard_share(1) - HURT_POINTS
 
 
@@ -305,7 +317,11 @@ async def test_betrayal_bonus_only_for_the_helped_attacker(db):
     await db.refresh(b)
     await db.refresh(c)
     assert a.current_round_score == BETRAYAL_PAYOUT
-    assert c.current_round_score == 0  # C HURT someone who did not help C → no bonus
+    # C HURT a player who was HELPing someone ELSE (A), so C gets the helper tier
+    # and NOT the betrayal bonus. C is the only attacker taking that tier, so it
+    # is not split — A's betrayal bonus is a separate, never-shared payout, which
+    # is what stops a third party halving someone else's betrayal by piling on.
+    assert c.current_round_score == HURT_TAKE_HELPER
     assert b.current_round_score == 20 - 2 * HURT_POINTS  # both hurts land
 
 
@@ -760,3 +776,60 @@ async def test_current_pact_values_unaffected_pair_stays_8(db):
         c.id: 8,
         d.id: 8,
     }
+
+
+async def test_hurt_pays_off_what_the_target_was_doing(db):
+    """Every v9 tier, in one turn, against the real resolver.
+
+    A HURTs B (B HELPs A)      -> betrayal: the full bonus, never split
+    C HURTs D (D HELPs E)      -> the helper tier
+    E HURTs F (F HOARDs)       -> the hoarder tier
+    G HURTs H and H HURTs G    -> blocked: no damage, no take, either way
+    """
+    game, players = await _make_game_with_players(db, 8)
+    a, b, c, d, e, f, g, h = players
+    turn = await _open_turn(db, game)
+    await _submit(db, turn, b, "HELP", target=a)
+    await _submit(db, turn, a, "HURT", target=b)
+    await _submit(db, turn, d, "HELP", target=e)
+    await _submit(db, turn, c, "HURT", target=d)
+    await _submit(db, turn, f, "HOARD")
+    await _submit(db, turn, e, "HURT", target=f)
+    await _submit(db, turn, g, "HURT", target=h)
+    await _submit(db, turn, h, "HURT", target=g)
+    await resolve_turn(db, turn)
+    for p in players:
+        await db.refresh(p)
+
+    assert a.current_round_score == BETRAYAL_PAYOUT          # help + bonus
+    assert c.current_round_score == HURT_TAKE_HELPER         # D was helping E
+    assert e.current_round_score == HURT_TAKE_HOARDER + HELP_POINTS  # take + D's help
+    assert g.current_round_score == 0                        # blocked
+    assert h.current_round_score == 0                        # blocked, both ways
+    assert b.current_round_score == 0                        # -HURT_POINTS, floored
+    assert f.current_round_score == max(0, hoard_share(1) - HURT_POINTS)
+
+
+async def test_several_attackers_split_the_take_but_not_a_betrayal(db):
+    """Mobbing one target shares the take; a betrayer neither splits nor thins it.
+
+    B HELPs A. A, C and D all HURT B. A is betraying, so A takes the full bonus
+    and is excluded from the split — C and D share one helper-tier take between
+    them, rather than three ways.
+    """
+    game, players = await _make_game_with_players(db, 4)
+    a, b, c, d = players
+    b.current_round_score = 40
+    await db.commit()
+    turn = await _open_turn(db, game)
+    await _submit(db, turn, b, "HELP", target=a)
+    for attacker in (a, c, d):
+        await _submit(db, turn, attacker, "HURT", target=b)
+    await resolve_turn(db, turn)
+    for p in players:
+        await db.refresh(p)
+
+    assert a.current_round_score == BETRAYAL_PAYOUT       # NOT halved by C and D
+    assert c.current_round_score == HURT_TAKE_HELPER // 2  # C and D share
+    assert d.current_round_score == HURT_TAKE_HELPER // 2
+    assert b.current_round_score == 40 - 3 * HURT_POINTS   # all three hurts land
