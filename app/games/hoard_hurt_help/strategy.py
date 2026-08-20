@@ -9,7 +9,7 @@ the objective. Everything else it once carried either restated a rule the agent
 reads in `base_prompt` on the same turn, or was true of only some matches — see
 the note on the constant for each removal and why.
 
-**Read this before adding to `RANK_FRAMING`.** It is shared by all eight presets,
+**Read this before adding to `RANK_FRAMING`.** It is shared by all seven presets,
 so anything added here pushes every one of them the same direction, and the
 roster exists to make them behave differently. The bar for a new line is that the
 rules cannot give it and it applies to every strategy — not merely that it is
@@ -74,9 +74,17 @@ cheap HELP on the grounds that they were giving up only a flat-2 hoard. The pot
 makes that the most valuable move those players have, so the premise died with
 the rule it rested on. Hoarder inherits the slot from the other side: it lives in
 the pot and works the talk phase to keep everyone else paired off and out of it.
-It is the only preset whose default move is not HELP, which is what makes the new
-mechanic testable — a pot nobody reaches for would measure as no change at all,
-the way the v6 knife did.
+It is the only preset whose default move is not HELP, which is what makes the pot
+testable — a mechanic nobody reaches for would measure as no change at all, the
+way the v6 knife did.
+
+The pot cut squeezed it hardest, so v8 gave it a fallback that pays. At
+HOARD_POT_POINTS 12 a lone hoarder made double a pact and company merely matched
+one, so there was no downside to sitting in the pot. At 8 the edge is a third,
+and ONE other taker puts it below a pact. Its old answer to a crowded pot was to
+HURT the leader, which pays the attacker nothing — the worst line in the roster.
+It now takes a mutual HELP for that turn instead, and keeps one player willing to
+deal with it so that fallback is available at all.
 
 Sandbagger works at match scale rather than turn scale. Round wins accumulate all
 match but credibility is spent once, so it hoards credibility and spends it late.
@@ -87,15 +95,25 @@ back would spend the clean record it is saving, so its only early answer is to
 stop helping the offender.
 
 That last dead end is what shapes Underdog's Champion, and it is why the preset
-keeps ONE partner rather than building a bloc. Its route past the tie is a
-betrayal, the same route Turncoat uses, but the two differ in both halves of the
-decision. Turncoat buys a partner's trust, spends it, and moves on to someone it
-has not burned yet. The Champion picks a partner who
-has just been abandoned and times the knife by the scoreboard, striking only in
-the narrow band where +8 clears the leader but +6 does not. The target choice is
-what makes it repeatable: a rescued partner's alternative is hoarding alone for
-about 10 a round against roughly 25 with the Champion even counting the knife,
-so unlike Turncoat's victim they have no better offer and come back.
+keeps ONE partner rather than building a bloc. It is NOT a betrayal preset — this
+passage described it as one until v8, quoting a knife it has not carried since
+#701 and a payoff table two revisions stale. Its route past the tie is the pact
+itself, run better than anyone else runs it: it recruits from the bottom half,
+where players have the fewest alternatives, and never strikes first. That is what
+makes the partnership repeatable, and it is why the preset measured best of the
+old roster at 7.75 round wins in 21.
+
+The pot cut STRENGTHENED its sales pitch rather than weakening it. Its second line
+is a pitch written into the prompt — the pact pays every turn while the pot
+shrinks with every taker — and at HOARD_POT_POINTS 12 a lone hoarder made double a
+pact, so the pitch was easy to refuse. At 8 a lone hoarder makes only two more, and
+one companion in the pot puts them BELOW a pact. The offer is now true more often
+than it is false.
+
+It does answer a betrayal, added at v8: it stops helping and strikes once the hit
+will not drop the offender to zero. That is retaliation, not a route to winning —
+"never betray them" still holds, and it is the line that keeps recruits coming
+back.
 
 Two presets now win by betrayal, and what separates them is WHO they partner and
 WHEN they strike, not the strike itself — betraying anyone pays the attacker the
@@ -144,7 +162,7 @@ from app.games.base import StrategyPreset
 # symmetry it asserted, and `decay` is LEGACY_MUTUAL_HELP_MODE, so every
 # pre-switch match ran it. Even under a flat mode it needs no HURT, no third
 # helper, and no score-floor clipping to hold. Stated as a law in the block all
-# eight presets share, it pointed every agent the same wrong way.
+# presets share, it pointed every agent the same wrong way.
 #
 # Two tests before adding a line here: (a) is it true in EVERY mode, and (b) can
 # the rules not already give it? Anything failing either belongs in the one preset
