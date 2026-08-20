@@ -21,6 +21,7 @@ from app.games.hoard_hurt_help.rules import (
     BETRAYAL_BONUS,
     HELP_POINTS,
     HURT_POINTS,
+    HURT_TAKE_HOARDER,
     MUTUAL_HELP_BONUS,
     MUTUAL_HELP_FLOOR,
 )
@@ -44,7 +45,11 @@ def _viewer_mutual_value(k: int) -> int:
 
 
 def test_mirror_normal_hurt_costs_the_target_hurt_points():
-    """A HURT on a non-helper drops the target by HURT_POINTS."""
+    """A HURT on a non-helper drops the target by HURT_POINTS and PAYS the attacker.
+
+    At v9 the attacker's take is priced off what the target was doing. Here the
+    target HOARDs, so the attacker takes the smallest tier rather than nothing.
+    """
     out = apply_inround_turn(
         {"A": 0, "B": 10},
         [
@@ -52,7 +57,10 @@ def test_mirror_normal_hurt_costs_the_target_hurt_points():
             {"action": "HURT", "agent_id": "A", "target_id": "B"},
         ],
     )
-    assert out == {"A": 0, "B": 10 + hoard_share(1) - HURT_POINTS}  # pot, then hurt
+    assert out == {
+        "A": HURT_TAKE_HOARDER,               # priced off B's HOARD
+        "B": 10 + hoard_share(1) - HURT_POINTS,  # pot, then the hurt
+    }
 
 
 def test_mirror_betraying_a_helper_pays_help_plus_the_bonus():

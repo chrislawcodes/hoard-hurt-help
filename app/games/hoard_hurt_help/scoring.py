@@ -14,7 +14,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.games.hoard_hurt_help.rules import (
-    BETRAYAL_BONUS,
+    hurt_blocks,
+    hurt_take,
     DEFAULT_MISSED_MESSAGE,
     DEFAULT_MUTUAL_HELP_MODE,
     HELP_POINTS,
@@ -219,21 +220,63 @@ async def resolve_turn(db: AsyncSession, turn: Turn) -> None:
     # everyone else's, exactly as a deliberate hoard would.
     hoard_each = hoard_share(sum(1 for s in submissions if s.action == "HOARD"))
 
+    # What each player did this turn, so a HURT can be priced off its TARGET's
+    # move. Built before paying anything: the take depends on the whole turn, the
+    # same way the pot does.
+    action_of = {s.player_id: s.action for s in submissions}
+    target_of = {s.player_id: s.target_player_id for s in submissions}
+
+    # A HURT whose target is HURTing the attacker back BLOCKS: both swings miss,
+    # so neither lands damage and neither takes a payout. Resolved before the
+    # attacker counts below, so a blocked attacker never thins a real one's share.
+    blocked = {
+        s.player_id
+        for s in submissions
+        if s.action == "HURT"
+        and s.target_player_id is not None
+        and hurt_blocks(
+            action_of.get(s.target_player_id),
+            target_of.get(s.target_player_id),
+            s.player_id,
+        )
+    }
+
+    # Attackers landing on each target, so they split the take — mobbing one
+    # player is allowed, it just pays each attacker less (see `hurt_take`).
+    #
+    # A BETRAYER is excluded from this count. Their bonus is earned from a
+    # relationship rather than grabbed off the table, so it is neither split nor
+    # allowed to thin what the other attackers share. Counting them would let a
+    # betrayal quietly halve a bystander's take on the same victim.
+    attackers_on: dict[int, int] = {}
+    for s in submissions:
+        if (
+            s.action == "HURT"
+            and s.player_id not in blocked
+            and s.target_player_id in delta
+            and help_targets.get(s.target_player_id) != s.player_id
+        ):
+            attackers_on[s.target_player_id] = attackers_on.get(s.target_player_id, 0) + 1
+
     for s in submissions:
         if s.action == "HOARD":
             delta[s.player_id] += hoard_each
         elif s.action == "HELP" and s.target_player_id in delta:
             delta[s.target_player_id] += HELP_POINTS
         elif s.action == "HURT" and s.target_player_id in delta:
+            if s.player_id in blocked:
+                continue  # both swung at each other; nothing lands either way
             # The victim always takes the normal HURT_POINTS.
             delta[s.target_player_id] -= HURT_POINTS
-            # Betraying a helper: if the target is HELPing the attacker this same
-            # turn, the ATTACKER gains a BETRAYAL_BONUS on top of the +HELP_POINTS
-            # they already receive — attacker +HELP_POINTS+BETRAYAL_BONUS, victim
-            # -HURT_POINTS. (The victim's loss is unchanged from a normal HURT.)
-            betrayed_helper = help_targets.get(s.target_player_id) == s.player_id
-            if betrayed_helper:
-                delta[s.player_id] += BETRAYAL_BONUS
+            # What the ATTACKER takes depends on what the target was doing — a
+            # betrayal pays most, a hoarder least, someone else's attacker
+            # nothing. `hurt_take` is the single source; on a betrayal it returns
+            # the BONUS only, because the target's HELP is credited above.
+            delta[s.player_id] += hurt_take(
+                action_of.get(s.target_player_id),
+                target_helps_attacker=help_targets.get(s.target_player_id) == s.player_id,
+                attackers_on_target=attackers_on.get(s.target_player_id, 1),
+            )
 
     # Mutual-help bonus, added to each side once per A↔B pair. `mutual_help_value`
     # returns the pair's per-side TOTAL for this mode and repeat count; the base
@@ -304,6 +347,22 @@ def apply_inround_turn(
     help_targets = {
         a["agent_id"]: a.get("target_id") for a in actions if a["action"] == "HELP"
     }
+    # What everyone did, so a HURT can be priced off its TARGET's move, and how
+    # many non-betraying attackers share each target — both mirroring
+    # `resolve_turn` exactly. A betrayer neither splits nor thins the pool.
+    action_by = {a["agent_id"]: a["action"] for a in actions}
+    target_by = {a["agent_id"]: a.get("target_id") for a in actions}
+    attackers_on: dict[Any, int] = {}
+    for a in actions:
+        tgt = a.get("target_id")
+        if (
+            a["action"] == "HURT"
+            and tgt
+            and not hurt_blocks(action_by.get(tgt), target_by.get(tgt), a["agent_id"])
+            and help_targets.get(tgt) != a["agent_id"]
+        ):
+            attackers_on[tgt] = attackers_on.get(tgt, 0) + 1
+
     for a in actions:
         action = a["action"]
         actor = a["agent_id"]
@@ -316,12 +375,20 @@ def apply_inround_turn(
         elif action == "HELP" and target:
             new_inround[target] = new_inround.get(target, 0) + HELP_POINTS
         elif action == "HURT" and target:
+            # A blocked pair (both HURTing each other) misses entirely: no damage
+            # and no take, mirroring `resolve_turn`.
+            if hurt_blocks(action_by.get(target), target_by.get(target), actor):
+                continue
             # The victim always takes the normal HURT_POINTS (floored per-hurt).
             new_inround[target] = max(
                 SCORE_FLOOR, new_inround.get(target, 0) - HURT_POINTS
             )
-            # Betraying a helper: the attacker gains a BETRAYAL_BONUS (a gain — not
-            # floored) on top of the +HELP_POINTS the victim's HELP already credits.
-            if help_targets.get(target) == actor:
-                new_inround[actor] = new_inround.get(actor, 0) + BETRAYAL_BONUS
+            # The attacker's take is priced off what the TARGET did, via the same
+            # `hurt_take` the resolver uses — this mirror is display-only, so it
+            # must never invent a rate of its own.
+            new_inround[actor] = new_inround.get(actor, 0) + hurt_take(
+                action_by.get(target),
+                target_helps_attacker=help_targets.get(target) == actor,
+                attackers_on_target=attackers_on.get(target, 1),
+            )
     return new_inround
