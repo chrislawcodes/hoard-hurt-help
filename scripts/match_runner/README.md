@@ -215,6 +215,22 @@ touch "$RUN/STOP"                         # stop them all
   the only lever is an admin delete that destroys every turn and message. Plan
   the run so you never need to.
 
+## Reading the result
+
+```bash
+python3 scripts/match_runner/analyse_match.py M_6855
+```
+
+Prints validity, move mix, attacks broken down by v9 tier, round winners, tie
+rate and final standings. It reads the public spectator state, so it needs no
+auth and works on any finished match.
+
+**Validity is printed first on purpose.** A match where agents could not answer
+still completes and still looks normal — the missing turns are silently scored as
+HOARD. If the talk count is short of the move count, or a turn shows nearly
+everyone hoarding at once, every number under it is contaminated. Read that block
+before you read anything else.
+
 ## Before believing the result
 
 Check all three (the fuller version is in `.claude/skills/diagnostics-and-tooling/`):
