@@ -329,8 +329,9 @@ def test_core_presets_pick_one_target_and_stay_distinct() -> None:
     assert "never betrayed" in presets["turncoat"].prompt
     assert "offer a trade" in presets["dealmaker"].prompt
     assert "bottom half of the standings" in presets["underdogs_champion"].prompt
-    # Sandbagger is the only preset that forbids HURT for an opening stretch.
-    assert "second-to-last round" in presets["sandbagger"].prompt
+    # Sandbagger is the only preset that forbids HURT for an opening stretch, and
+    # the only one whose behaviour turns on the match clock at all.
+    assert "Until halfway through the match" in presets["sandbagger"].prompt
     # Hoarder (renamed from Salvager) is the only preset whose default is the pot.
     assert "HOARD by default" in presets["hoarder"].prompt
 

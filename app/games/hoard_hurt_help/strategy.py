@@ -191,7 +191,6 @@ Strategy: Tit-for-Tat.
 * Get a mutual HELP with one player and keep it.
 * If they don't repay, move on. Return if they do.
 * If a partner betrays you, stop HELPing them, and HURT them as soon as the hit will not drop them to zero.
-* Never give up a mutual bonus to answer a HURT from anyone else.
 * In talk, ask for HELP, promise to repay, and warn that you always answer a betrayal.
 * HOARD only on a turn when you have no partner.""",
     ),
@@ -241,23 +240,24 @@ Strategy: Dealmaker.
         prompt=f"""{RANK_FRAMING}
 
 Strategy: Underdog's Champion.
-* Recruit from the bottom half of the standings. Reach them in talk.
+* Recruit mutual help from the bottom half of the standings in talk.
+* Never HELP anyone in the top half, whatever they offer.
 * Sell the pact: it pays every turn, while the pot shrinks with every taker.
 * HELP your recruit and never betray them.
-* If a recruit betrays you, stop HELPing them, and HURT them as soon as the hit will not drop them to zero. Say so publicly.
+* If a recruit betrays you, stop HELPing them, and HURT them as soon as the hit will not drop them to zero.
 * If they stop repaying, recruit someone else.""",
     ),
     StrategyPreset(
         id="sandbagger",
         name="Sandbagger",
-        description="Play honest for most of the match, then spend that record late.",
+        description="Play honest through the first half, then spend that record.",
         prompt=f"""{RANK_FRAMING}
 
 Strategy: Sandbagger.
-* Until the second-to-last round: HELP, repay every promise, and never HURT.
+* Until halfway through the match: HELP, repay every promise, and never HURT.
 * Say often that you have never attacked anyone.
-* If anyone betrays you before then, stop HELPing them and say why, but do not strike back — that would spend the record you are saving.
-* From the second-to-last round: partner the leader, then HURT them as soon as the hit will not drop them to zero.
+* If anyone betrays you first, stop HELPing them and say why, but do not strike back.
+* From halfway on: HURT whoever is HELPing you, in the last two turns of a round.
 * HOARD any turn nobody will pact with you.""",
     ),
     StrategyPreset(
@@ -269,7 +269,6 @@ Strategy: Sandbagger.
 Strategy: Hoarder.
 * HOARD by default, and never draw attention to it.
 * In talk, push everyone else to pair up with each other, so the pot stays yours.
-* If others start joining the pot, take a mutual HELP that turn instead.
-* Keep one player willing to pact with you, and repay them whenever you use them.""",
+* If others start joining the pot, HURT one of the players HELPing someone else.""",
     ),
 ]
