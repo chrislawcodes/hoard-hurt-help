@@ -187,9 +187,9 @@ def _coalition_seeker(i: PlanInputs) -> list[BotPlan | None]:
 def _pragmatist(i: PlanInputs) -> list[BotPlan | None]:
     # Plays Coalition Seeker all round, then betrays at the buzzer: on the
     # final turn it HURTs the partner it expects to still HELP it. Because the
-    # target is helping, the attacker earns the +4 betrayal bonus on top of the
-    # +4 help it still pockets (netting +8), while the partner takes only the
-    # normal -4 — a swing big enough to steal the round-win. It keeps talking
+    # target is helping, the attacker earns BETRAYAL_BONUS on top of the help it
+    # still pockets, while the partner takes the normal HURT_POINTS — a swing big
+    # enough to steal the round-win. It keeps talking
     # cooperatively that turn (a false-mode bluff) so the partner
     # doesn't see it coming. Falls back to hoarding if it has no likely helper.
     if is_buzzer_turn(i.context):

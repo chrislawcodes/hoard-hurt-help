@@ -11,10 +11,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.engine.resolver import award_round_winners, finalize_game
 from app.games.hoard_hurt_help.rules import DEFAULT_MISSED_MESSAGE
-from app.games.hoard_hurt_help.rules import HELP_POINTS, HURT_POINTS, hoard_share
+from app.games.hoard_hurt_help.rules import (
+    BETRAYAL_BONUS,
+    HELP_POINTS,
+    HURT_POINTS,
+    hoard_share,
+)
 from app.games.hoard_hurt_help.scoring import resolve_turn
 from app.models import Match, GameState, Player, Turn, TurnSubmission, User
 from tests.factories import make_bot
+
+# Every betrayal expectation below is derived from this, never spelled out. The
+# literals it replaced were stale from v6 (they still described a +4 bonus and a
+# -4 hurt) and broke again at v8.
+BETRAYAL_PAYOUT = HELP_POINTS + BETRAYAL_BONUS
 
 
 # --- Fixtures ---
@@ -238,12 +248,11 @@ async def test_hurt_against_zero_target(db):
     assert b.current_round_score == max(0, hoard_share(1) - HURT_POINTS)
 
 
-async def test_betraying_a_helper_pays_the_attacker_ten(db):
-    """Betraying a same-turn helper: attacker +8, victim -4 (the "8/4" split).
+async def test_betraying_a_helper_pays_help_plus_the_bonus(db):
+    """Betraying a same-turn helper pays HELP_POINTS + BETRAYAL_BONUS.
 
-    B HELPs A (A gets +4). A HURTs B → betrays the helper: A gains a +4
-    BETRAYAL_BONUS on top of the help (net +10), B takes the normal -8.
-    A ends +8; B (starting at 10) ends 10 - 4 = 6.
+    B HELPs A. A HURTs B → betrays the helper: A keeps B's help AND gains the
+    bonus. B takes the normal HURT_POINTS off a starting 10.
     """
     game, [a, b] = await _make_game_with_players(db, 2)
     b.current_round_score = 10
@@ -254,15 +263,16 @@ async def test_betraying_a_helper_pays_the_attacker_ten(db):
     await resolve_turn(db, turn)
     await db.refresh(a)
     await db.refresh(b)
-    assert a.current_round_score == 10  # +4 from B's help + +6 betrayal bonus
-    assert b.current_round_score == 2  # 10 - 8 (the normal HURT)
+    assert a.current_round_score == BETRAYAL_PAYOUT
+    assert b.current_round_score == 10 - HURT_POINTS
 
 
 async def test_hurt_non_helper_takes_the_plain_hurt(db):
-    """A normal HURT (target did NOT help the attacker) still lands for -4.
+    """A normal HURT (target did NOT help the attacker) lands for HURT_POINTS.
 
-    B HOARDs (does not help A). A HURTs B → base -4, and A gets NO bonus.
-    B (starting at 10) ends 10 + 2 (hoard) - 4 = 8. A ends 0 (HURT pays nothing).
+    B HOARDs (does not help A). A HURTs B → plain damage, and A gets NO bonus.
+    B takes their solo pot share and then the hurt. A ends 0 — HURT pays the
+    attacker nothing, which is what keeps unprovoked denial a losing move.
     """
     game, [a, b] = await _make_game_with_players(db, 2)
     b.current_round_score = 10
@@ -278,10 +288,10 @@ async def test_hurt_non_helper_takes_the_plain_hurt(db):
 
 
 async def test_betrayal_bonus_only_for_the_helped_attacker(db):
-    """Only the attacker the victim HELPed gets the +4 bonus; every HURT is -4.
+    """Only the attacker the victim HELPed gets the bonus; every HURT still lands.
 
-    B HELPs A. A HURTs B (betrayal → A +8). C HURTs B (normal, C gets nothing).
-    B (starting at 20) ends 20 - 4 - 4 = 12. A gets +8; C gets 0.
+    B HELPs A. A HURTs B (a betrayal). C HURTs B (normal — C gets nothing).
+    B takes BOTH hurts off a starting 20.
     """
     game, [a, b, c] = await _make_game_with_players(db, 3)
     b.current_round_score = 20
@@ -294,16 +304,17 @@ async def test_betrayal_bonus_only_for_the_helped_attacker(db):
     await db.refresh(a)
     await db.refresh(b)
     await db.refresh(c)
-    assert a.current_round_score == 10  # +4 help + +6 betrayal bonus
+    assert a.current_round_score == BETRAYAL_PAYOUT
     assert c.current_round_score == 0  # C HURT someone who did not help C → no bonus
-    assert b.current_round_score == 4  # 20 - 8 (A) - 8 (C), both normal HURTs
+    assert b.current_round_score == 20 - 2 * HURT_POINTS  # both hurts land
 
 
 async def test_betrayal_victim_floored_at_zero(db):
     """The score floor still applies to the victim's summed delta on a betrayal.
 
-    B HELPs A (A +8 via betrayal). A HURTs B. B starts at 3 → 3 - 4 = -1, floored
-    to 0. The floor is on the FINAL delta; the attacker's +8 gain never floors.
+    B HELPs A (A takes the betrayal payout). A HURTs B. B starts at 3, below
+    HURT_POINTS, so the delta goes negative and clips. The floor is on the FINAL
+    delta; the attacker's gain never floors.
     """
     game, [a, b] = await _make_game_with_players(db, 2)
     b.current_round_score = 3
@@ -314,16 +325,16 @@ async def test_betrayal_victim_floored_at_zero(db):
     await resolve_turn(db, turn)
     await db.refresh(a)
     await db.refresh(b)
-    assert a.current_round_score == 10  # attacker gain unaffected by the victim's floor
-    assert b.current_round_score == 0  # 3 - 8 clipped at 0
+    assert a.current_round_score == BETRAYAL_PAYOUT  # unaffected by victim's floor
+    assert b.current_round_score == 0  # 3 - HURT_POINTS clipped at 0
 
 
 async def test_betrayer_bonus_is_inside_summed_floor_no_floor(db):
-    """The betrayer's +4 bonus is a real, summed-in gain (no floor hit here).
+    """The betrayer's bonus is a real, summed-in gain (no floor hit here).
 
-    A starts 6. B HELPs A (+4). A HURTs B (betrayal → A +4 bonus). C HURTs A (-4).
-    A's summed delta = 6 + 4 + 4 - 4 = 10. An implementation that DROPPED the bonus
-    would give 6; ending at 10 proves the bonus exists and is summed in.
+    A starts 6. B HELPs A. A HURTs B (a betrayal). C HURTs A. An implementation
+    that DROPPED the bonus would leave A short by exactly BETRAYAL_BONUS, so the
+    derived expectation below is what proves the bonus is summed in.
     """
     game, [a, b, c] = await _make_game_with_players(db, 3)
     a.current_round_score = 6
@@ -334,28 +345,37 @@ async def test_betrayer_bonus_is_inside_summed_floor_no_floor(db):
     await _submit(db, turn, c, "HURT", target=a)
     await resolve_turn(db, turn)
     await db.refresh(a)
-    assert a.current_round_score == 8  # 6 + 4 help + 6 bonus - 8 (C), NOT 6
+    assert a.current_round_score == 6 + BETRAYAL_PAYOUT - HURT_POINTS
 
 
 async def test_betrayer_floors_on_summed_delta(db):
     """The betrayer's bonus is inside the SUMMED-delta floor, not a per-hurt floor.
 
-    A starts 0. B HELPs A (+4). A HURTs B (betrayal → A +4 bonus). C and D each
-    HURT A (-4 each). Summed: 0 + 4 + 4 - 4 - 4 = 0 → floored stays 0. A per-hurt
-    floor would clip A to 0 mid-way then re-add the +4 → a positive number; ending
-    at exactly 0 proves the floor is applied to the final summed delta.
+    A starts 0, is HELPed by B, betrays B, and is HURT by everyone else. A per-hurt
+    floor would clip A to 0 partway through and then re-add the bonus, ending
+    positive; ending at exactly 0 proves the floor is applied once, to the final
+    summed delta.
+
+    The attacker count is not arbitrary: the incoming damage has to outweigh the
+    betrayal payout or the scenario stops exercising the floor at all. Two
+    attackers were enough while the bonus was 6 and silently stopped being enough
+    at 14, so the guard below pins the premise instead of trusting it.
     """
-    game, [a, b, c, d] = await _make_game_with_players(db, 4)
+    game, [a, b, c, d, e] = await _make_game_with_players(db, 5)
     a.current_round_score = 0
+    attackers = [c, d, e]
+    assert BETRAYAL_PAYOUT - HURT_POINTS * len(attackers) < 0, (
+        "scenario no longer drives the delta negative — add another attacker"
+    )
     await db.commit()
     turn = await _open_turn(db, game)
     await _submit(db, turn, b, "HELP", target=a)
     await _submit(db, turn, a, "HURT", target=b)
-    await _submit(db, turn, c, "HURT", target=a)
-    await _submit(db, turn, d, "HURT", target=a)
+    for attacker in attackers:
+        await _submit(db, turn, attacker, "HURT", target=a)
     await resolve_turn(db, turn)
     await db.refresh(a)
-    assert a.current_round_score == 0  # 0 + 4 + 4 - 4 - 4 = 0 (summed floor)
+    assert a.current_round_score == 0  # summed delta is negative → floored once
 
 
 async def test_missed_turn_defaults_to_hoard(db):

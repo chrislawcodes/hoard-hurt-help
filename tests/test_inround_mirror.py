@@ -3,8 +3,11 @@
 Pure function (dict in, dict out). It approximates `resolve_turn` for lead
 tracking, including betraying a helper: when a player HURTs someone who HELPs
 them this same turn, the victim takes the normal HURT_POINTS and the attacker
-gains a BETRAYAL_BONUS on top of the +HELP_POINTS they receive (attacker +10 /
-victim -8 at the v6 payoffs), mirroring `resolve_turn`.
+gains a BETRAYAL_BONUS on top of the +HELP_POINTS they receive, mirroring
+`resolve_turn`. Every expectation below is DERIVED from the constants: these
+tests spelled the payouts out as literals until the v8 bonus change broke them,
+which is the same one-rule-in-two-places trap the payoff constants exist to
+avoid.
 """
 
 from __future__ import annotations
@@ -15,7 +18,9 @@ import pytest
 
 from app.games.hoard_hurt_help.rules import (
     hoard_share,
+    BETRAYAL_BONUS,
     HELP_POINTS,
+    HURT_POINTS,
     MUTUAL_HELP_BONUS,
     MUTUAL_HELP_FLOOR,
 )
@@ -38,8 +43,8 @@ def _viewer_mutual_value(k: int) -> int:
     return max(MUTUAL_HELP_FLOOR, HELP_POINTS + MUTUAL_HELP_BONUS - k)
 
 
-def test_mirror_normal_hurt_is_eight():
-    """A HURT on a non-helper drops the target by HURT_POINTS (8 at v6)."""
+def test_mirror_normal_hurt_costs_the_target_hurt_points():
+    """A HURT on a non-helper drops the target by HURT_POINTS."""
     out = apply_inround_turn(
         {"A": 0, "B": 10},
         [
@@ -47,15 +52,15 @@ def test_mirror_normal_hurt_is_eight():
             {"action": "HURT", "agent_id": "A", "target_id": "B"},
         ],
     )
-    assert out == {"A": 0, "B": 10 + hoard_share(1) - 8}  # solo pot, then the hurt
+    assert out == {"A": 0, "B": 10 + hoard_share(1) - HURT_POINTS}  # pot, then hurt
 
 
-def test_mirror_betraying_a_helper_pays_the_attacker_ten():
-    """Betraying a same-turn helper: attacker +10, victim -8 (mirrors resolve_turn).
+def test_mirror_betraying_a_helper_pays_help_plus_the_bonus():
+    """Betraying a same-turn helper mirrors `resolve_turn`.
 
-    A HURTs B while B HELPs A. A gets +4 (B's help) + +6 (BETRAYAL_BONUS) = +10;
-    B (from 10) takes the normal -8 → 2. The explicit dict pins the victim at
-    start-HURT_POINTS so a stale victim delta cannot pass.
+    A HURTs B while B HELPs A. A gets HELP_POINTS (B's help) plus BETRAYAL_BONUS;
+    B (from 10) takes the normal HURT_POINTS. The explicit dict pins the victim
+    at start-HURT_POINTS so a stale victim delta cannot pass.
     """
     out = apply_inround_turn(
         {"A": 0, "B": 10},
@@ -64,14 +69,17 @@ def test_mirror_betraying_a_helper_pays_the_attacker_ten():
             {"action": "HELP", "agent_id": "B", "target_id": "A"},
         ],
     )
-    assert out == {"A": 10, "B": 2}  # A: +4 help + +6 bonus; B: 10 - 8
+    assert out == {
+        "A": HELP_POINTS + BETRAYAL_BONUS,
+        "B": 10 - HURT_POINTS,
+    }
 
 
 def test_mirror_betrayed_victim_floors_per_hurt():
     """The mirror floors the betrayal victim per-hurt (its deliberate divergence).
 
-    B HELPs A (A +10 via betrayal). A HURTs B. B starts at 5 and takes the v6
-    damage of 8, so the floor bites: 5 - 8 clips to 0 rather than going negative.
+    B HELPs A (A takes the betrayal payout). A HURTs B. B starts at 5 and takes
+    HURT_POINTS, so the floor bites: it clips to 0 rather than going negative.
     """
     out = apply_inround_turn(
         {"A": 0, "B": 5},
@@ -80,7 +88,10 @@ def test_mirror_betrayed_victim_floors_per_hurt():
             {"action": "HELP", "agent_id": "B", "target_id": "A"},
         ],
     )
-    assert out == {"A": 10, "B": 0}  # A: +10; B: 5 - 8 clipped at the floor
+    assert out == {
+        "A": HELP_POINTS + BETRAYAL_BONUS,
+        "B": 0,  # 5 - HURT_POINTS, clipped at the floor
+    }
 
 
 def test_mirror_mutual_help_is_eight_each():
@@ -178,13 +189,15 @@ def test_rc_caption_shows_decayed_value_not_stale_eight():
 def _betrayal_actions() -> list[dict]:
     """Action dicts shaped as `build_pd_replay_view` emits a same-turn betrayal.
 
-    A HURTs B while B HELPs A: A's action carries betrayed_helper + betrayal_bonus;
-    A's HURT display_delta is the victim's -4 (the +4 rides betrayal_bonus).
+    A HURTs B while B HELPs A: A's action carries betrayed_helper + betrayal_bonus,
+    and A's HURT display_delta is the victim's loss (the attacker's gain rides on
+    betrayal_bonus instead).
+
+    The figures below are illustrative INPUTS, not the live payoffs — this test
+    checks that the fields thread through to the JSON, so it must not change when
+    the payoff constants move.
     """
     return [
-        # A nets +8 (B's help plus the betrayal bonus); B, starting from 0, takes
-        # the normal -4 and floors at 0. `round_score_after` is the resolver's
-        # post-turn score, which the replay payload ships.
         {"agent_id": "A", "action": "HURT", "target_id": "B", "mutual": False,
          "betrayal": False, "betrayed_helper": True, "betrayal_bonus": 4,
          "display_delta": -4, "was_defaulted": False, "message": "",
@@ -198,8 +211,9 @@ def _betrayal_actions() -> list[dict]:
 
 def test_rc_data_threads_betrayed_helper_and_bonus():
     """The robot-circle JSON must carry `betrayed_helper`/`betrayal_bonus` so the
-    animation can show the attacker's +4 (guard for the review-F2 silent-animation
-    gap: without this thread the feed chip shows +4 but the animation nothing)."""
+    animation can show the attacker's gain (guard for the review-F2 silent-
+    animation gap: without this thread the feed chip shows the bonus but the
+    animation shows nothing)."""
     # Shaped like a real scoreboard row: the rail's per-turn standings are
     # ranked from `round_wins`/`round_score`, so a stub needs both.
     scoreboard = [
