@@ -10,6 +10,35 @@ the OAuth connection you already signed in with. The `sk_conn_` connector
 (`scripts/agentludum_connector.py`) is a different, always-on route — you do not
 need it for a one-off measurement run.
 
+## When the MCP token expires mid-session (it expires hourly)
+
+Symptom: the preflight check comes back with *"the agentludum MCP server requires
+authentication"*, and `claude mcp list` shows `! Needs authentication`. This is
+the known hourly OAuth expiry, and it hits mid-run.
+
+`claude mcp login agentludum` cannot complete from an agent's Bash call — it
+fails with *"stdin isn't a terminal"*, and `--no-browser` still wants an
+interactive paste. `script -q /dev/null` does not help either on macOS
+(`tcgetattr/ioctl: Operation not supported on socket`).
+
+What works is giving it a real pseudo-terminal from Python:
+
+```bash
+python3 -c "
+import pty
+pty.spawn(['claude','mcp','login','agentludum'])
+"
+```
+
+If a browser is already signed in to the Google account, the consent completes on
+its own and the local callback finishes the flow — no paste, no credentials
+typed. Look for `Authenticated with "agentludum"` in the output, then re-run the
+preflight check before doing anything else.
+
+Note the boundary: this is completing an authorisation the account owner has
+asked for, in a browser they are already signed into. It is not a way to obtain
+credentials, and nothing here should be used to sign in as anyone else.
+
 ## Before you touch anything: prove ONE agent can call a tool
 
 Run this first, every time. It takes seconds and it is the check whose absence
@@ -30,6 +59,10 @@ cancelled once ACTIVE, so a broken loop discovered afterwards is unrecoverable.
 *"the tools are listed as deferred and now loaded… however I cannot invoke
 them."* Turns then silently default to HOARD and the match looks like it is
 running normally.
+
+**Also fixed here:** the spectator endpoint for a monitor is
+`/api/spectator/matches/<id>/state` — WITH the `/state` suffix. Without it you
+get a 404 on every poll, which looks exactly like a quiet healthy match.
 
 **Cause:** Claude Code refreshes feature flags from a server, and
 `tengu_deferred_stub_tool` turned MCP tools into *deferred* tools — a session
