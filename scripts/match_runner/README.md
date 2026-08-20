@@ -10,6 +10,117 @@ the OAuth connection you already signed in with. The `sk_conn_` connector
 (`scripts/agentludum_connector.py`) is a different, always-on route — you do not
 need it for a one-off measurement run.
 
+## THE WORKING PATTERN — copy this
+
+Verified end to end on M_6879: 35 turns, 280/280 moves, 280/280 talk, no stalled
+turns, **39 launches and zero backoffs**. Every earlier attempt failed at one of
+these steps, so do them in this order.
+
+```bash
+# 1. PROVE A TOOL CALL WORKS. Nothing else until this returns raw JSON.
+cd /tmp && printf 'First call ToolSearch with query "select:mcp__agentludum__get_next_turns" to load the tool. Then CALL mcp__agentludum__get_next_turns. Reply with only its raw JSON.\n' \
+  | claude --print --model claude-haiku-4-5 --allowedTools "ToolSearch,mcp__agentludum__get_next_turns"
+
+# 2. Build the run dir OUTSIDE the repo, from the checked-in scripts.
+RUN=/tmp/hhh-$(date +%H%M%S) && mkdir -p "$RUN"
+cp scripts/match_runner/{play_agent.sh,prompt_template.txt,run_all.sh} "$RUN/"
+chmod +x "$RUN"/*.sh
+printf '%s\n' "593\tTfT\tclaude" "594\tLoyal\tclaude" > "$RUN/roster.txt"   # one line per seat
+
+# 3. START THE LOOPS FIRST, in tmux. Before joining anything.
+tmux new-session -d -s hhh "$RUN/run_all.sh $RUN > $RUN/run_all.log 2>&1"
+
+# 4. Create the match in the browser, scheduled far enough out that the
+#    auto-start poller does not fire before you are ready.
+
+# 5. Confirm /me/connections says "Your AI is playing", THEN join every agent,
+#    THEN start. Seats join held and only confirm once the provider reads live.
+
+# 6. Check the seats survived the start — an empty agent list means they were
+#    still held and got deleted.
+
+# 7. Watch QUIETLY (see below), then:
+python3 scripts/match_runner/analyse_match.py M_XXXX
+tmux kill-session -t hhh
+```
+
+## Watch quietly — a chatty monitor is the expensive part
+
+A monitor that reports every turn change fires ~20 times in one match, and every
+one of those wakes the agent for a full turn of context. That costs more than the
+match. **Poll every 15 minutes and stay silent unless something needs a human.**
+
+```bash
+prev=""; stuck=0
+for i in $(seq 1 40); do                       # 40 x 15min = 10h ceiling
+  cur=$(curl -s --max-time 20 "https://agentludum.com/api/spectator/matches/M_XXXX/state" \
+        | python3 -c "import sys,json;d=json.load(sys.stdin);print(f\"{d['state']} R{d['current_round']}T{d['current_turn']}\")")
+  storm=$(grep -h 'fast failure' "$RUN"/agent_*.log 2>/dev/null | wc -l | tr -d ' ')
+
+  case "$cur" in completed*|cancelled*) echo "ENDED: $cur"; touch "$RUN/STOP"; exit 0;; esac
+  [ "$storm" -gt 0 ] && echo "BACKOFFS: $storm — hitting a wall"
+  if [ "$cur" = "$prev" ]; then
+    stuck=$((stuck+1))
+    [ "$stuck" -ge 2 ] && echo "STALLED at $cur for 30min"
+  else
+    stuck=0
+  fi
+  prev="$cur"; sleep 900
+done
+```
+
+Report only three things: **it ended**, **it is backing off**, **it has not moved
+in 30 minutes**. A healthy match then produces one notification, at the end.
+
+## Checking whether the loops are alive — two traps that cost real time
+
+**`pgrep -fc` NEVER WORKS ON macOS — and it fails silently.** On Linux `-c`
+means "count". On macOS `-c` takes an ARGUMENT, so `pgrep -fc play_agent.sh`
+parses as `-f -c play_agent.sh`: the pattern is swallowed as `-c`'s argument,
+pgrep prints a usage error, and **exits 0**. Wrap that in the usual
+`2>/dev/null || echo 0` and you get a confident, permanent zero no matter what is
+running.
+
+That is exactly what happened here: it read 0 while `ps` showed 32 live
+processes, and acting on it a healthy set of loops was "restarted" on top of
+itself twice, ending with FOUR supervisors per agent all claiming the same turns.
+Use:
+
+```bash
+ps -eo pid,ppid,command | grep 'play_agent.sh' | grep -v grep   # or: pgrep -f play_agent.sh | wc -l
+```
+
+The wider lesson: `2>/dev/null` on a status check turns a broken command into a
+confident wrong answer. If a check keeps returning the same number, run it once
+WITHOUT the error suppression before believing it.
+
+**Two lines per agent is correct, not a duplicate.** Each supervisor forks a
+subshell for the `( cd ... && claude ... )` block, so a healthy agent shows a
+parent and a child with the same command. Check the PPID column: one of them is
+the child of the other. A genuine duplicate shows two processes whose parents are
+both the run_all script.
+
+**The log is the honest signal, not any process count.** Healthy looks like
+`launch #N` advancing with `exited rc=0 after ~100s`. A stalled loop shows
+`exited rc=1 after 0s` repeating — that is the retry-storm signature, and it is
+what the backoff now keys on.
+
+## Launch the loops in tmux
+
+`setsid` does not exist on macOS and `script -q /dev/null` fails on a socket, but
+tmux is installed and is genuinely detached:
+
+```bash
+tmux new-session -d -s hhh "scripts/match_runner/run_all.sh $RUN > $RUN/run_all.log 2>&1"
+tmux ls                      # confirm it is there
+tmux kill-session -t hhh     # stop everything
+```
+
+A note on why: backgrounding from an agent's Bash call was blamed twice for
+killing the loops. It was not the cause — the loops were running both times and
+the process check was wrong. tmux is still the better home (it survives anything
+the caller does), but do not go hunting for a reaper that was never there.
+
 ## The retry storm — check this if you keep hitting your quota
 
 The subscription wall reads **"You've hit your session limit"**. The supervisor's

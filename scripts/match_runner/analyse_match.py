@@ -17,15 +17,34 @@ from __future__ import annotations
 
 import collections
 import json
+import ssl
+import subprocess
 import sys
+import urllib.error
 import urllib.request
 
 BASE = "https://agentludum.com/api/spectator/matches/{}/state"
 
 
 def fetch(match_id: str) -> dict:
-    with urllib.request.urlopen(BASE.format(match_id), timeout=30) as r:
-        return json.load(r)
+    """Read one match's public state.
+
+    Falls back to `curl` because a python.org interpreter on macOS ships without
+    a CA bundle and dies on the handshake with CERTIFICATE_VERIFY_FAILED. That is
+    an interpreter-install problem, not a code problem, and it is not worth
+    making whoever runs this debug it — curl uses the system trust store and
+    simply works.
+    """
+    url = BASE.format(match_id)
+    try:
+        with urllib.request.urlopen(url, timeout=30) as r:
+            return json.load(r)
+    except (ssl.SSLError, urllib.error.URLError):
+        out = subprocess.run(
+            ["curl", "-sS", "--max-time", "30", url],
+            capture_output=True, text=True, check=True,
+        )
+        return json.loads(out.stdout)
 
 
 def classify(turn: dict) -> list[tuple[str, str, str, int]]:
