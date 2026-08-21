@@ -28,7 +28,8 @@ chmod +x "$RUN"/*.sh
 printf '%s\n' "593\tTfT\tclaude" "594\tLoyal\tclaude" > "$RUN/roster.txt"   # one line per seat
 
 # 3. START THE LOOPS FIRST, in tmux. Before joining anything.
-tmux new-session -d -s hhh "$RUN/run_all.sh $RUN > $RUN/run_all.log 2>&1"
+MATCH_ID=M_XXXX tmux new-session -d -s hhh "$RUN/run_all.sh $RUN > $RUN/run_all.log 2>&1"
+#     ^ ALWAYS pass MATCH_ID once you have it — see "the after-match leak" below
 
 # 4. Create the match in the browser, scheduled far enough out that the
 #    auto-start poller does not fire before you are ready.
@@ -43,6 +44,30 @@ tmux new-session -d -s hhh "$RUN/run_all.sh $RUN > $RUN/run_all.log 2>&1"
 python3 scripts/match_runner/analyse_match.py M_XXXX
 tmux kill-session -t hhh
 ```
+
+## The after-match leak — always pass MATCH_ID
+
+**During** a match the loops are efficient: M_6911 used 27 launches across eight
+agents to make ~560 decisions, because one session plays many turns.
+
+**After** a match they are not. A supervisor has no idea the match ended — the
+agent gets `no_game`, exits, and the supervisor relaunches. Each of those is a
+full session startup for nothing, about **280 wasted sessions an hour across
+eight agents, running until a human remembers to touch STOP**. That happened for
+real after M_6809.
+
+`run_all.sh` now stops itself when `MATCH_ID` is set: it polls the public state
+once a minute and writes STOP as soon as the match reads completed or cancelled.
+One unauthenticated curl a minute, and the whole failure mode goes away.
+
+```bash
+MATCH_ID=M_6911 scripts/match_runner/run_all.sh "$RUN"
+```
+
+Verified against an already-finished match: STOP written within a minute, loops
+down, **zero launches burned**. Without `MATCH_ID` it still runs forever, so pass
+it — the match is created before the loops need it in the sequence above only
+because the loops must be live before you JOIN, not before the match exists.
 
 ## Watch quietly — a chatty monitor is the expensive part
 
