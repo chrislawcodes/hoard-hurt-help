@@ -18,11 +18,36 @@ G_0017: prompts are the weakest lever here, and a flat game is a payoff problem
 first.
 
 The roster is Tit-for-Tat, Loyal Partner, Turncoat, Dealmaker, Underdog's
-Champion, Sandbagger, Hoarder — in that order, because the join UI pre-selects
-the first one. Seven is the practical ceiling: once the only route past the tie
-is a betrayal, a strategy is fully described by who you partner and when you
-strike, and those combinations are now covered. An eighth would duplicate one of
-these — which is exactly why KINGSLAYER was retired at v8, see below. Grim
+Champion, Sandbagger, Hoarder, No Playbook — in that order, because the join UI
+pre-selects the first one.
+
+THERE IS NO CEILING ON THE ROSTER. Earlier versions of this docstring claimed
+seven was one, on the reasoning that a strategy is fully described by who you
+partner and when you strike, so further presets would only permute a covered
+space. That was wrong, and it was load-bearing in the wrong direction: a ceiling
+argues against adding anything, when the real bar is simply whether a preset
+behaves differently from the ones already here. Add one whenever it does.
+
+The bar that DOES hold is the distinctness test below — two presets must never
+say the same thing, because that is the collapse this roster exists to prevent.
+KINGSLAYER was retired at v8 for a reason that has nothing to do with any
+ceiling: its rule could not execute at all, because a profitable HURT needs the
+victim to be HELPing you and the leader is the player least likely to. See the
+retirement note further down; that reasoning stands on its own.
+
+No Playbook is not another strategy. It is the CONTROL, and it belongs to a
+different category: it is handed no plan at all and told to derive one from the
+rules it already receives. Every other preset asserts that a human-written
+strategy is worth having; nothing in six measured matches has ever tested that
+assertion. This is the seat that does. It must therefore never name a move —
+a test enforces that the words HOARD, HELP and HURT do not appear in it — because
+the moment it suggests one it stops being a control and becomes a weak eighth
+strategy.
+
+It also has to be legible, or a win teaches us nothing: it is told to state its
+current plan in its thinking every turn, and to say when and why it changes.
+The thinking field is recorded and shows up in the replay, so what it invents can
+be read afterwards rather than guessed at. Grim
 Trigger, Pavlov, Always Defect and Generous Tit-for-Tat were dropped rather than
 rewritten: none of them can win. In M_6442 each either played out as plain
 Tit-for-Tat or, for Always Defect, aimed at the highest-scoring opponent — the
@@ -270,5 +295,17 @@ Strategy: Hoarder.
 * HOARD by default, and never draw attention to it.
 * In talk, push everyone else to pair up with each other, so the pot stays yours.
 * If others start joining the pot, HURT one of the players HELPing someone else.""",
+    ),
+    StrategyPreset(
+        id="no_playbook",
+        name="No Playbook",
+        description="Given no strategy at all. Works one out from the rules and says what it is.",
+        prompt=f"""{RANK_FRAMING}
+
+Strategy: No Playbook.
+* You have deliberately been given no strategy. Work one out yourself.
+* Before your first move, decide what winning actually takes here, and commit to a plan.
+* Watch what each move really pays. When the table changes, change the plan.
+* Every turn, use your thinking to state your current plan in one line, and say when you change it and why.""",
     ),
 ]
