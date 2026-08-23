@@ -50,6 +50,14 @@ the tier at parity with a pact, hunting helpers is finally a live plan rather
 than a third-best move, and this preset is how we find out whether agents
 actually run it.
 
+Its fallback is the POT, not a pact, and that is what keeps it a pure predator.
+Falling back to a mutual HELP would have made it a cooperator that occasionally
+swings — behaviour three seats already cover. Hoarding when there is no target
+means it never asks anyone for anything, so its whole score comes from the pot
+and from what it takes off other people. Expect a high HOARD share alongside the
+high HURT share; if it instead drifts into helping, the preset has collapsed into
+the cooperator cluster and needs looking at.
+
 No Playbook is not another strategy. It is the CONTROL, and it belongs to a
 different category: it is handed no plan at all and told to derive one from the
 rules it already receives. Every other preset asserts that a human-written
@@ -243,7 +251,7 @@ Strategy: Tit-for-Tat.
 Strategy: Headhunter.
 * Each turn, work out who is about to HELP someone else, and HURT them.
 * If someone is HELPing you, HURT them instead. That pays most.
-* When nobody is worth hitting, take a mutual HELP.
+* When nobody is worth hitting, HOARD.
 * Never swing at a player you expect to swing at you — you both miss.""",
     ),
     StrategyPreset(
