@@ -287,7 +287,7 @@ def test_core_presets_pick_one_target_and_stay_distinct() -> None:
     module = get_game_module("hoard-hurt-help")
     presets = {p.id: p for p in module.strategy_presets()}
 
-    for pid in ("tit_for_tat", "loyal_partner", "turncoat", "dealmaker",
+    for pid in ("tit_for_tat", "headhunter", "turncoat", "dealmaker",
                 "underdogs_champion", "sandbagger", "hoarder", "no_playbook"):
         assert pid in presets, f"{pid} preset is missing"
 
@@ -323,9 +323,12 @@ def test_core_presets_pick_one_target_and_stay_distinct() -> None:
     # in the v7 rewrite, when HOARD became a contested pot and the presets were
     # cut to bare instructions with no payoff numbers in them.
     assert "move on" in presets["tit_for_tat"].prompt
-    # Loyal Partner is the only preset that never HURTs anyone, which is what
-    # keeps it distinct from Tit-for-Tat (same loyalty, but it retaliates).
-    assert "Never HURT anyone" in presets["loyal_partner"].prompt
+    # Headhunter replaced Loyal Partner. Its distinctness is the TARGET RULE: it
+    # is the only preset that goes after third parties by what they are doing,
+    # rather than answering something done to it. Note what was given up — Loyal
+    # Partner was the only preset at 0% HURT across ten matches, so the roster no
+    # longer carries a pacifist control.
+    assert "HELP someone else, and HURT them" in presets["headhunter"].prompt
     assert "never betrayed" in presets["turncoat"].prompt
     assert "offer a trade" in presets["dealmaker"].prompt
     assert "bottom half of the standings" in presets["underdogs_champion"].prompt
@@ -345,7 +348,7 @@ def test_core_presets_pick_one_target_and_stay_distinct() -> None:
         )
 
     bodies = [presets[p].prompt for p in
-              ("tit_for_tat", "loyal_partner", "turncoat", "dealmaker",
+              ("tit_for_tat", "headhunter", "turncoat", "dealmaker",
                "underdogs_champion", "sandbagger", "hoarder", "no_playbook")]
     assert len(set(bodies)) == 8
     # Kingslayer is RETIRED, not renamed. It courted the current leader and
