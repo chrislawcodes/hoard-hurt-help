@@ -36,15 +36,27 @@ BETRAYAL_BONUS = 14
 #
 # The payout now scales with what the target was DOING, i.e. with how much they
 # had on the table for you to take:
-HURT_TAKE_HELPER = 5  # they were HELPing someone else — you interrupt that
+HURT_TAKE_HELPER = 6  # they were HELPing someone else — you interrupt that
 HURT_TAKE_HOARDER = 3  # they were HOARDing — you take a cut of the grab
 # ...and a target who was HURTing someone gets nothing taken, because they were
 # producing nothing to take. See `hurt_take`, which is the single source.
 #
-# HURT_TAKE_HELPER is deliberately BELOW a pact (6). At 6 an attack on a
-# cooperator pays exactly what cooperating pays and damages them as well, so in a
-# head-to-head endgame there is no reason not to swing and the final turn stops
-# being a decision. One point of cost is what keeps it a choice.
+# HURT_TAKE_HELPER SITS EXACTLY ON A PACT (6), and that is a deliberate reversal.
+#
+# It was 5 at v9 precisely so it would stay BELOW a pact: at parity, attacking a
+# cooperator pays what cooperating pays AND damages them, so in a head-to-head
+# endgame there is no reason not to swing and the last turn stops being a
+# decision. That reasoning is still true — it is simply no longer the priority.
+#
+# Ten measured matches put the attack rate at 3.6-8.6%. The cause is visible in
+# the ordering: with nobody helping you, taking the pot alone pays 8 and a pact
+# pays 6, so an attack at 5 was your THIRD-best move and agents rationally
+# skipped it. At 6 it ties the pact. The cost is the endgame decision above; the
+# gain is that attacking stops being dominated.
+#
+# Do not push this to 7 without a measured reason. Simulation puts the cliff
+# exactly there: at 7 an attack beats a pact outright, cooperation falls by a
+# third and winning scores drop from ~15 to ~11.
 # Mutual help decays -1 each time the SAME pair repeats it within a match, flooring
 # the pair's per-side total at MUTUAL_HELP_FLOOR: total =
 # max(MUTUAL_HELP_FLOOR, HELP_POINTS + MUTUAL_HELP_BONUS - k). The floor was set to
@@ -83,7 +95,7 @@ DEFAULT_TURNS_PER_ROUND = 5
 # moves: match length and `mutual_help_mode` are stored per match in their own
 # columns, so they are already recorded exactly, and bumping this for them would
 # make the version say a match is unlike another that differs only by a setting.
-RULES_VERSION = "v9"
+RULES_VERSION = "v10"
 
 
 class MutualHelpMode(str, enum.Enum):

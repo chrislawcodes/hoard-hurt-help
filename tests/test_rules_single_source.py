@@ -350,8 +350,17 @@ def test_the_hurt_tiers_keep_their_design_order() -> None:
     pact = mutual_help_value(DEFAULT_MUTUAL_HELP_MODE, 0)
 
     assert betrayal > HURT_TAKE_HELPER > HURT_TAKE_HOARDER > 0
-    assert HURT_TAKE_HELPER < pact, (
-        "at or above a pact, attacking a cooperator is free in a head-to-head"
+    # HURT_TAKE_HELPER may now EQUAL a pact, and did not always. It was held
+    # strictly below one at v9 so a head-to-head endgame kept a real decision in
+    # it. That was traded away deliberately: ten matches measured the attack rate
+    # at 3.6-8.6%, because with the pot paying 8 an attack at 5 was only the
+    # third-best move. Parity makes it competitive.
+    #
+    # ABOVE a pact is still forbidden. Simulation puts the cliff at 7: an attack
+    # then beats cooperating outright, cooperation drops by a third and winning
+    # scores fall from ~15 to ~11.
+    assert HURT_TAKE_HELPER <= pact, (
+        "above a pact, attacking beats cooperating and cooperation collapses"
     )
     assert hurt_take("HURT", target_helps_attacker=False) == 0
 

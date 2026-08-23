@@ -17,7 +17,7 @@ true or useful. `.claude/skills/game-design/` records the wider lesson from
 G_0017: prompts are the weakest lever here, and a flat game is a payoff problem
 first.
 
-The roster is Tit-for-Tat, Loyal Partner, Turncoat, Dealmaker, Underdog's
+The roster is Tit-for-Tat, Headhunter, Turncoat, Dealmaker, Underdog's
 Champion, Sandbagger, Hoarder, No Playbook — in that order, because the join UI
 pre-selects the first one.
 
@@ -34,6 +34,29 @@ KINGSLAYER was retired at v8 for a reason that has nothing to do with any
 ceiling: its rule could not execute at all, because a profitable HURT needs the
 victim to be HELPing you and the leader is the player least likely to. See the
 retirement note further down; that reasoning stands on its own.
+
+HEADHUNTER replaced Loyal Partner at v10, and the swap cost something worth
+naming. Loyal Partner was the ONLY preset that never attacked — 0% HURT across
+ten matches — which made it the pacifist control: the seat that told you whether
+the retaliation rules elsewhere were doing any work. The roster no longer has
+one. If a future question is "does retaliation matter", that control has to come
+back first.
+
+What it buys: Headhunter is the only preset that picks its target by what a THIRD
+PARTY is doing, rather than answering something done to it. Every other attacker
+here hits its own partner (Turncoat, Sandbagger) or hits back (Tit-for-Tat,
+Champion). It is also the seat that exercises the raised HURT_TAKE_HELPER — with
+the tier at parity with a pact, hunting helpers is finally a live plan rather
+than a third-best move, and this preset is how we find out whether agents
+actually run it.
+
+Its fallback is the POT, not a pact, and that is what keeps it a pure predator.
+Falling back to a mutual HELP would have made it a cooperator that occasionally
+swings — behaviour three seats already cover. Hoarding when there is no target
+means it never asks anyone for anything, so its whole score comes from the pot
+and from what it takes off other people. Expect a high HOARD share alongside the
+high HURT share; if it instead drifts into helping, the preset has collapsed into
+the cooperator cluster and needs looking at.
 
 No Playbook is not another strategy. It is the CONTROL, and it belongs to a
 different category: it is handed no plan at all and told to derive one from the
@@ -220,17 +243,16 @@ Strategy: Tit-for-Tat.
 * HOARD only on a turn when you have no partner.""",
     ),
     StrategyPreset(
-        id="loyal_partner",
-        name="Loyal Partner",
-        description="Back one partner and never attack. Walk at once if attacked, slowly if ignored.",
+        id="headhunter",
+        name="Headhunter",
+        description="Hunts whoever is HELPing someone else, and takes the payout.",
         prompt=f"""{RANK_FRAMING}
 
-Strategy: Loyal Partner.
-* Pick one partner and HELP them every turn.
-* Never HURT anyone.
-* If a partner HURTs you, leave at once and never partner them again. Say why.
-* Otherwise leave only if they fail to repay twice in a row, then pick a new partner.
-* In talk, ask for HELP and promise to repay.""",
+Strategy: Headhunter.
+* Each turn, work out who is about to HELP someone else, and HURT them.
+* If someone is HELPing you, HURT them instead. That pays most.
+* When nobody is worth hitting, HOARD.
+* Never swing at a player you expect to swing at you — you both miss.""",
     ),
     StrategyPreset(
         id="turncoat",
