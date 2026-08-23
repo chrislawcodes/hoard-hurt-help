@@ -21,13 +21,21 @@ The roster is Tit-for-Tat, Loyal Partner, Turncoat, Dealmaker, Underdog's
 Champion, Sandbagger, Hoarder, No Playbook — in that order, because the join UI
 pre-selects the first one.
 
-SEVEN IS THE CEILING FOR AUTHORED STRATEGIES, and that has not changed: once the
-only route past the tie is a betrayal, a strategy is fully described by who you
-partner and when you strike, and those combinations are covered. An eighth
-STRATEGY would duplicate one of them — which is exactly why KINGSLAYER was
-retired at v8, see below.
+THERE IS NO CEILING ON THE ROSTER. Earlier versions of this docstring claimed
+seven was one, on the reasoning that a strategy is fully described by who you
+partner and when you strike, so further presets would only permute a covered
+space. That was wrong, and it was load-bearing in the wrong direction: a ceiling
+argues against adding anything, when the real bar is simply whether a preset
+behaves differently from the ones already here. Add one whenever it does.
 
-No Playbook is not an eighth strategy. It is the CONTROL, and it belongs to a
+The bar that DOES hold is the distinctness test below — two presets must never
+say the same thing, because that is the collapse this roster exists to prevent.
+KINGSLAYER was retired at v8 for a reason that has nothing to do with any
+ceiling: its rule could not execute at all, because a profitable HURT needs the
+victim to be HELPing you and the leader is the player least likely to. See the
+retirement note further down; that reasoning stands on its own.
+
+No Playbook is not another strategy. It is the CONTROL, and it belongs to a
 different category: it is handed no plan at all and told to derive one from the
 rules it already receives. Every other preset asserts that a human-written
 strategy is worth having; nothing in six measured matches has ever tested that
