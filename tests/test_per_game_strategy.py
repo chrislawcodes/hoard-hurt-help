@@ -288,7 +288,7 @@ def test_core_presets_pick_one_target_and_stay_distinct() -> None:
     presets = {p.id: p for p in module.strategy_presets()}
 
     for pid in ("tit_for_tat", "loyal_partner", "turncoat", "dealmaker",
-                "underdogs_champion", "sandbagger", "hoarder"):
+                "underdogs_champion", "sandbagger", "hoarder", "no_playbook"):
         assert pid in presets, f"{pid} preset is missing"
 
     # The join UI selects the first preset by default, and a test elsewhere
@@ -334,11 +334,20 @@ def test_core_presets_pick_one_target_and_stay_distinct() -> None:
     assert "Until halfway through the match" in presets["sandbagger"].prompt
     # Hoarder (renamed from Salvager) is the only preset whose default is the pot.
     assert "HOARD by default" in presets["hoarder"].prompt
+    # No Playbook is the CONTROL, not an eighth strategy: it is handed no plan at
+    # all and must derive one. It is what tells us whether the seven authored
+    # strategies beat what the model works out on its own — so the one thing it
+    # must never do is name a move.
+    assert "given no strategy" in presets["no_playbook"].prompt
+    for verb in ("HOARD", "HELP", "HURT"):
+        assert verb not in presets["no_playbook"].prompt, (
+            f"No Playbook names {verb} — it must prescribe nothing"
+        )
 
     bodies = [presets[p].prompt for p in
               ("tit_for_tat", "loyal_partner", "turncoat", "dealmaker",
-               "underdogs_champion", "sandbagger", "hoarder")]
-    assert len(set(bodies)) == 7
+               "underdogs_champion", "sandbagger", "hoarder", "no_playbook")]
+    assert len(set(bodies)) == 8
     # Kingslayer is RETIRED, not renamed. It courted the current leader and
     # betrayed them, which needs the one player in the field with the least
     # reason to help you. It struck 0.3 times per 35-move match and scored by
