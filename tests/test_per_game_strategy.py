@@ -328,7 +328,13 @@ def test_core_presets_pick_one_target_and_stay_distinct() -> None:
     # rather than answering something done to it. Note what was given up — Loyal
     # Partner was the only preset at 0% HURT across ten matches, so the roster no
     # longer carries a pacifist control.
-    assert "HELP someone else, and HURT them" in presets["headhunter"].prompt
+    assert "HURT someone every single turn" in presets["headhunter"].prompt
+    # It must NEVER be given an excuse to cooperate. At v10 it read "when nobody
+    # is worth hitting, HOARD" plus "never swing at a player you expect to swing
+    # back", and measured 26% and 34% attacks across two matches while HELPing
+    # more than half the time — the hedges were doing the deciding. A target was
+    # available on 69 of 69 turns, so there is no honest reason to opt out.
+    assert "Never HELP" in presets["headhunter"].prompt
     assert "never betrayed" in presets["turncoat"].prompt
     assert "offer a trade" in presets["dealmaker"].prompt
     assert "bottom half of the standings" in presets["underdogs_champion"].prompt

@@ -50,13 +50,22 @@ the tier at parity with a pact, hunting helpers is finally a live plan rather
 than a third-best move, and this preset is how we find out whether agents
 actually run it.
 
-Its fallback is the POT, not a pact, and that is what keeps it a pure predator.
-Falling back to a mutual HELP would have made it a cooperator that occasionally
-swings — behaviour three seats already cover. Hoarding when there is no target
-means it never asks anyone for anything, so its whole score comes from the pot
-and from what it takes off other people. Expect a high HOARD share alongside the
-high HURT share; if it instead drifts into helping, the preset has collapsed into
-the cooperator cluster and needs looking at.
+It must never be handed an excuse to cooperate, and its first version was. That
+one read "when nobody is worth hitting, HOARD" and "never swing at a player you
+expect to swing at you", and measured 26% then 34% attacks across M_7180 and
+M_7186 while HELPing more than half the time. Both hedges sound reasonable and
+both were doing the deciding: given any way to opt out, the model took it.
+
+There is no honest reason to opt out. A HELPer was available on 69 of 69 turns
+across those two matches, and at v10 hitting one pays 6 — exactly what a pact
+pays. So a pure attacker earns the same per turn as a pure cooperator AND damages
+someone; what it gives up is help from others, which a known attacker was never
+going to receive. The preset now says HURT every turn and never HELP, with the
+pot reserved for the vanishing case where nobody is helping anybody.
+
+That makes it the roster's only pure predator: it asks nobody for anything and
+its whole score is what it takes. If a future version starts HELPing again, check
+the prompt for a hedge before blaming the model.
 
 No Playbook is not another strategy. It is the CONTROL, and it belongs to a
 different category: it is handed no plan at all and told to derive one from the
@@ -249,10 +258,10 @@ Strategy: Tit-for-Tat.
         prompt=f"""{RANK_FRAMING}
 
 Strategy: Headhunter.
-* Each turn, work out who is about to HELP someone else, and HURT them.
-* If someone is HELPing you, HURT them instead. That pays most.
-* When nobody is worth hitting, HOARD.
-* Never swing at a player you expect to swing at you — you both miss.""",
+* HURT someone every single turn. There is almost always a target.
+* Aim first at anyone HELPing you, then at anyone HELPing someone else.
+* HOARD only on a turn when nobody is helping anybody.
+* Never HELP. You live on what you take.""",
     ),
     StrategyPreset(
         id="turncoat",
