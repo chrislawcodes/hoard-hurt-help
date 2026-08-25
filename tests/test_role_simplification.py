@@ -327,8 +327,14 @@ async def _seed_export_match(reset_db, *, owner: User, rival: User) -> str:
             db, match_id, "RivalAgent", user=rival, strategy_text="THEIR-SECRET-PLAN"
         )
         done = await make_turn(db, match_id, round=1, turn=1, resolved=True)
-        await add_submission(db, done, mine, action="HOARD", message="resolved-move")
-        await add_submission(db, done, theirs, action="HELP", message="resolved-move")
+        await add_submission(
+            db, done, mine, action="HOARD", message="resolved-move",
+            thinking="MY-PRIVATE-REASONING",
+        )
+        await add_submission(
+            db, done, theirs, action="HELP", message="resolved-move",
+            thinking="THEIR-PRIVATE-REASONING",
+        )
         live = await make_turn(db, match_id, round=1, turn=2, resolved=False)
         await add_submission(db, live, theirs, action="HURT", message="IN-FLIGHT-MOVE")
         await db.commit()
@@ -382,6 +388,41 @@ async def test_the_platform_admin_export_route_is_not_redacted(client, reset_db)
     assert r.status_code == 200, r.text
     prompts = {p["strategy_prompt"] for p in r.json()["players"]}
     assert prompts == {"MY-SECRET-PLAN", "THEIR-SECRET-PLAN"}
+
+
+async def test_a_players_export_hides_other_peoples_thinking(client, reset_db):
+    """`thinking` is gated like the strategy prompt, not shipped as a public
+    column. The agent prompt promises opponents never see it, and the export is
+    reachable by any signed-in player."""
+    owner = await _user(reset_db, "owner")
+    rival = await _user(reset_db, "rival")
+    match_id = await _seed_export_match(reset_db, owner=owner, rival=rival)
+
+    r = await client.get(
+        f"/api/game-admin/{GAME}/matches/{match_id}/export.json",
+        cookies=_cookies(owner.id),
+    )
+    assert r.status_code == 200, r.text
+    thoughts = {row["thinking"] for row in r.json()["submissions"]}
+    assert "MY-PRIVATE-REASONING" in thoughts
+    assert "THEIR-PRIVATE-REASONING" not in thoughts
+    assert None in thoughts
+
+
+async def test_an_admin_export_shows_every_agents_thinking(client, reset_db):
+    """Reading why a preset did not follow its own instructions is the whole
+    point of exporting `thinking`, so the admin payload must not redact it."""
+    owner = await _user(reset_db, "owner")
+    rival = await _user(reset_db, "rival")
+    admin = await _user(reset_db, "boss", admin=True)
+    match_id = await _seed_export_match(reset_db, owner=owner, rival=rival)
+
+    r = await client.get(
+        f"/api/admin/matches/{match_id}/export.json", cookies=_cookies(admin.id)
+    )
+    assert r.status_code == 200, r.text
+    thoughts = {row["thinking"] for row in r.json()["submissions"]}
+    assert {"MY-PRIVATE-REASONING", "THEIR-PRIVATE-REASONING"} <= thoughts
 
 
 async def test_the_csv_export_columns_are_unchanged_for_a_player(client, reset_db):
@@ -1152,7 +1193,8 @@ async def test_a_stranger_may_export_but_sees_nothing_private(client, reset_db):
     """Exports are open to every signed-in player — that is the audience
     decision, and without this test it could be narrowed back to owner-only with
     the whole suite still green. What a stranger gets is the redacted view: no
-    strategy prompts at all, and nothing from the turn still in flight."""
+    strategy prompts and no thinking at all, and nothing from the turn still in
+    flight."""
     owner = await _user(reset_db, "owner")
     rival = await _user(reset_db, "rival")
     stranger = await _user(reset_db, "stranger")
@@ -1164,6 +1206,7 @@ async def test_a_stranger_may_export_but_sees_nothing_private(client, reset_db):
     )
     assert r.status_code == 200, r.text
     assert {p["strategy_prompt"] for p in r.json()["players"]} == {None}
+    assert {row["thinking"] for row in r.json()["submissions"]} == {None}
     assert "IN-FLIGHT-MOVE" not in r.text
     # Not an empty payload — the resolved turn is there, which is the point.
     assert "resolved-move" in r.text

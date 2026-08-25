@@ -11,6 +11,13 @@ passed to every builder:
   seat reads ``null``. A platform admin sees them all. Strategy text is private
   to its owner everywhere else in the app, and the export is reachable by any
   signed-in player.
+* ``thinking`` is real only for a seat the viewer owns; every other seat reads
+  ``null``. The agent prompt promises "Opponents never see it", so it is gated
+  exactly like ``strategy_prompt`` rather than shipped with the public columns.
+  It is exported at all because a preset's per-turn reasoning is the only way to
+  tell "the model could not do what it was told" from "the model decided not
+  to" — Headhunter attacked 57% against an instruction to attack every turn, and
+  the reason was only visible by reading its own words.
 * A non-admin sees **resolved turns only**. Without that filter an opponent in
   a live match could read every rival's chosen action, target and message
   between the act deadline and the resolve.
@@ -46,6 +53,7 @@ EXPORT_COLUMNS = [
     "action",
     "target_id",
     "message",
+    "thinking",
     "points_delta",
     "round_score_after",
     "submitted_at",
@@ -69,8 +77,12 @@ class ExportViewer:
         """Only an admin sees the turn still in flight."""
         return self.is_platform_admin
 
-    def may_read_strategy(self, seat_user_id: int) -> bool:
-        """Whether this viewer may read the strategy text behind one seat."""
+    def may_read_private_seat_text(self, seat_user_id: int) -> bool:
+        """Whether this viewer may read a seat's private text.
+
+        Covers both the seat's strategy prompt and its per-turn ``thinking``.
+        One gate rather than two so the two private fields cannot drift apart.
+        """
         return self.is_platform_admin or seat_user_id == self.user_id
 
 
@@ -83,6 +95,18 @@ async def gather_export_rows(
     timeline = await load_match_timeline(
         db, match_id, resolved_only=not viewer.sees_unresolved_turns
     )
+    # Which seats may show their thinking. Keyed by the agent_id string the
+    # timeline uses, so the lookup below cannot silently miss and leak.
+    owner_of_seat = {
+        seat_agent_id: user_id
+        for seat_agent_id, user_id in (
+            await db.execute(
+                select(Player.seat_name, Player.user_id).where(
+                    Player.match_id == match_id
+                )
+            )
+        ).all()
+    }
     for turn in timeline:
         for action in turn.actions:
             rows.append(
@@ -94,6 +118,16 @@ async def gather_export_rows(
                     "action": action.action,
                     "target_id": action.target_id or "",
                     "message": action.message,
+                    # Private, like strategy_prompt: only the seat's owner (or an
+                    # admin) reads it. An unknown seat falls through to None
+                    # rather than defaulting to visible.
+                    "thinking": (
+                        action.thinking
+                        if viewer.may_read_private_seat_text(
+                            owner_of_seat.get(action.agent_id, -1)
+                        )
+                        else None
+                    ),
                     "points_delta": action.points_delta,
                     "round_score_after": action.round_score_after,
                     "submitted_at": action.submitted_at.isoformat()
@@ -148,7 +182,7 @@ async def build_json_export(
         # A bot seat carries no agent_version_id, so `version` is already None
         # and needs no special case here.
         strategy_prompt: str | None = None
-        if version is not None and viewer.may_read_strategy(p.user_id):
+        if version is not None and viewer.may_read_private_seat_text(p.user_id):
             strategy_prompt = version.strategy_text
         players_payload.append(
             {
