@@ -114,9 +114,15 @@ async def create_game_record(
     return build_game_record(match)
 
 
-async def cancel_loaded_match(db: AsyncSession, match: Match) -> None:
-    """Cancel a loaded match, raising 409 when its state forbids cancel."""
-    reason = cancel_blocked_reason(match)
+async def cancel_loaded_match(
+    db: AsyncSession, match: Match, *, allow_active: bool = False
+) -> None:
+    """Cancel a loaded match, raising 409 when its state forbids cancel.
+
+    ``allow_active`` is passed straight through to ``cancel_blocked_reason`` so
+    the allowed-state policy keeps one home.
+    """
+    reason = cancel_blocked_reason(match, allow_active=allow_active)
     if reason is not None:
         raise HTTPException(409, detail=reason)
     await cancel_match(db, match)

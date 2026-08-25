@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Path, status
+from fastapi import APIRouter, Depends, Path, Query, status
 from fastapi.responses import StreamingResponse
 
 from app.deps import DbSession, require_platform_admin
@@ -48,9 +48,30 @@ async def cancel_game(
     match_id: Annotated[str, Path()],
     db: DbSession,
     _: Annotated[User, Depends(require_platform_admin)],
+    allow_active: Annotated[
+        bool,
+        Query(
+            description=(
+                "Also cancel a match that is already running. Off by default so "
+                "a live match cannot be stopped by an accidental call."
+            )
+        ),
+    ] = False,
 ) -> CancelResponse:
+    """Cancel a match. This JSON route is the ONLY way to stop a running one.
+
+    Deliberately not surfaced in the web UI: stopping a live match is a rare
+    operator action, and a button for it sits one misclick from destroying a
+    measurement run that takes ~25 minutes to reproduce. Admins call it with
+    ``?allow_active=true``.
+
+    The agents already handle their own shutdown. ``run_all.sh`` watches the
+    public match state and writes its STOP file as soon as the match reads
+    cancelled, so the play loops wind down on their own rather than relaunching
+    into a match that no longer exists.
+    """
     g = await load_match_or_404(db, match_id)
-    await cancel_loaded_match(db, g)
+    await cancel_loaded_match(db, g, allow_active=allow_active)
     return CancelResponse()
 
 
