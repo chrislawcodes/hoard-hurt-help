@@ -16,7 +16,7 @@ from app.models.request_incident import RequestIncident
 from app.models.turn import Turn, TurnMessage, TurnSubmission
 
 
-def cancel_blocked_reason(match: Match) -> str | None:
+def cancel_blocked_reason(match: Match, *, allow_active: bool = False) -> str | None:
     """Return why a match cannot be cancelled, or ``None`` if it can.
 
     HTTP-agnostic decision helper for the allowed-state policy the admin cancel
@@ -24,8 +24,22 @@ def cancel_blocked_reason(match: Match) -> str | None:
     match, ``"Match already ended."`` for a COMPLETED/CANCELLED one, else
     ``None``. Callers map a non-None reason to their own response (JSON 409 or
     an HTML error) and only call ``cancel_match`` when this returns ``None``.
+
+    ``allow_active`` lifts the ACTIVE block for a platform admin who explicitly
+    asks for it. Stopping a running match is a real power, so it is opt-in per
+    call rather than a property of the caller: an admin route that cancels a
+    pre-start match by mistake is recoverable, one that kills a live match
+    mid-round is not. A finished match stays un-cancellable either way — there
+    is nothing left to stop.
+
+    The transition itself needs nothing new. ``ACTIVE -> CANCELLED`` is already
+    legal in :mod:`app.engine.state_machine`, ``cancel_match`` already commits
+    before stopping the task so the scheduler watchdog cannot resurrect it, the
+    overdue-turn sweeper only touches ACTIVE matches, and move submission is
+    already refused once a match is not ACTIVE. This flag is the only thing
+    that stood in the way.
     """
-    if match.state == GameState.ACTIVE:
+    if match.state == GameState.ACTIVE and not allow_active:
         return "Match already started."
     if match.state in (GameState.COMPLETED, GameState.CANCELLED):
         return "Match already ended."

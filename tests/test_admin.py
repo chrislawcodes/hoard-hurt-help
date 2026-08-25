@@ -627,6 +627,95 @@ async def test_admin_cancel_pre_start(client, reset_db):
     assert r.status_code == 200
 
 
+async def _seed_active_match(reset_db, match_id: str = "G_ACT") -> str:
+    async with reset_db() as db:
+        db.add(
+            Match(
+                id=match_id,
+                name="running",
+                state=GameState.ACTIVE,
+                scheduled_start=datetime.now(timezone.utc) - timedelta(minutes=5),
+            )
+        )
+        await db.commit()
+    return match_id
+
+
+async def test_admin_cannot_cancel_a_running_match_by_default(client, reset_db):
+    """The default stays closed. Stopping a live match must be asked for by
+    name, so an existing caller cannot start killing running matches because a
+    parameter was added."""
+    admin = await _seed_user(reset_db, "admin@test.com")
+    match_id = await _seed_active_match(reset_db)
+
+    r = await client.post(
+        f"/api/admin/matches/{match_id}/cancel", cookies=_cookies(admin.id)
+    )
+    assert r.status_code == 409, r.text
+    assert "already started" in r.text
+    async with reset_db() as db:
+        m = (await db.execute(select(Match).where(Match.id == match_id))).scalar_one()
+        assert m.state == GameState.ACTIVE
+
+
+async def test_admin_can_cancel_a_running_match_with_allow_active(client, reset_db):
+    """The whole point of the change: before this there was no way to stop a
+    match once it started, and a bad run had to be waited out or destroyed with
+    a delete that threw away every turn."""
+    admin = await _seed_user(reset_db, "admin@test.com")
+    match_id = await _seed_active_match(reset_db)
+
+    r = await client.post(
+        f"/api/admin/matches/{match_id}/cancel?allow_active=true",
+        cookies=_cookies(admin.id),
+    )
+    assert r.status_code == 200, r.text
+    async with reset_db() as db:
+        m = (await db.execute(select(Match).where(Match.id == match_id))).scalar_one()
+        assert m.state == GameState.CANCELLED
+
+
+async def test_a_finished_match_stays_uncancellable_even_with_allow_active(
+    client, reset_db
+):
+    """allow_active lifts one block, not all of them. There is nothing to stop
+    on a match that already ended, and cancelling one would rewrite a result."""
+    admin = await _seed_user(reset_db, "admin@test.com")
+    async with reset_db() as db:
+        db.add(
+            Match(
+                id="G_DONE",
+                name="done",
+                state=GameState.COMPLETED,
+                scheduled_start=datetime.now(timezone.utc) - timedelta(hours=1),
+            )
+        )
+        await db.commit()
+
+    r = await client.post(
+        "/api/admin/matches/G_DONE/cancel?allow_active=true",
+        cookies=_cookies(admin.id),
+    )
+    assert r.status_code == 409, r.text
+    assert "already ended" in r.text
+
+
+async def test_a_non_admin_cannot_cancel_a_running_match(client, reset_db):
+    """The parameter must not become a way around the admin gate."""
+    await _seed_user(reset_db, "admin@test.com")
+    player = await _seed_user(reset_db, "player@test.com")
+    match_id = await _seed_active_match(reset_db, "G_ACT2")
+
+    r = await client.post(
+        f"/api/admin/matches/{match_id}/cancel?allow_active=true",
+        cookies=_cookies(player.id),
+    )
+    assert r.status_code in (401, 403), r.text
+    async with reset_db() as db:
+        m = (await db.execute(select(Match).where(Match.id == match_id))).scalar_one()
+        assert m.state == GameState.ACTIVE
+
+
 async def test_admin_delete_completed_match_with_winner(client, reset_db):
     """Deleting a finished match must not 500 on the winner_player_id FK.
 
