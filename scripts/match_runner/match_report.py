@@ -22,7 +22,11 @@ from __future__ import annotations
 import json
 import sys
 from collections import Counter, defaultdict
+from pathlib import Path
 from typing import Any
+
+sys.path.insert(0, str(Path(__file__).parent))
+from preset_fidelity import print_fidelity, tally_rules  # noqa: E402
 
 
 def validity(d: dict[str, Any]) -> None:
@@ -119,6 +123,10 @@ def main() -> int:
     print(f"MATCH {d['game']['id']} — {d['game']['name']}   rules {d['game'].get('rules_version', '?')}\n")
     validity(d)
     result(d)
+    # Only the rules this match BROKE. A followed rule is the expected case, and
+    # nine "100%" lines every match is how the two that matter get skipped.
+    print("\n3. RULES BROKEN")
+    print_fidelity(tally_rules([d]), failures_only=True)
     return 0
 
 

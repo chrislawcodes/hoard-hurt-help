@@ -162,3 +162,50 @@ for lg in "$RUN"/agent_*.log; do
   fi
 done
 echo "  total launches: $total_l"
+
+# FETCH THE EXPORT AND REPORT, WITHOUT A HUMAN.
+#
+# The export is the only source carrying `was_defaulted` and `thinking`, so it
+# is the only thing that can say whether these numbers are trustworthy or why an
+# agent chose what it chose. Until the admin export accepted a connection key it
+# needed a signed-in browser, which meant every report was fed by hand and the
+# pooled report only ever saw the matches somebody remembered to download.
+#
+# Saved into EXPORT_DIR so the pool grows on its own. A pooled figure computed
+# from whatever a person happened to click is not a sample of the matches
+# played, and it looks exactly like one.
+if [ -n "${MATCH_ID:-}" ]; then
+  KEY_FILE="${AGENTLUDUM_MCP_KEY_FILE:-$HOME/.agentludum/mcp-key}"
+  KEY="${AGENTLUDUM_MCP_KEY:-}"
+  [ -z "$KEY" ] && [ -f "$KEY_FILE" ] && KEY=$(tr -d '\n\r' < "$KEY_FILE")
+  EXPORT_DIR="${AGENTLUDUM_EXPORT_DIR:-$HOME/.agentludum/exports}"
+  REPORTS="$(cd "$(dirname "$0")" && pwd)"
+
+  case "$KEY" in
+    sk_conn_*)
+      mkdir -p "$EXPORT_DIR"
+      out="$EXPORT_DIR/$MATCH_ID.json"
+      code=$(curl -sS -o "$out" -w '%{http_code}' --max-time 60 \
+        -H "Authorization: Bearer $KEY" \
+        "https://agentludum.com/api/admin/matches/$MATCH_ID/export.json")
+      if [ "$code" = "200" ]; then
+        echo ""
+        python3 "$REPORTS/match_report.py" "$out"
+        echo ""
+        python3 "$REPORTS/preset_fidelity.py" "$EXPORT_DIR"/*.json
+        echo ""
+        python3 "$REPORTS/pooled_report.py" "$EXPORT_DIR"/*.json
+      else
+        # Loud, not silent. A missing export means the next pooled report is
+        # quietly answering from a smaller pool than you think.
+        rm -f "$out"
+        echo "" >&2
+        echo "could not fetch the export for $MATCH_ID (HTTP $code)." >&2
+        echo "  The key must belong to a platform admin. Reports skipped;" >&2
+        echo "  this match is NOT in the pool." >&2
+      fi;;
+    *)
+      echo "" >&2
+      echo "no connection key, so no export and no reports for $MATCH_ID." >&2;;
+  esac
+fi

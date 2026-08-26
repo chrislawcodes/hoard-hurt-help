@@ -30,7 +30,11 @@ from __future__ import annotations
 import json
 import sys
 from collections import Counter, defaultdict
+from pathlib import Path
 from typing import Any
+
+sys.path.insert(0, str(Path(__file__).parent))
+from preset_fidelity import print_fidelity, tally_rules  # noqa: E402
 
 
 def roster_key(d: dict[str, Any]) -> tuple[str, ...]:
@@ -221,6 +225,12 @@ def main() -> int:
 
         early = sum(1 for d in matches if clinched_early(d))
         print(f"   decided before the final round   {early} of {len(matches)}")
+
+        # The full table here, not just failures: a rule that only gets two or
+        # three chances a match is unreadable alone and only means something
+        # once the pool adds them up.
+        print("\n   preset fidelity")
+        print_fidelity(tally_rules(matches))
     return 0
 
 
