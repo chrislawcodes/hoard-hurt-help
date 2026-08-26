@@ -28,12 +28,12 @@ async def _seed(reset_db: async_sessionmaker, *, outcome: str) -> tuple[int, int
         conn.last_seen_at = now
         conn.last_polled_at = now
         agent, _ = await make_agent(db, user, connection=conn, name="opus-agent")
-        agent.preferred_model = "claude-opus-4-8"
+        agent.preferred_model = "claude-opus-5"
         await db.flush()
         await record_results(
             db,
             conn,
-            [{"provider": "claude", "model": "claude-opus-4-8",
+            [{"provider": "claude", "model": "claude-opus-5",
               "outcome": outcome, "error_text": "no access to model"}],
         )
         await db.commit()

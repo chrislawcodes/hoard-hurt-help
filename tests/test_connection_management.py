@@ -807,7 +807,7 @@ async def test_delete_stops_runner_but_leaves_agents_active(
             user,
             connection=connection,
             name="Alpha",
-            model="claude-sonnet-4-6",
+            model="claude-sonnet-5",
         )
         match = await _make_match(db, "M_detach", state=GameState.ACTIVE)
         player = await seat_prebuilt_player(
@@ -865,7 +865,7 @@ async def test_toggle_provider_enables_and_strand_guard(
         user = await make_user(db)
         connection, _ = await make_connection(db, user, provider=ConnectionProvider.CLAUDE)
         # An active AI agent depending on claude (the only covering connection).
-        await make_agent(db, user, connection=connection, name="Solo", model="claude-sonnet-4-6")
+        await make_agent(db, user, connection=connection, name="Solo", model="claude-sonnet-5")
         await db.commit()
         conn_id = connection.id
 
@@ -1218,7 +1218,7 @@ async def test_connection_health_across_multiple_agents_tracks_the_active_game(
             user,
             connection=connection,
             name="Warm",
-            model="claude-sonnet-4-6",
+            model="claude-sonnet-5",
         )
         cold_agent, cold_version = await make_agent(
             db,

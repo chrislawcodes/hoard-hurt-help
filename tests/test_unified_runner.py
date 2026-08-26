@@ -81,8 +81,8 @@ def test_provider_flag_overrides_and_drops_other_providers_model(runner):
 
 def test_model_flag_always_wins(runner):
     assert runner._resolve(
-        _turn("claude", "claude-haiku-4-5"), _args(model="claude-opus-4-8")
-    ) == ("claude", "claude-opus-4-8")
+        _turn("claude", "claude-haiku-4-5"), _args(model="claude-opus-5")
+    ) == ("claude", "claude-opus-5")
 
 
 def test_first_turn_folds_framing_for_codex_gemini_not_claude(runner):

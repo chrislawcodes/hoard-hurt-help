@@ -73,7 +73,7 @@ def test_default_model_none_for_empty_or_unknown_provider() -> None:
 
 def test_resolve_prefers_matching_preferred_model() -> None:
     # Layer 1: a preferred model that belongs to the provider is kept.
-    assert resolve_seat_model("claude", "claude-opus-4-8") == "claude-opus-4-8"
+    assert resolve_seat_model("claude", "claude-opus-5") == "claude-opus-5"
     assert resolve_seat_model("openai", "gpt-5.5") == "gpt-5.5"
 
 

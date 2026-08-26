@@ -179,7 +179,7 @@ async def test_version_edit_updates_draft_then_forks_after_rated_match(
         agent, _ = await make_agent(
             db, user, connection=connection, name="Alpha", create_version=False
         )
-        version = await make_version(db, agent, model="claude-sonnet-4-6", strategy_text="Draft")
+        version = await make_version(db, agent, model="claude-sonnet-5", strategy_text="Draft")
         await db.commit()
 
     cookies = _signed_in_cookies(user.id)

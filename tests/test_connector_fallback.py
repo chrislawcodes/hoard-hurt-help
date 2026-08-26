@@ -127,12 +127,12 @@ def test_decide_attaches_model_failure_marker(connector, monkeypatch) -> None:
 
     monkeypatch.setitem(connector._ADAPTERS, "claude", UnavailableAdapter())
     turn = _make_turn(phase="act")
-    sess = connector._GameSession(provider="claude", model="claude-opus-4-8")
+    sess = connector._GameSession(provider="claude", model="claude-opus-5")
 
     decision = connector._decide(turn, sess)
     assert decision.get("model_failure") == {
         "provider": "claude",
-        "model": "claude-opus-4-8",
+        "model": "claude-opus-5",
         "outcome": "failed",
         "error_text": "model not found (404)",
     }

@@ -42,12 +42,12 @@ async def test_worklist_includes_matching_preferred_and_excludes_other_provider(
     # A claude-preferred agent → included; a gpt-preferred agent on a claude-only
     # connection → excluded (provider not enabled here).
     a1, _ = await make_agent(db, user, name="opus-agent", status=AgentStatus.ACTIVE)
-    a1.preferred_model = "claude-opus-4-8"
+    a1.preferred_model = "claude-opus-5"
     a2, _ = await make_agent(db, user, name="gpt-agent", status=AgentStatus.ACTIVE)
     a2.preferred_model = "gpt-5.4-mini"
     await db.flush()
     pairs = _pairs(await compute_worklist(db, conn))
-    assert ("claude", "claude-opus-4-8") in pairs
+    assert ("claude", "claude-opus-5") in pairs
     assert ("claude", "gpt-5.4-mini") not in pairs
     assert not any(p == "openai" for p, _ in pairs)
 
@@ -57,10 +57,10 @@ async def test_worklist_excludes_paused_agents_preferred(db: AsyncSession) -> No
     user = await make_user(db, 0)
     conn, _ = await make_connection(db, user, provider=ConnectionProvider.CLAUDE)
     agent, _ = await make_agent(db, user, name="paused-agent", status=AgentStatus.PAUSED)
-    agent.preferred_model = "claude-opus-4-8"
+    agent.preferred_model = "claude-opus-5"
     await db.flush()
     pairs = _pairs(await compute_worklist(db, conn))
-    assert ("claude", "claude-opus-4-8") not in pairs
+    assert ("claude", "claude-opus-5") not in pairs
     assert ("claude", "claude-haiku-4-5") in pairs  # provider default still present
 
 

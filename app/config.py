@@ -173,9 +173,15 @@ settings = get_settings()
 
 PROVIDER_MODELS: dict[str, list[str]] = {
     "claude": [
+        # Verified against the CLI on 2026-08-26 — every id here answered a real
+        # call. The list had gone stale: it offered Sonnet 4.6 and Opus 4.8 while
+        # Sonnet 5 and Opus 5 had superseded them, so anyone choosing Sonnet got
+        # the older model AND paid 50% more for it ($3/$15 per MTok against
+        # $2/$10). There is no server-side allowlist behind this, so these values
+        # are the only source of truth for what a user can pick.
         "claude-haiku-4-5",
-        "claude-sonnet-4-6",
-        "claude-opus-4-8",
+        "claude-sonnet-5",
+        "claude-opus-5",
     ],
     "gemini": [
         "gemini-3.1-flash-lite",

@@ -59,13 +59,13 @@ def test_model_prefix_infers_provider(runner):
             match_id="M_1",
             agent_id="A",
             agent_name="Alpha",
-            model="claude-sonnet-4-6",
+            model="claude-sonnet-5",
             version_no=1,
             turn_no=1,
             token="t1",
         ),
         _args(),
-    ) == ("claude", "claude-sonnet-4-6")
+    ) == ("claude", "claude-sonnet-5")
 
 
 def test_sessions_are_scoped_by_agent_and_match(runner, monkeypatch):
@@ -103,7 +103,7 @@ def test_sessions_are_scoped_by_agent_and_match(runner, monkeypatch):
         match_id="M_1",
         agent_id="B",
         agent_name="Beta",
-        model="claude-opus-4-8",
+        model="claude-opus-5",
         version_no=2,
         turn_no=1,
         token="turn-b-1",
@@ -128,7 +128,7 @@ def test_sessions_are_scoped_by_agent_and_match(runner, monkeypatch):
     assert sess_b is sessions[("B", "M_1")]
     assert len(sessions) == 2
     assert calls[0][0:2] == ("first", "claude-haiku-4-5")
-    assert calls[1][0:2] == ("first", "claude-opus-4-8")
+    assert calls[1][0:2] == ("first", "claude-opus-5")
     assert calls[2][0:2] == ("resume", "claude-haiku-4-5")
 
 

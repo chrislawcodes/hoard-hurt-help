@@ -259,7 +259,7 @@ async def test_one_connection_one_agent_one_match_returns_correct_version(
             match=match,
             seat_name=f"{user.handle}/{'Alpha'}",
             agent_name="Alpha",
-            model="claude-sonnet-4-6",
+            model="claude-sonnet-5",
             strategy_text="alpha strategy",
         )
         await db.commit()
@@ -341,7 +341,7 @@ async def test_same_match_agents_fetch_own_turn_and_wrong_agent_submit_is_reject
             match=match,
             seat_name=f"{user.handle}/Alpha",
             agent_name="Alpha",
-            model="claude-sonnet-4-6",
+            model="claude-sonnet-5",
             strategy_text="alpha strategy",
         )
         agent_b, _version_b, _player_b = await _seat_agent(
@@ -424,7 +424,7 @@ async def test_next_turn_agent_id_filter_and_batch_serve_each_agent(
             match=match,
             seat_name=f"{user.handle}/Alpha",
             agent_name="Alpha",
-            model="claude-sonnet-4-6",
+            model="claude-sonnet-5",
             strategy_text="alpha strategy",
         )
         agent_b, _version_b, player_b = await _seat_agent(
@@ -545,7 +545,7 @@ async def test_next_turn_payload_includes_provider(
             match=match,
             seat_name=f"{user.handle}/Alpha",
             agent_name="Alpha",
-            model="claude-sonnet-4-6",
+            model="claude-sonnet-5",
             strategy_text="s",
         )
         await db.commit()
@@ -682,7 +682,7 @@ async def test_failover_live_connection_serves_match_pinned_to_dead_connection(
             match=match,
             seat_name=f"{user.handle}/Alpha",
             agent_name="Alpha",
-            model="claude-sonnet-4-6",
+            model="claude-sonnet-5",
             strategy_text="s",
         )
         # Pin the match to the now-dead connection.
@@ -722,7 +722,7 @@ async def test_next_turns_returns_every_servable_turn_at_once(
             match=match_a,
             seat_name=f"{user.handle}/Alpha",
             agent_name="Alpha",
-            model="claude-sonnet-4-6",
+            model="claude-sonnet-5",
             strategy_text="alpha strategy",
         )
         await _seat_agent(
@@ -771,7 +771,7 @@ async def test_next_turns_omits_a_turn_already_submitted(
             match=match_a,
             seat_name=f"{user.handle}/Alpha",
             agent_name="Alpha",
-            model="claude-sonnet-4-6",
+            model="claude-sonnet-5",
             strategy_text="alpha strategy",
         )
         _agent_b, _version_b, player_b = await _seat_agent(
@@ -873,7 +873,7 @@ async def test_long_poll_returns_waiting_after_window_when_seated_no_open_turn(
             match=match,
             seat_name=f"{user.handle}/Alpha",
             agent_name="Alpha",
-            model="claude-sonnet-4-6",
+            model="claude-sonnet-5",
             strategy_text="s",
         )
         await db.commit()
@@ -925,7 +925,7 @@ async def test_long_poll_returns_promptly_when_a_turn_opens(
             match=match,
             seat_name=f"{user.handle}/Alpha",
             agent_name="Alpha",
-            model="claude-sonnet-4-6",
+            model="claude-sonnet-5",
             strategy_text="alpha strategy",
         )
         await db.commit()
@@ -1003,12 +1003,12 @@ async def test_pacing_is_agent_scoped_when_a_loop_asks_for_one_agent(
         agent_a, _va, _pa = await _seat_agent(
             db, user=user, connection=connection, match=far,
             seat_name=f"{user.handle}/A", agent_name="A",
-            model="claude-sonnet-4-6", strategy_text="s",
+            model="claude-sonnet-5", strategy_text="s",
         )
         await _seat_agent(
             db, user=user, connection=connection, match=live,
             seat_name=f"{user.handle}/B", agent_name="B",
-            model="claude-sonnet-4-6", strategy_text="s",
+            model="claude-sonnet-5", strategy_text="s",
         )
         await db.commit()
         connection_id = connection.id
@@ -1049,7 +1049,7 @@ async def test_api_call_count_increments_and_turn_count_on_real_submit(
             match=match,
             seat_name=f"{user.handle}/Alpha",
             agent_name="Alpha",
-            model="claude-sonnet-4-6",
+            model="claude-sonnet-5",
             strategy_text="alpha strategy",
         )
         await db.commit()
@@ -1154,7 +1154,7 @@ async def test_seated_in_active_game_is_waiting_not_no_game(
             match=match,
             seat_name=f"{user.handle}/Alpha",
             agent_name="Alpha",
-            model="claude-sonnet-4-6",
+            model="claude-sonnet-5",
             strategy_text="s",
         )
         await db.commit()
@@ -1195,7 +1195,7 @@ async def test_scheduled_game_keeps_caller_waiting_not_no_game(
             match=match,
             seat_name=f"{user.handle}/Alpha",
             agent_name="Alpha",
-            model="claude-sonnet-4-6",
+            model="claude-sonnet-5",
             strategy_text="s",
         )
         await db.commit()
@@ -1226,7 +1226,7 @@ async def test_provider_agnostic_serving_stamps_played_provider(
             match=match,
             seat_name=f"{user.handle}/Decoupled",
             agent_name="Decoupled",
-            model="claude-sonnet-4-6",
+            model="claude-sonnet-5",
             strategy_text="s",
         )
         # Decoupled agent: no stored provider, no stored model.
@@ -1332,7 +1332,7 @@ async def test_next_turn_history_is_windowed_to_recent_turns(
             match=match,
             seat_name=f"{user.handle}/Alpha",
             agent_name="Alpha",
-            model="claude-sonnet-4-6",
+            model="claude-sonnet-5",
             strategy_text="s",
         )
         # Three resolved turns (1,1)..(1,3), then the open turn (1,4) the poll serves.
@@ -1415,7 +1415,7 @@ async def test_next_turn_payload_includes_current_pact_values(
             match=match,
             seat_name=f"{user.handle}/Alpha",
             agent_name="Alpha",
-            model="claude-sonnet-4-6",
+            model="claude-sonnet-5",
             strategy_text="s",
         )
         _agent_b, _version_b, player_b = await _seat_agent(
@@ -1522,7 +1522,7 @@ async def test_coach_note_served_on_turn_payload(
             match=match,
             seat_name=f"{user.handle}/Alpha",
             agent_name="Alpha",
-            model="claude-sonnet-4-6",
+            model="claude-sonnet-5",
             strategy_text="alpha strategy",
         )
         player.coach_note = "Be cooperative this round"
@@ -1552,7 +1552,7 @@ async def test_coach_note_for_a_future_round_is_absent_from_turn_payload(
             match=match,
             seat_name=f"{user.handle}/Alpha",
             agent_name="Alpha",
-            model="claude-sonnet-4-6",
+            model="claude-sonnet-5",
             strategy_text="alpha strategy",
         )
         player.coach_note = "Armed for a later round"
@@ -1581,7 +1581,7 @@ async def test_turn_static_block_carries_unified_fields(
             match=match,
             seat_name=f"{user.handle}/Alpha",
             agent_name="Alpha",
-            model="claude-sonnet-4-6",
+            model="claude-sonnet-5",
             strategy_text="alpha strategy",
         )
         player.coach_note = "Watch the leader"
@@ -1651,7 +1651,7 @@ async def test_filter_to_candidates_batches_mixed_phase_seats(
                 match=match,
                 seat_name=f"{user.handle}/{label}",
                 agent_name=label,
-                model="claude-sonnet-4-6",
+                model="claude-sonnet-5",
                 strategy_text="s",
             )
             players[label] = player
@@ -1756,7 +1756,7 @@ async def test_hold_frees_its_db_connection_between_re_checks(
             match=match,
             seat_name=f"{user.handle}/Alpha",
             agent_name="Alpha",
-            model="claude-sonnet-4-6",
+            model="claude-sonnet-5",
             strategy_text="s",
         )
         await db.commit()
