@@ -1,4 +1,14 @@
-"""Admin JSON API: create/cancel games, export data."""
+"""Admin JSON API: create/cancel games, export data.
+
+The two export routes accept a platform admin's CONNECTION KEY as well as a
+signed-in session; everything else here stays session-only. The export is the
+only source carrying `was_defaulted` and `thinking`, so without this an
+unattended match run cannot fetch its own results and every pooled figure comes
+from whatever a person remembered to download by hand.
+
+Create, cancel and delete are deliberately excluded. Read-only is what makes the
+wider door acceptable: a leaked key must not be able to destroy a match.
+"""
 
 from __future__ import annotations
 
@@ -7,7 +17,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Path, Query, status
 from fastapi.responses import StreamingResponse
 
-from app.deps import DbSession, require_platform_admin
+from app.deps import DbSession, require_platform_admin, require_platform_admin_or_key
 from app.models.user import User
 from app.read_models.match_export import ExportViewer
 from app.routes.admin_match_actions import (
@@ -80,7 +90,7 @@ async def cancel_game(
 async def export_csv(
     match_id: Annotated[str, Path()],
     db: DbSession,
-    user: Annotated[User, Depends(require_platform_admin)],
+    user: Annotated[User, Depends(require_platform_admin_or_key)],
 ) -> StreamingResponse:
     await load_match_or_404(db, match_id)
     return await export_match_csv(db, match_id, viewer=_admin_viewer(user))
@@ -91,7 +101,7 @@ async def export_csv(
 async def export_json(
     match_id: Annotated[str, Path()],
     db: DbSession,
-    user: Annotated[User, Depends(require_platform_admin)],
+    user: Annotated[User, Depends(require_platform_admin_or_key)],
 ) -> StreamingResponse:
     g = await load_match_or_404(db, match_id)
     return await export_match_json(db, g, viewer=_admin_viewer(user))

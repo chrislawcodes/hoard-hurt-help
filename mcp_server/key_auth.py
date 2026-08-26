@@ -44,7 +44,14 @@ from fastmcp.server.auth.auth import AccessToken
 from sqlalchemy import select
 
 from app.db import SessionLocal
-from app.engine.tokens import bot_key_lookup, connection_key_log_hint
+from app.engine.tokens import (
+    CONNECTION_KEY_PREFIX as _CONNECTION_KEY_PREFIX,
+)
+from app.engine.tokens import (
+    bot_key_lookup,
+    connection_key_log_hint,
+    looks_like_connection_key,
+)
 from app.models.connection import Connection
 
 logger = logging.getLogger(__name__)
@@ -52,15 +59,15 @@ logger = logging.getLogger(__name__)
 # Every connection key is minted with this prefix (app.engine.tokens). It is what
 # tells a key bearer apart from a FastMCP-issued JWT, so the two auth paths never
 # have to guess at each other's credentials.
-CONNECTION_KEY_PREFIX = "sk_conn_"
+# Re-exported from app.engine.tokens, which mints the keys. Kept importable
+# from here because callers already reach for it at this name.
+CONNECTION_KEY_PREFIX = _CONNECTION_KEY_PREFIX
 
 # Claim carrying the connection this key authenticated as. Namespaced so it can
 # never collide with a Google/OIDC claim on the OAuth path.
 CONNECTION_ID_CLAIM = "hhh_connection_id"
 
-def looks_like_connection_key(token: str) -> bool:
-    """True when *token* is one of our connection keys rather than a JWT."""
-    return token.startswith(CONNECTION_KEY_PREFIX)
+__all__ = [*globals().get("__all__", []), "looks_like_connection_key"]
 
 
 async def verify_connection_key(

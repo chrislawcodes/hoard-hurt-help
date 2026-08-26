@@ -15,9 +15,21 @@ import hashlib
 import secrets
 
 
+# The shape of a connection key, beside the code that mints one. It used to be
+# written here as a literal and again in mcp_server/key_auth.py as a constant —
+# the mint side and the recognise side, free to drift apart. They answer the
+# same question, so they get one home, and it is this one.
+CONNECTION_KEY_PREFIX = "sk_conn_"
+
+
 def generate_connection_key() -> str:
     """Issue a stable per-connection credential. Format: sk_conn_<48 hex>."""
-    return "sk_conn_" + secrets.token_hex(24)
+    return CONNECTION_KEY_PREFIX + secrets.token_hex(24)
+
+
+def looks_like_connection_key(token: str) -> bool:
+    """True when *token* is one of our connection keys rather than a JWT."""
+    return token.startswith(CONNECTION_KEY_PREFIX)
 
 
 def bot_key_lookup(key: str) -> str:
