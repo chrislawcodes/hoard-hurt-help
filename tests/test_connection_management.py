@@ -969,9 +969,15 @@ async def test_mcp_connection_detail_shows_read_only_provider_not_machine_toggle
     assert "Playing" in r.text
     assert "Claude" in r.text
     # …and none of the machine-connector toggle/CLI machinery appears.
-    assert "toggle-switch" not in r.text
+    #
+    # This used to assert `"toggle-switch" not in r.text`, which read as "no
+    # machine toggles" but actually banned the CSS class everywhere on the page.
+    # The key sign-in card is a different toggle that belongs here, so the class
+    # ban failed for the right page having the right control. The three checks
+    # below name the machine box itself, which is what the test always meant.
     assert "provider-install-hint" not in r.text
     assert "this machine should run" not in r.text
+    assert "CLI detected" not in r.text
 
 
 async def test_connection_controls_live_in_status_card(
@@ -1002,12 +1008,12 @@ async def test_connection_controls_live_in_status_card(
     assert "<h3 style=\"margin-top:0;\">Connection controls</h3>" not in r.text
 
 
-async def test_mcp_connection_status_card_hides_rotate_key(
+async def test_mcp_connection_hides_rotate_key_until_key_signin_is_on(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
-    """Rotate Key issues a fresh paste-in key — a machine idea. An MCP connection
-    signs in over OAuth, so the control is hidden and the copy talks reconnect, not
-    'rotate the setup message' or 'this machine'."""
+    """Quiet by default. Someone who signs in with Google and never touches key
+    sign-in should not be shown a rotate control for a credential they are not
+    using — it is a frightening button with nothing behind it for them."""
     async with session_factory() as db:
         user = await make_user(db)
         connection, _ = await make_connection(db, user, provider=ConnectionProvider.CLAUDE)
@@ -1020,13 +1026,57 @@ async def test_mcp_connection_status_card_hides_rotate_key(
     )
     assert r.status_code == 200
     assert "connection-controls" in r.text
-    # Pause + Delete stay; Rotate Key is gone.
     assert "Rotate Key" not in r.text
     assert f"/me/connections/{conn_id}/rotate" not in r.text
+    # Pause + Delete stay, with sign-in language rather than machine language.
     assert f"/me/connections/{conn_id}/delete" in r.text
-    # Machine-flavored delete copy is replaced with sign-in language.
     assert "Delete this machine?" not in r.text
     assert "Sign in again from your AI client" in r.text
+
+
+async def test_mcp_connection_shows_rotate_key_once_key_signin_is_on(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """The bug this replaces: Rotate Key was hidden on EVERY MCP connection,
+    because the template assumed one "signs in over OAuth, so there's no key to
+    rotate". Every MCP connection is minted a key at sign-in and never shown the
+    raw value, so rotating is the only way to learn it — hiding the button made
+    the key sign-in shipped in #641 unreachable from the UI."""
+    async with session_factory() as db:
+        user = await make_user(db)
+        connection, _ = await make_connection(db, user, provider=ConnectionProvider.CLAUDE)
+        connection.mcp_connected_at = datetime.now(timezone.utc)
+        connection.mcp_key_signin_enabled = True
+        await db.commit()
+        conn_id = connection.id
+
+    r = await client.get(
+        f"/me/connections/{conn_id}/status", cookies=_signed_in_cookies(user.id)
+    )
+    assert r.status_code == 200
+    assert "Rotate Key" in r.text
+    assert f"/me/connections/{conn_id}/rotate" in r.text
+
+
+async def test_mcp_connection_detail_offers_key_signin(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """The toggle must be reachable on an MCP connection. It was gated on
+    `not is_mcp_connection`, so the one client type that cannot complete the
+    Google sign-in could never turn on the alternative built for it."""
+    async with session_factory() as db:
+        user = await make_user(db)
+        connection, _ = await make_connection(db, user, provider=ConnectionProvider.CLAUDE)
+        connection.mcp_connected_at = datetime.now(timezone.utc)
+        await db.commit()
+        conn_id = connection.id
+
+    r = await client.get(
+        f"/me/connections/{conn_id}", cookies=_signed_in_cookies(user.id)
+    )
+    assert r.status_code == 200
+    assert "Sign in with a key" in r.text
+    assert f"/me/connections/{conn_id}/mcp-key-signin" in r.text
 
 
 async def test_detail_shows_when_connection_last_connected(

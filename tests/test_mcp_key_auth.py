@@ -387,11 +387,18 @@ async def test_leak_warning_does_not_promise_a_blanket_instant_cutoff(
     assert "until something calls that API with the new key" in page.text
 
 
-async def test_mcp_signed_in_connections_are_not_offered_the_switch(
+async def test_mcp_signed_in_connections_are_offered_the_switch(
     reset_db: async_sessionmaker, client: AsyncClient
 ) -> None:
-    """An OAuth connection holds no key, so offering it key sign-in would be a
-    dead end."""
+    """This asserted the opposite, on the grounds that "an OAuth connection holds
+    no key, so offering it key sign-in would be a dead end". It holds a key:
+    ``create_mcp_connection`` mints one at sign-in and simply never shows the raw
+    value — note that this test's own fixture unpacks a key it then ignored.
+
+    The cost of that false premise was the whole feature. Key sign-in exists for
+    clients that cannot complete the Google flow, and every one of them arrives
+    as an MCP connection, so hiding the switch there hid it from everybody who
+    needed it.""" 
     async with reset_db() as db:
         user = await make_user(db)
         connection, _key = await make_connection(
@@ -404,7 +411,7 @@ async def test_mcp_signed_in_connections_are_not_offered_the_switch(
         f"/me/connections/{connection_id}", cookies=signed_in_cookies(user_id)
     )
     assert page.status_code == 200
-    assert "Allow key sign-in on MCP" not in page.text
+    assert "Allow key sign-in on MCP" in page.text
 
 
 async def test_another_user_cannot_turn_it_on(
