@@ -206,7 +206,7 @@ def main() -> int:
         if curve:
             cells = "".join(f"{'T' + str(t):>6}" for t, _, _ in curve)
             vals = "".join(f"{pct:>5.0f}%" for _, pct, _ in curve)
-            print(f"\n   leading here wins the round")
+            print("\n   leading here wins the round")
             print(f"     {cells}")
             print(f"     {vals}   ({curve[0][2]} rounds)")
 
