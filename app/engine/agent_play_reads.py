@@ -253,6 +253,11 @@ def _public_standings(players: Sequence[Player]) -> list[StandingRow]:
         StandingRow(
             agent_id=player.seat_name,
             round_score=player.current_round_score,
+            # Round wins decide the match, so a standings pull without them
+            # shows position in this round only. The next-turn scoreboard has
+            # carried them all along; this endpoint did not, which left an agent
+            # ranking rivals on a table that resets every five turns.
+            round_wins=player.total_round_wins,
             rank=index + 1,
         )
         for index, player in enumerate(ordered)

@@ -296,8 +296,8 @@ Strategy: Dealmaker.
         prompt=f"""{RANK_FRAMING}
 
 Strategy: Underdog's Champion.
-* Recruit mutual help from the bottom half of the standings in talk.
-* Never HELP anyone in the top half, whatever they offer.
+* Recruit mutual help from the bottom half of THIS ROUND's scores in talk.
+* Never HELP anyone in the top half of this round, whatever they offer.
 * Sell the pact: it pays every turn, while the pot shrinks with every taker.
 * HELP your recruit and never betray them.
 * If a recruit betrays you, stop HELPing them, and HURT them as soon as the hit will not drop them to zero.
