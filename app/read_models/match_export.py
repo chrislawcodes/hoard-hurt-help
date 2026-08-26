@@ -40,6 +40,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.agent import Agent
 from app.models.agent_version import AgentVersion
 from app.models.match import Match
 from app.models.player import Player
@@ -184,10 +185,20 @@ async def build_json_export(
         strategy_prompt: str | None = None
         if version is not None and viewer.may_read_private_seat_text(p.user_id):
             strategy_prompt = version.strategy_text
+        # Which model this seat was set to play. The export recorded the
+        # PROVIDER ("claude") and nothing finer, so a match run on Haiku and one
+        # run on Sonnet were indistinguishable afterwards — and comparing models
+        # is the point of running the same roster twice. A match record has to
+        # be able to say what produced it.
+        agent = (
+            await db.execute(select(Agent).where(Agent.id == p.agent_id))
+        ).scalar_one_or_none()
+        model = agent.preferred_model if agent is not None else None
         players_payload.append(
             {
                 "agent_id": p.agent_id,
                 "model_self_report": p.played_provider,
+                "model": model,
                 "total_round_wins": p.total_round_wins,
                 "total_round_score": p.total_round_score,
                 "strategy_prompt": strategy_prompt,

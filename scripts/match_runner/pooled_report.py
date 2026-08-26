@@ -37,6 +37,17 @@ sys.path.insert(0, str(Path(__file__).parent))
 from preset_fidelity import print_fidelity, tally_rules  # noqa: E402
 
 
+def model_key(d: dict[str, Any]) -> str:
+    """Which model the agents played on.
+
+    Pooled beside rules version and roster for the same reason: a Haiku match and
+    a Sonnet match are not two samples of one experiment. Mixing them would credit
+    a payoff change with a difference the model made.
+    """
+    models = sorted({p.get("model") or "unset" for p in d["players"] if p.get("strategy_prompt")})
+    return ", ".join(models) if models else "unset"
+
+
 def roster_key(d: dict[str, Any]) -> tuple[str, ...]:
     """Which presets played, from their strategy text.
 
@@ -180,6 +191,16 @@ def main() -> int:
 
         # Roster check. A preset swap changes who can be helped and who is worth
         # hitting, so it moves every rate below. Flagged, never quietly pooled.
+        models: dict[str, list[str]] = defaultdict(list)
+        for d in matches:
+            models[model_key(d)].append(d["game"]["id"])
+        if len(models) > 1:
+            print(f"   MODELS DIFFER — {len(models)} across this version:")
+            for mdl, ids in models.items():
+                print(f"     {mdl}: {', '.join(ids)}")
+        elif next(iter(models)) != "unset":
+            print(f"   model: {next(iter(models))}")
+
         rosters: dict[tuple[str, ...], list[str]] = defaultdict(list)
         for d in matches:
             rosters[roster_key(d)].append(d["game"]["id"])

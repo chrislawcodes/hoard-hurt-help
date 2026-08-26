@@ -55,7 +55,13 @@ def validity(d: dict[str, Any]) -> None:
     print(f"   action chosen   {chosen / n * 100:5.1f}%  ({chosen}/{n})")
     print(f"   chat            {chat / n * 100:5.1f}%  ({chat}/{n})")
     print(f"   thinking        {think / n * 100:5.1f}%  ({think}/{n})")
-    print(f"   {d['game']['state']}   {rounds}x{turns}   {agents} agents, {bots} bots")
+    # Which model played. Two matches of the same roster on different models are
+    # different experiments, and without this the record cannot tell them apart.
+    models = sorted({p.get("model") or "unset" for p in d["players"] if p.get("strategy_prompt")})
+    print(
+        f"   {d['game']['state']}   {rounds}x{turns}   {agents} agents, {bots} bots"
+        f"   model: {', '.join(models)}"
+    )
 
 
 def result(d: dict[str, Any]) -> None:

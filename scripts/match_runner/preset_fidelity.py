@@ -90,29 +90,30 @@ def only_hurt_my_helper(rows: Rows, match: Rows, half: int) -> tuple[int, int]:
     return ok, len(hits)
 
 
-# A HURT costs its target this much, and a round score cannot go below zero.
-# Three presets say to strike "as soon as the hit will not drop them to zero",
-# so that condition has to be computed to test them honestly.
-HURT_DAMAGE = 8
-# Turns allowed between the first safe chance to strike and actually striking.
-PROMPT_WINDOW = 3
+# Turns allowed between the betrayal and the answer. The rule says "on your
+# next turn"; two is allowed because a betrayal only becomes visible once the
+# turn resolves, and the next turn can fall across a round boundary.
+PROMPT_WINDOW = 2
 
 
 def answer_a_betrayal(rows: Rows, match: Rows, half: int) -> tuple[int, int]:
-    """Strike back once the hit will not zero them — and do it PROMPTLY.
+    """Strike back on your next turn.
 
-    This asked only whether the betrayer was ever struck at any point in the
-    match, which scored 78% and read as fine. Tit-for-Tat was answering
-    betrayals 18, 20 and 30 turns later, and a 30-turn gap is not retaliation,
-    it is coincidence. A rule about responding has to measure the response time
-    or it measures nothing.
+    Rewritten when the preset was. It used to test "as soon as the hit will not
+    drop them to zero", which meant computing the first turn the target could
+    survive a hit — correct arithmetic, and the three presets carrying it struck
+    on 4 of 28 chances. The rule is now a plain deadline, so this is now a plain
+    deadline too.
 
-    The wait is legitimate: the rule says to hold off while the target is too
-    poor to survive the hit. So the clock starts at the first turn the target
-    could afford it, not at the betrayal.
+    An earlier version asked only whether the betrayer was EVER struck. That
+    scored 78% while Tit-for-Tat answered betrayals 18, 20 and 30 turns late: a
+    rule about responding has to measure the response time or it measures
+    nothing.
     """
     me = rows[0]["agent_id"]
     order = sorted(match, key=lambda s: (s["round"], s["turn"]))
+    turns = sorted({(s["round"], s["turn"]) for s in order})
+
     first_hit: dict[str, tuple[int, int]] = {}
     for s in order:
         if s["action"] == "HURT" and s.get("target_id") == me:
@@ -122,26 +123,18 @@ def answer_a_betrayal(rows: Rows, match: Rows, half: int) -> tuple[int, int]:
 
     ok = 0
     for attacker, when in first_hit.items():
-        # First turn after the betrayal where the attacker could take the hit.
-        safe: tuple[int, int] | None = None
-        for s in order:
-            if s["agent_id"] != attacker or (s["round"], s["turn"]) <= when:
-                continue
-            if s["round_score_after"] > HURT_DAMAGE:
-                safe = (s["round"], s["turn"])
-                break
-        if safe is None:
-            continue  # never safe to strike — the rule never came due
-        struck = [
-            (s["round"], s["turn"])
+        try:
+            i = turns.index(when)
+        except ValueError:
+            continue
+        due = turns[i + 1 : i + 1 + PROMPT_WINDOW]
+        if any(
+            s["action"] == "HURT"
+            and s.get("target_id") == attacker
+            and (s["round"], s["turn"]) in due
             for s in rows
-            if s["action"] == "HURT" and s.get("target_id") == attacker
-            and (s["round"], s["turn"]) >= safe
-        ]
-        if struck:
-            gap = (struck[0][0] - safe[0]) * 5 + (struck[0][1] - safe[1])
-            if gap <= PROMPT_WINDOW:
-                ok += 1
+        ):
+            ok += 1
     return ok, len(first_hit)
 
 
@@ -230,13 +223,14 @@ RULES: list[tuple[str, str, str, Check]] = [
     ("Sandbagger", "never HURT", "no HURT in the first half", no_hurt_first_half),
     ("Sandbagger", "in the last two turns of a round", "late-round strikes only", hurt_late_in_round),
     ("Turncoat", "Never HURT a player who isn't HELPing you", "only HURT a helper", only_hurt_my_helper),
-    ("Tit-for-Tat", "HURT them as soon as the hit will not drop them to zero", "answer a betrayal promptly", answer_a_betrayal),
+    ("Tit-for-Tat", "HURT them on your next turn", "answer a betrayal next turn", answer_a_betrayal),
     ("Tit-for-Tat", "stop HELPing them", "stop HELPing a betrayer", stop_helping_a_betrayer),
-    ("Underdog's Champion", "HURT them as soon as the hit will not drop them to zero", "answer a betrayal promptly", answer_a_betrayal),
-    ("Turncoat", "as soon as the hit will not drop them to zero", "strike promptly once safe", answer_a_betrayal),
+    ("Underdog's Champion", "HURT them on your next turn", "answer a betrayal next turn", answer_a_betrayal),
+    ("Turncoat", "HURT that partner on your next turn", "betray on the next turn", answer_a_betrayal),
     ("Dealmaker", "never deal with them again", "never HELP a betrayer again", never_deal_again),
-    ("Underdog's Champion", "Never HELP anyone in the top half", "never HELP the top half", never_help_top_half),
-    ("Hoarder", "HOARD by default", "HOARD by default", hoard_by_default),
+    ("Underdog's Champion", "Never HELP anyone in the top half of this round", "never HELP the top half", never_help_top_half),
+    ("Hoarder", "HOARD every turn", "HOARD every turn", hoard_by_default),
+    ("Hoarder", "Never HELP", "never HELP", never_help),
 ]
 
 

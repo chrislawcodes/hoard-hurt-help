@@ -10,6 +10,11 @@
 set -uo pipefail
 
 AGENT_ID="$1"; AGENT_NAME="$2"; PROVIDER="$3"; RUN_DIR="$4"
+# Which Claude model plays. Haiku by default because it is the cheap one these
+# runs are built around, but a match is a different experiment on a different
+# model — so it is settable, and the export now records what actually played
+# rather than leaving it to a shell history nobody kept.
+CLAUDE_MODEL="${CLAUDE_MODEL:-claude-haiku-4-5}"
 LOG="$RUN_DIR/agent_${AGENT_ID}.log"
 # Its own working directory, created by setup_mcp_key.sh. Claude Code files MCP
 # logs by working directory, so this is what lets the monitor tell one agent's
@@ -125,7 +130,7 @@ while [ ! -f "$RUN_DIR/STOP" ]; do
     # Run from the isolated run dir, NOT the repo: the repo's CLAUDE.md is a
     # Python engineering contract and makes the model think it was handed a
     # coding task instead of a game to play.
-    ( cd "$WORK_DIR" && claude --print --model claude-haiku-4-5 \
+    ( cd "$WORK_DIR" && claude --print --model "$CLAUDE_MODEL" \
         --allowedTools "$TOOLS" < "$PROMPT" ) >> "$LOG" 2>&1
   else
     # NO --sandbox read-only: it blocks outbound network, so every HTTP MCP
