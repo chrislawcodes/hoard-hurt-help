@@ -16,7 +16,11 @@ from app.engine.agent_playability import playable_agent_filter
 from app.engine.connection_activity import mark_seen
 from app.engine.connection_auth_loading import connection_user_load_options
 from app.engine.match_id_rewrite import match_id_candidates
-from app.engine.tokens import bot_key_lookup, connection_key_log_hint
+from app.engine.tokens import (
+    bot_key_lookup,
+    connection_key_log_hint,
+    looks_like_connection_key,
+)
 from app.models.agent import Agent
 from app.models.connection import Connection, ConnectionStatus
 from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
@@ -73,6 +77,77 @@ async def require_platform_admin(request: Request, db: DbSession) -> User:
     """Require the user to have platform-admin role."""
     user = await require_user(request, db)
     if user.role != UserRole.ADMIN:
+        raise api_error(
+            status_code=status.HTTP_403_FORBIDDEN,
+            code="NOT_PLATFORM_ADMIN",
+            message="Platform admin access required.",
+        )
+    return user
+
+
+async def require_platform_admin_or_key(
+    request: Request,
+    db: DbSession,
+    x_connection_key: Annotated[str | None, Header(alias="X-Connection-Key")] = None,
+    authorization: Annotated[str | None, Header()] = None,
+) -> User:
+    """Platform admin, proved by a signed-in session OR a connection key.
+
+    Read-only admin routes are useless to anything without a browser, because
+    ``require_user`` reads a session cookie. That left the match export — the
+    only source carrying `was_defaulted` and `thinking` — reachable by hand and
+    by nothing else, so an unattended match run could not fetch its own results
+    and every pooled number came from whatever a person had remembered to
+    download.
+
+    The key proves the same thing the cookie does: which user is asking. The
+    ROLE CHECK IS UNCHANGED and still decides everything — a non-admin's key is
+    refused here exactly as a non-admin's cookie is. This widens how you may
+    prove who you are, not what an admin may do.
+
+    Deliberately NOT applied to create, cancel or delete. A leaked key should
+    not be able to destroy a match, and read-only is the whole reason this is
+    an acceptable trade.
+    """
+    try:
+        return await require_platform_admin(request, db)
+    except HTTPException:
+        pass  # no usable session — fall through to the key
+
+    raw = x_connection_key
+    if not raw and authorization and authorization.lower().startswith("bearer "):
+        raw = authorization[7:].strip()
+    if not raw or not looks_like_connection_key(raw):
+        raise api_error(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            code="NOT_SIGNED_IN",
+            message="Sign in, or send a platform admin's connection key.",
+        )
+
+    key_hash = bot_key_lookup(raw)
+    connection = (
+        await db.execute(
+            select(Connection).where(
+                or_(
+                    Connection.key_lookup == key_hash,
+                    Connection.prev_key_lookup == key_hash,
+                )
+            )
+        )
+    ).scalar_one_or_none()
+    if connection is None:
+        logger.warning(
+            "admin export key auth failed: no connection for key ending %s",
+            connection_key_log_hint(raw),
+        )
+        raise api_error(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            code="INVALID_KEY",
+            message="Invalid X-Connection-Key.",
+        )
+
+    user = await db.get(User, connection.user_id)
+    if user is None or user.role != UserRole.ADMIN:
         raise api_error(
             status_code=status.HTTP_403_FORBIDDEN,
             code="NOT_PLATFORM_ADMIN",

@@ -609,6 +609,90 @@ async def test_web_form_creates_liars_dice_match_and_persists_config(
         assert state.state_json["config"] == {"wild_ones": True, "dice_per_player": 4}
 
 
+async def _seed_key_connection(reset_db, user_id: int) -> str:
+    """Give a user a connection, and return its raw key."""
+    from app.engine.tokens import bot_key_hint, bot_key_lookup, generate_connection_key
+    from app.models.connection import Connection, ConnectionProvider, ConnectionStatus
+
+    key = generate_connection_key()
+    async with reset_db() as db:
+        db.add(
+            Connection(
+                user_id=user_id,
+                provider=ConnectionProvider.CLAUDE,
+                key_lookup=bot_key_lookup(key),
+                key_hint=bot_key_hint(key),
+                status=ConnectionStatus.ACTIVE,
+            )
+        )
+        await db.commit()
+    return key
+
+
+async def test_export_accepts_a_platform_admins_connection_key(client, reset_db):
+    """The point of the change: a match run with no browser can fetch its own
+    results. The export is the only source carrying `was_defaulted` and
+    `thinking`, so without this every pooled number comes from whatever a person
+    remembered to download."""
+    admin = await _seed_user(reset_db, "admin@test.com")
+    async with reset_db() as db:
+        db.add(
+            Match(
+                id="G_EXP",
+                name="done",
+                state=GameState.COMPLETED,
+                scheduled_start=datetime.now(timezone.utc) - timedelta(hours=1),
+            )
+        )
+        await db.commit()
+    key = await _seed_key_connection(reset_db, admin.id)
+
+    r = await client.get(
+        "/api/admin/matches/G_EXP/export.json",
+        headers={"X-Connection-Key": key},
+    )
+    assert r.status_code == 200, r.text
+
+
+async def test_export_refuses_a_non_admins_connection_key(client, reset_db):
+    """The role check is the whole gate and is unchanged. Widening HOW you prove
+    who you are must not widen WHO may read an unredacted export."""
+    await _seed_user(reset_db, "admin@test.com")
+    player = await _seed_user(reset_db, "player@test.com")
+    key = await _seed_key_connection(reset_db, player.id)
+
+    r = await client.get(
+        "/api/admin/matches/G_EXP/export.json",
+        headers={"X-Connection-Key": key},
+    )
+    assert r.status_code == 403, r.text
+
+
+async def test_a_key_cannot_cancel_a_match(client, reset_db):
+    """Read-only is what makes the wider door acceptable. Cancel, create and
+    delete stay session-only so a leaked key cannot destroy a match."""
+    admin = await _seed_user(reset_db, "admin@test.com")
+    async with reset_db() as db:
+        db.add(
+            Match(
+                id="G_LIVE",
+                name="running",
+                state=GameState.REGISTERING,
+                scheduled_start=datetime.now(timezone.utc) + timedelta(hours=1),
+            )
+        )
+        await db.commit()
+    key = await _seed_key_connection(reset_db, admin.id)
+
+    r = await client.post(
+        "/api/admin/matches/G_LIVE/cancel", headers={"X-Connection-Key": key}
+    )
+    assert r.status_code in (401, 403), r.text
+    async with reset_db() as db:
+        m = (await db.execute(select(Match).where(Match.id == "G_LIVE"))).scalar_one()
+        assert m.state == GameState.REGISTERING
+
+
 async def test_admin_cancel_pre_start(client, reset_db):
     admin = await _seed_user(reset_db, "admin@test.com")
     async with reset_db() as db:
