@@ -104,11 +104,18 @@ That ordering is the whole design: cooperate to earn, defect once to cash out,
 and take the pot when nobody will deal with you.
 
 Timing note, because three presets used to get it wrong: a HURT does the SAME
-damage on every turn but the first. A round score is clipped at zero and nothing
-else, so an early hit is only wasted when it would push the victim below zero —
-after that, waiting changes nothing and merely risks the chance never coming
-round again. Presets time a strike off the VICTIM'S SCORE ("as soon as the hit
-will not drop them to zero"), never off the calendar.
+damage on every turn but the first, so there is nothing to wait for. Presets
+therefore say "on your next turn", never off the calendar and never off a
+condition the agent has to compute.
+
+That last part was learned the hard way. The three retaliation rules used to
+read "as soon as the hit will not drop them to zero" — correct arithmetic, since
+a round score clips at zero and an early hit is only wasted when it would push
+the victim below it. Measured across three matches, the presets carrying it
+struck on 4 of 28 chances: 22%, 11% and 10%. The clause asked an agent to hold
+off, track a rival's score across turns, and act the moment it crossed a
+threshold; in practice they held off and never came back. A rule that is right
+and unfollowable is worth less than a blunt one that fires.
 
 Two routes remain rejected. Pure denial still fails, because HURTing a player who
 is not helping you pays the attacker nothing however large HURT_POINTS grows — it
@@ -247,7 +254,7 @@ PD_STRATEGY_PRESETS: list[StrategyPreset] = [
 Strategy: Tit-for-Tat.
 * Get a mutual HELP with one player and keep it.
 * If they don't repay, move on. Return if they do.
-* If a partner betrays you, stop HELPing them, and HURT them as soon as the hit will not drop them to zero.
+* If a partner betrays you, stop HELPing them, and HURT them on your next turn.
 * In talk, ask for HELP, promise to repay, and warn that you always answer a betrayal.
 * HOARD only on a turn when you have no partner.""",
     ),
@@ -271,7 +278,7 @@ Strategy: Headhunter.
 
 Strategy: Turncoat.
 * Get a mutual HELP going with someone, and repay once so they trust you.
-* HURT that partner as soon as the hit will not drop them to zero.
+* HURT that partner on your next turn.
 * Then start again with a player you have never betrayed.
 * Never HURT a player who isn't HELPing you.
 * HOARD any turn nobody will pact with you.""",
@@ -300,7 +307,7 @@ Strategy: Underdog's Champion.
 * Never HELP anyone in the top half of this round, whatever they offer.
 * Sell the pact: it pays every turn, while the pot shrinks with every taker.
 * HELP your recruit and never betray them.
-* If a recruit betrays you, stop HELPing them, and HURT them as soon as the hit will not drop them to zero.
+* If a recruit betrays you, stop HELPing them, and HURT them on your next turn.
 * If they stop repaying, recruit someone else.""",
     ),
     StrategyPreset(
@@ -323,9 +330,10 @@ Strategy: Sandbagger.
         prompt=f"""{RANK_FRAMING}
 
 Strategy: Hoarder.
-* HOARD by default, and never draw attention to it.
-* In talk, push everyone else to pair up with each other, so the pot stays yours.
-* If others start joining the pot, HURT one of the players HELPing someone else.""",
+* HOARD every turn.
+* If more than two others HOARD, HURT a player who is HELPing.
+* Never HELP.
+* In talk, push everyone else to pair up with each other, so the pot stays yours.""",
     ),
     StrategyPreset(
         id="no_playbook",

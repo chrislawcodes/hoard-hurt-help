@@ -344,7 +344,7 @@ def test_core_presets_pick_one_target_and_stay_distinct() -> None:
     # the only one whose behaviour turns on the match clock at all.
     assert "Until halfway through the match" in presets["sandbagger"].prompt
     # Hoarder (renamed from Salvager) is the only preset whose default is the pot.
-    assert "HOARD by default" in presets["hoarder"].prompt
+    assert "HOARD every turn" in presets["hoarder"].prompt
     # No Playbook is the CONTROL, not an eighth strategy: it is handed no plan at
     # all and must derive one. It is what tells us whether the seven authored
     # strategies beat what the model works out on its own — so the one thing it
