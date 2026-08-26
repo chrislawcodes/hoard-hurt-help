@@ -191,9 +191,8 @@ def main() -> int:
                 if added or gone:
                     note = f"   (+{len(added)} / -{len(gone)} vs {groups[0][1][0]})"
                 print(f"     {', '.join(ids)}{note}")
-        else:
-            n_agents = len(next(iter(rosters)))
-            print(f"   same {n_agents}-agent line-up throughout")
+        # Silence when the line-up held. The same roster is the expected case, so
+        # saying so every run trains the reader to skip the line that matters.
 
         mix: Counter[str] = Counter()
         for d in matches:
