@@ -20,7 +20,12 @@ written against, and is tested against the strategy stored on the agent. Reword
 the preset and the check DISABLES ITSELF and says so, instead of quietly
 reporting compliance with a rule nobody wrote any more.
 
-usage: preset_fidelity.py <export.json> [export.json ...]
+Imported by both reports rather than run on its own. The rules are hand-copied
+out of strategy.py, so they must exist exactly once — a per-match copy and a
+pooled copy would be the same drift this file was built to catch, one level up.
+`match_report` asks it about one match, `pooled_report` about the whole pool.
+
+usage: preset_fidelity.py <export.json> [export.json ...]   (also runnable alone)
 """
 
 from __future__ import annotations
@@ -85,14 +90,80 @@ def only_hurt_my_helper(rows: Rows, match: Rows, half: int) -> tuple[int, int]:
     return ok, len(hits)
 
 
+# A HURT costs its target this much, and a round score cannot go below zero.
+# Three presets say to strike "as soon as the hit will not drop them to zero",
+# so that condition has to be computed to test them honestly.
+HURT_DAMAGE = 8
+# Turns allowed between the first safe chance to strike and actually striking.
+PROMPT_WINDOW = 3
+
+
 def answer_a_betrayal(rows: Rows, match: Rows, half: int) -> tuple[int, int]:
-    """Anyone who attacked me should be attacked back at some point."""
+    """Strike back once the hit will not zero them — and do it PROMPTLY.
+
+    This asked only whether the betrayer was ever struck at any point in the
+    match, which scored 78% and read as fine. Tit-for-Tat was answering
+    betrayals 18, 20 and 30 turns later, and a 30-turn gap is not retaliation,
+    it is coincidence. A rule about responding has to measure the response time
+    or it measures nothing.
+
+    The wait is legitimate: the rule says to hold off while the target is too
+    poor to survive the hit. So the clock starts at the first turn the target
+    could afford it, not at the betrayal.
+    """
     me = rows[0]["agent_id"]
-    attackers = _hurt_me(match, me)
-    if not attackers:
+    order = sorted(match, key=lambda s: (s["round"], s["turn"]))
+    first_hit: dict[str, tuple[int, int]] = {}
+    for s in order:
+        if s["action"] == "HURT" and s.get("target_id") == me:
+            first_hit.setdefault(s["agent_id"], (s["round"], s["turn"]))
+    if not first_hit:
         return 0, 0
-    struck = {s.get("target_id") for s in rows if s["action"] == "HURT"}
-    return len(attackers & struck), len(attackers)
+
+    ok = 0
+    for attacker, when in first_hit.items():
+        # First turn after the betrayal where the attacker could take the hit.
+        safe: tuple[int, int] | None = None
+        for s in order:
+            if s["agent_id"] != attacker or (s["round"], s["turn"]) <= when:
+                continue
+            if s["round_score_after"] > HURT_DAMAGE:
+                safe = (s["round"], s["turn"])
+                break
+        if safe is None:
+            continue  # never safe to strike — the rule never came due
+        struck = [
+            (s["round"], s["turn"])
+            for s in rows
+            if s["action"] == "HURT" and s.get("target_id") == attacker
+            and (s["round"], s["turn"]) >= safe
+        ]
+        if struck:
+            gap = (struck[0][0] - safe[0]) * 5 + (struck[0][1] - safe[1])
+            if gap <= PROMPT_WINDOW:
+                ok += 1
+    return ok, len(first_hit)
+
+
+def stop_helping_a_betrayer(rows: Rows, match: Rows, half: int) -> tuple[int, int]:
+    """Once someone attacks you, never HELP them again.
+
+    Checked separately because it fails on its own: Tit-for-Tat helped one
+    attacker seven more times after being hit by them, which no retaliation
+    measure would ever catch.
+    """
+    me = rows[0]["agent_id"]
+    order = sorted(match, key=lambda s: (s["round"], s["turn"]))
+    burned: set[str] = set()
+    ok = total = 0
+    for s in order:
+        if s["action"] == "HURT" and s.get("target_id") == me:
+            burned.add(s["agent_id"])
+        if s["agent_id"] == me and s["action"] == "HELP" and s.get("target_id"):
+            total += 1
+            if s["target_id"] not in burned:
+                ok += 1
+    return ok, total
 
 
 def never_deal_again(rows: Rows, match: Rows, half: int) -> tuple[int, int]:
@@ -159,24 +230,27 @@ RULES: list[tuple[str, str, str, Check]] = [
     ("Sandbagger", "never HURT", "no HURT in the first half", no_hurt_first_half),
     ("Sandbagger", "in the last two turns of a round", "late-round strikes only", hurt_late_in_round),
     ("Turncoat", "Never HURT a player who isn't HELPing you", "only HURT a helper", only_hurt_my_helper),
-    ("Tit-for-Tat", "HURT them as soon as the hit will not drop them to zero", "answer a betrayal", answer_a_betrayal),
+    ("Tit-for-Tat", "HURT them as soon as the hit will not drop them to zero", "answer a betrayal promptly", answer_a_betrayal),
+    ("Tit-for-Tat", "stop HELPing them", "stop HELPing a betrayer", stop_helping_a_betrayer),
+    ("Underdog's Champion", "HURT them as soon as the hit will not drop them to zero", "answer a betrayal promptly", answer_a_betrayal),
+    ("Turncoat", "as soon as the hit will not drop them to zero", "strike promptly once safe", answer_a_betrayal),
     ("Dealmaker", "never deal with them again", "never HELP a betrayer again", never_deal_again),
     ("Underdog's Champion", "Never HELP anyone in the top half", "never HELP the top half", never_help_top_half),
     ("Hoarder", "HOARD by default", "HOARD by default", hoard_by_default),
 ]
 
 
-def main() -> int:
-    if len(sys.argv) < 2:
-        print("usage: preset_fidelity.py <export.json> [export.json ...]", file=sys.stderr)
-        return 2
+def tally_rules(exports: list[dict[str, Any]]) -> dict[tuple[str, str], list[int]]:
+    """Run every rule over every clean export.
 
-    # preset -> rule -> [followed, opportunities, still_current]
+    Returns {(preset, rule): [followed, opportunities, still_current]}.
+    `still_current` is 0 when the preset was reworded since the rule was
+    written, which disables the check rather than reporting a number for a rule
+    nobody wrote any more.
+    """
     tally: dict[tuple[str, str], list[int]] = defaultdict(lambda: [0, 0, 1])
     seen: set[str] = set()
-    for path in sys.argv[1:]:
-        with open(path) as fh:
-            d = json.load(fh)
+    for d in exports:
         mid = d["game"]["id"]
         if mid in seen or any(s.get("was_defaulted") for s in d["submissions"]):
             continue
@@ -203,17 +277,41 @@ def main() -> int:
             ok, n = check(rows_by[seat], subs, half)
             tally[key][0] += ok
             tally[key][1] += n
+    return tally
 
-    print(f"PRESET FIDELITY — {len(seen)} clean match(es)\n")
-    print(f"   {'preset':<22}{'rule':<30}{'followed':>10}")
+
+def print_fidelity(tally: dict[tuple[str, str], list[int]], *, failures_only: bool = False) -> None:
+    """Render the tally. `failures_only` keeps a per-match section short: a rule
+    being followed is the expected case, and printing nine of those every match
+    trains the reader past the two lines that matter."""
+    rows = []
     for (preset, label), (ok, n, current) in tally.items():
         if not current:
-            print(f"   {preset:<22}{label:<30}{'rule reworded — not tested':>10}")
+            rows.append((preset, label, "reworded — not tested", False))
         elif n == 0:
-            print(f"   {preset:<22}{label:<30}{'never came up':>10}")
+            rows.append((preset, label, "never came up", False))
         else:
-            flag = "   <-" if ok / n < 0.8 else ""
-            print(f"   {preset:<22}{label:<30}{ok / n * 100:>9.0f}%  ({ok}/{n}){flag}")
+            broken = ok / n < 0.8
+            if failures_only and not broken:
+                continue
+            rows.append((preset, label, f"{ok / n * 100:>3.0f}%  ({ok}/{n})", broken))
+    if not rows:
+        print("   every rule followed")
+        return
+    for preset, label, value, broken in rows:
+        print(f"   {preset:<22}{label:<30}{value:>18}{'   <-' if broken else ''}")
+
+
+def main() -> int:
+    if len(sys.argv) < 2:
+        print("usage: preset_fidelity.py <export.json> [export.json ...]", file=sys.stderr)
+        return 2
+    exports = []
+    for path in sys.argv[1:]:
+        with open(path) as fh:
+            exports.append(json.load(fh))
+    print("PRESET FIDELITY\n")
+    print_fidelity(tally_rules(exports))
     return 0
 
 
