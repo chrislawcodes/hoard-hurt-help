@@ -337,7 +337,9 @@ def test_core_presets_pick_one_target_and_stay_distinct() -> None:
     assert "Never HELP" in presets["headhunter"].prompt
     assert "never betrayed" in presets["turncoat"].prompt
     assert "offer a trade" in presets["dealmaker"].prompt
-    assert "bottom half of the standings" in presets["underdogs_champion"].prompt
+    # Names WHICH table. "the standings" was ambiguous and scored 28%, 39% or
+    # 67% compliance depending on which board you judged it against.
+    assert "bottom half of THIS ROUND's scores" in presets["underdogs_champion"].prompt
     # Sandbagger is the only preset that forbids HURT for an opening stretch, and
     # the only one whose behaviour turns on the match clock at all.
     assert "Until halfway through the match" in presets["sandbagger"].prompt

@@ -65,6 +65,7 @@ class ScoreboardRow(BaseModel):
 class StandingRow(BaseModel):
     agent_id: str
     round_score: int
+    round_wins: float
     rank: int
 
 
