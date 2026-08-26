@@ -48,9 +48,17 @@
         {% else %}
             <form method="post" action="/me/connections/{{ connection.id }}/pause"><button type="submit" class="secondary">Pause</button></form>
         {% endif %}
-        {% if not is_mcp %}
-        {# Rotate Key issues a fresh paste-in setup key — a machine-connector idea.
-           An MCP connection signs in over OAuth, so there's no key to rotate. #}
+        {% if not is_mcp or connection.mcp_key_signin_enabled %}
+        {# Rotate Key was hidden on every MCP connection on the premise that one
+           "signs in over OAuth, so there's no key to rotate". That premise is
+           false: mcp_connection.py mints a key for every MCP connection at
+           sign-in — the raw value is simply never shown, so the only way to
+           learn it is to rotate. Hiding the button made the key sign-in that
+           #641 shipped unreachable from the UI.
+
+           It stays hidden while key sign-in is OFF, which is the honest reading
+           of the original instinct: no key is in play, so a rotate control is
+           just a frightening button most people should never press. #}
         <form method="post" action="/me/connections/{{ connection.id }}/rotate"><button type="submit" class="secondary">Rotate Key</button></form>
         {% endif %}
         {% if is_mcp %}

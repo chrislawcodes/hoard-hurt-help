@@ -136,13 +136,18 @@
 {% endif %}
 </div>
 
-{% if not is_mcp_connection %}
-{# Key sign-in on /mcp. Only offered on a key-holding (machine) connection — an
-   MCP connection signs in with Google and has no key. Off unless the owner turns
-   it on; see mcp_server/key_auth.py for why it is opt-in. #}
+{# Key sign-in on /mcp. Offered on every connection, MCP included: an MCP
+   connection DOES hold a key (mcp_connection.py mints one at sign-in), and
+   gating this card on `not is_mcp_connection` made the feature #641 shipped
+   impossible to reach from the UI for the clients that need it most.
+
+   Off unless the owner turns it on; see mcp_server/key_auth.py for why it is
+   opt-in, and keep it opt-in — Google sign-in is the right default for someone
+   clicking through a browser, and a key they never asked for is only a secret
+   to look after. #}
 <div class="card">
     <h3 style="margin-top:0;">Sign in with a key</h3>
-    <p class="meta">Most AI clients connect to Agent Ludum by signing in with Google. Antigravity can't finish that sign-in — it asks us how to sign in, gets the answer, and then never does it. Turning this on lets Antigravity use this connection's key instead.</p>
+    <p class="meta">Most AI clients connect to Agent Ludum by signing in with Google, and that is the right choice if it works for yours. Two cases need this instead. Antigravity can't finish the Google sign-in — it asks us how to sign in, gets the answer, and then never does it. And anything running several AI processes at once can be signed out mid-match: the Google sign-in renews itself with a one-use ticket, so when two processes renew at the same moment the second is left holding a ticket that has already been spent. A key never renews, so it cannot lose that race.</p>
     {# Rotation is graceful by design (app/routes/connections_credentials.py passes
        keep_old_overlap=True), so the two doors revoke at different moments. Say both:
        /mcp ignores prev_key_lookup and cuts off at once, while the HTTP agent API
@@ -175,5 +180,4 @@
     <p class="hint">Your key is shown once, when it's issued. If you no longer have it, use <em>Rotate Key</em> above to get a new one.</p>
     {% endif %}
 </div>
-{% endif %}
 {% endblock %}
