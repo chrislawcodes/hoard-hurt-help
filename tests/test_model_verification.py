@@ -99,17 +99,17 @@ async def test_record_verified_and_failed(db_session: AsyncSession) -> None:
         db_session,
         conn,
         [
-            {"provider": "claude", "model": "claude-opus-4-8", "outcome": "verified"},
+            {"provider": "claude", "model": "claude-opus-5", "outcome": "verified"},
             {
                 "provider": "claude",
-                "model": "claude-sonnet-4-6",
+                "model": "claude-sonnet-5",
                 "outcome": "failed",
                 "error_text": "model not available on your plan",
             },
         ],
     )
-    ok = await _status_of(db_session, conn.id, "claude-opus-4-8")
-    bad = await _status_of(db_session, conn.id, "claude-sonnet-4-6")
+    ok = await _status_of(db_session, conn.id, "claude-opus-5")
+    bad = await _status_of(db_session, conn.id, "claude-sonnet-5")
     assert ok.status is ModelVerificationStatus.VERIFIED and ok.error_text is None
     assert bad.status is ModelVerificationStatus.FAILED
     assert bad.error_text == "model not available on your plan"
@@ -119,14 +119,14 @@ async def test_timeout_escalates_to_failed_at_threshold(db_session: AsyncSession
     user = await make_user(db_session, 0)
     conn, _ = await make_connection(db_session, user, provider=ConnectionProvider.CLAUDE)
     await db_session.flush()
-    payload = [{"provider": "claude", "model": "claude-opus-4-8", "outcome": "timeout"}]
+    payload = [{"provider": "claude", "model": "claude-opus-5", "outcome": "timeout"}]
     await record_results(db_session, conn, payload)
-    assert (await _status_of(db_session, conn.id, "claude-opus-4-8")).status is ModelVerificationStatus.TIMEOUT
+    assert (await _status_of(db_session, conn.id, "claude-opus-5")).status is ModelVerificationStatus.TIMEOUT
     await record_results(db_session, conn, payload)  # 2nd → still timeout
-    row = await _status_of(db_session, conn.id, "claude-opus-4-8")
+    row = await _status_of(db_session, conn.id, "claude-opus-5")
     assert row.status is ModelVerificationStatus.TIMEOUT and row.consecutive_timeouts == 2
     await record_results(db_session, conn, payload)  # 3rd → escalates to failed
-    row = await _status_of(db_session, conn.id, "claude-opus-4-8")
+    row = await _status_of(db_session, conn.id, "claude-opus-5")
     assert row.status is ModelVerificationStatus.FAILED and row.consecutive_timeouts == 3
 
 
@@ -134,7 +134,7 @@ async def test_verified_resets_timeout_streak(db_session: AsyncSession) -> None:
     user = await make_user(db_session, 0)
     conn, _ = await make_connection(db_session, user, provider=ConnectionProvider.CLAUDE)
     await db_session.flush()
-    m = "claude-opus-4-8"
+    m = "claude-opus-5"
     await record_results(db_session, conn, [{"provider": "claude", "model": m, "outcome": "timeout"}])
     await record_results(db_session, conn, [{"provider": "claude", "model": m, "outcome": "verified"}])
     row = await _status_of(db_session, conn.id, m)
@@ -152,7 +152,7 @@ async def test_status_for_verified_wins_over_failed(db_session: AsyncSession) ->
     c1.last_polled_at = now  # live connectors (model_status_for counts live only)
     c2.last_polled_at = now
     await db_session.flush()
-    m = "claude-opus-4-8"
+    m = "claude-opus-5"
     await record_results(db_session, c1, [{"provider": "claude", "model": m, "outcome": "failed"}])
     await record_results(db_session, c2, [{"provider": "claude", "model": m, "outcome": "verified"}])
     # One machine can't run it, another can → still runnable (no warning).
@@ -164,7 +164,7 @@ async def test_status_for_failed_everywhere(db_session: AsyncSession) -> None:
     conn, _ = await make_connection(db_session, user, provider=ConnectionProvider.CLAUDE)
     conn.last_polled_at = datetime.now(timezone.utc)  # live connector
     await db_session.flush()
-    m = "claude-opus-4-8"
+    m = "claude-opus-5"
     await record_results(db_session, conn, [{"provider": "claude", "model": m, "outcome": "failed"}])
     assert await model_status_for(db_session, user.id, "claude", m) is ModelVerificationStatus.FAILED
 
@@ -173,4 +173,4 @@ async def test_status_for_unknown_when_never_checked(db_session: AsyncSession) -
     user = await make_user(db_session, 0)
     await make_connection(db_session, user, provider=ConnectionProvider.CLAUDE)
     await db_session.flush()
-    assert await model_status_for(db_session, user.id, "claude", "claude-opus-4-8") is ModelVerificationStatus.UNKNOWN
+    assert await model_status_for(db_session, user.id, "claude", "claude-opus-5") is ModelVerificationStatus.UNKNOWN

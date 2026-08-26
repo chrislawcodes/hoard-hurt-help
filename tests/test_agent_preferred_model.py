@@ -51,7 +51,7 @@ async def test_preferred_model_defaults_to_null(db_session: AsyncSession) -> Non
 async def test_preferred_model_persists_when_set(db_session: AsyncSession) -> None:
     user = await make_user(db_session, 0)
     agent, _ = await make_agent(db_session, user, name="opus-agent")
-    agent.preferred_model = "claude-opus-4-8"
+    agent.preferred_model = "claude-opus-5"
     await db_session.flush()
     agent_id = agent.id
-    assert await _preferred_model_of(db_session, agent_id) == "claude-opus-4-8"
+    assert await _preferred_model_of(db_session, agent_id) == "claude-opus-5"

@@ -72,8 +72,8 @@ def test_classify_timeout_on_generic_or_empty_failure(runner) -> None:
 
 
 def test_verify_argv_per_provider(runner) -> None:
-    claude = runner._verify_argv("claude", "claude-opus-4-8")
-    assert claude is not None and claude[0][0] == "claude" and "claude-opus-4-8" in claude[0]
+    claude = runner._verify_argv("claude", "claude-opus-5")
+    assert claude is not None and claude[0][0] == "claude" and "claude-opus-5" in claude[0]
     openai = runner._verify_argv("openai", "gpt-5.4-mini")
     assert openai is not None and openai[0][:2] == ["codex", "exec"] and "gpt-5.4-mini" in openai[0]
     gemini = runner._verify_argv("gemini", "gemini-3-flash-preview")

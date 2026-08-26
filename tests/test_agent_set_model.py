@@ -34,11 +34,11 @@ async def test_set_model_sets_and_clears(
 
     r = await client.post(
         f"/me/agents/{agent_id}/set-model",
-        data={"preferred_model": "claude-opus-4-8"},
+        data={"preferred_model": "claude-opus-5"},
         cookies=cookies,
     )
     assert r.status_code == 303, r.text
-    assert await _preferred(reset_db, agent_id) == "claude-opus-4-8"
+    assert await _preferred(reset_db, agent_id) == "claude-opus-5"
 
     # Empty submission clears it back to the provider default.
     r = await client.post(
