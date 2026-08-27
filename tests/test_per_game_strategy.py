@@ -410,16 +410,21 @@ def test_presets_do_not_carry_the_measured_bugs() -> None:
     #    round's last turn" was measured meaningless at v8: a round score is
     #    clipped at zero and nothing else, so the damage a HURT does is identical
     #    on turns two through five — waiting bought nothing and cost the preset
-    #    every earlier chance to strike. The replacement times the strike off the
-    #    victim's score (strike once the hit will not drop them to zero), which is
-    #    the only timing the scoring actually rewards.
+    #    every earlier chance to strike. The replacement timed the strike off the
+    #    victim's score ("once the hit will not drop them to zero"), which was
+    #    correct arithmetic and unfollowable: measured across three matches the
+    #    presets carrying it struck on 4 of 28 chances. It is now a plain
+    #    deadline, "on your next turn".
     assert "round's last turn" not in presets["turncoat"]
 
     # 4. The Champion's ban was meant to cover third parties only but read as a
     #    blanket "never attack", which stood it down completely. It now simply
     #    never betrays its own recruit, which is the behaviour that ban protected.
+    #    Reworded when the preset stopped following a recruit into the top half:
+    #    dropping a riser is explicitly NOT a betrayal, so both halves are pinned.
     assert "Never attack anyone else" not in presets["underdogs_champion"]
-    assert "never betray them" in presets["underdogs_champion"]
+    assert "Never betray a recruit" in presets["underdogs_champion"]
+    assert "Never HURT them for it" in presets["underdogs_champion"]
 
 
 def test_presets_state_behaviour_not_payoff_numbers() -> None:

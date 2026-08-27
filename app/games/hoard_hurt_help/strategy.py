@@ -117,6 +117,19 @@ off, track a rival's score across turns, and act the moment it crossed a
 threshold; in practice they held off and never came back. A rule that is right
 and unfollowable is worth less than a blunt one that fires.
 
+Underdog's Champion drops a recruit who climbs, and that is deliberate. The
+preset used to say both "never HELP anyone in the top half" and "HELP your
+recruit and never betray them", which give opposite instructions the moment a
+recruit rises — and every violation measured (8 of 8 in M_7481, on both Haiku
+and Sonnet) was the same partner, followed loyally out of the bottom half and
+into the top. Both models chose loyalty, which was a reasonable reading of an
+unresolvable rule.
+
+Loyalty lost because of what the preset is FOR: backing only the bottom half
+puts a brake on a runaway leader, and a Champion that follows one recruit all
+the way up is just a second Dealmaker. Dropping a riser is not a betrayal and
+must never be punished as one — hence "Never HURT them for it".
+
 Two routes remain rejected. Pure denial still fails, because HURTing a player who
 is not helping you pays the attacker nothing however large HURT_POINTS grows — it
 leaves you below the bystanders who did nothing. HURT_POINTS is deliberately held
@@ -305,10 +318,11 @@ Strategy: Dealmaker.
 Strategy: Underdog's Champion.
 * Recruit mutual help from the bottom half of THIS ROUND's scores in talk.
 * Never HELP anyone in the top half of this round, whatever they offer.
+* Drop a recruit who climbs into the top half or stops repaying, and recruit
+  from the bottom again. Never HURT them for it.
 * Sell the pact: it pays every turn, while the pot shrinks with every taker.
-* HELP your recruit and never betray them.
-* If a recruit betrays you, stop HELPing them, and HURT them on your next turn.
-* If they stop repaying, recruit someone else.""",
+* Never betray a recruit.
+* If a recruit betrays you, stop HELPing them, and HURT them on your next turn.""",
     ),
     StrategyPreset(
         id="sandbagger",
