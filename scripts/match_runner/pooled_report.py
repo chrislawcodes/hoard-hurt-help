@@ -37,6 +37,56 @@ sys.path.insert(0, str(Path(__file__).parent))
 from preset_fidelity import print_fidelity, tally_rules  # noqa: E402
 
 
+# What a HURT on a HOARDing target pays the attacker, by rules version. This is
+# the cleanest fingerprint available: the tier is a single small number, it
+# changed between versions, and it is visible in `points_delta`.
+HOARDER_TAKE_BY_VERSION = {3: "v10", 2: "v11"}
+
+
+def detect_version(d: dict[str, Any]) -> str | None:
+    """Work out which payoffs a match ACTUALLY ran on, from its own rows.
+
+    `rules_version` is stamped once at match creation, so a match created in the
+    gap between a deploy reporting success and the new process actually serving
+    gets labelled with the OLD version while playing on the new payoffs. M_7508
+    did exactly that — stamped v10, played v11 — and the pooled report would
+    have filed it beside matches with different payoffs, which is the precise
+    mixing this report's grouping exists to prevent.
+
+    The attacker's `points_delta` is the take PLUS any HELP they received that
+    turn, and a tier splits between multiple attackers on one target. So only
+    hits where the attacker was unhelped and alone are read, and the MAX across
+    those is the tier. Returns None when there are too few clean samples to say.
+    """
+    subs = d["submissions"]
+    by_turn: dict[tuple[int, int], list[dict]] = defaultdict(list)
+    for s in subs:
+        by_turn[(s["round"], s["turn"])].append(s)
+
+    best = 0
+    seen = 0
+    for s in subs:
+        if s["action"] != "HURT" or not s.get("target_id"):
+            continue
+        same = by_turn[(s["round"], s["turn"])]
+        target = next((o for o in same if o["agent_id"] == s["target_id"]), None)
+        if target is None or target["action"] != "HOARD":
+            continue
+        helped = any(
+            o["action"] == "HELP" and o.get("target_id") == s["agent_id"] for o in same
+        )
+        attackers = [
+            o for o in same if o["action"] == "HURT" and o.get("target_id") == s["target_id"]
+        ]
+        if helped or len(attackers) > 1:
+            continue
+        seen += 1
+        best = max(best, s["points_delta"])
+    if seen < 3:
+        return None
+    return HOARDER_TAKE_BY_VERSION.get(best)
+
+
 def model_key(d: dict[str, Any]) -> str:
     """Which model the agents played on.
 
@@ -59,7 +109,7 @@ def roster_key(d: dict[str, Any]) -> tuple[str, ...]:
     return tuple(sorted((p.get("strategy_prompt") or "(bot)").strip() for p in d["players"]))
 
 
-def load(paths: list[str]) -> tuple[dict[str, list[dict]], list[str]]:
+def load(paths: list[str]) -> tuple[dict[str, list[dict]], list[str], list[str]]:
     """Group usable exports by rules version; report what was dropped and why.
 
     Keyed by match id so the same match handed in twice (a partial download
@@ -67,6 +117,7 @@ def load(paths: list[str]) -> tuple[dict[str, list[dict]], list[str]]:
     """
     seen: dict[str, dict] = {}
     dropped: list[str] = []
+    regrouped: list[str] = []
     for p in paths:
         try:
             with open(p) as fh:
@@ -93,8 +144,18 @@ def load(paths: list[str]) -> tuple[dict[str, list[dict]], list[str]]:
         seen[mid] = d
     by_version: dict[str, list[dict]] = defaultdict(list)
     for d in seen.values():
-        by_version[d["game"].get("rules_version", "?")].append(d)
-    return by_version, dropped
+        stamped = d["game"].get("rules_version", "?")
+        actual = detect_version(d)
+        # The rows win. A stamp is a label written once; the payoffs are what the
+        # match was played on, and grouping on the label would put a match beside
+        # ones it does not share a rules table with.
+        if actual and actual != stamped:
+            regrouped.append(
+                f"{d['game']['id']}: stamped {stamped}, but its payoffs are {actual}"
+                f" — counted as {actual}"
+            )
+        by_version[actual or stamped].append(d)
+    return by_version, dropped, regrouped
 
 
 def round_winners(d: dict[str, Any]) -> list[tuple[int, list[str], Counter]]:
@@ -170,7 +231,7 @@ def main() -> int:
     if len(sys.argv) < 2:
         print("usage: pooled_report.py <export.json> [export.json ...]", file=sys.stderr)
         return 2
-    by_version, dropped = load(sys.argv[1:])
+    by_version, dropped, regrouped = load(sys.argv[1:])
     if not by_version:
         print("no usable matches", file=sys.stderr)
         for line in dropped:
@@ -181,6 +242,8 @@ def main() -> int:
     print(f"POOLED — {total} clean matches, {len(by_version)} rules version(s)")
     for line in dropped:
         print(f"   dropped {line}")
+    for line in regrouped:
+        print(f"   regrouped {line}")
 
     # One self-contained block per ruleset. Nothing is averaged across versions:
     # a combined figure would be the average of two different games.
