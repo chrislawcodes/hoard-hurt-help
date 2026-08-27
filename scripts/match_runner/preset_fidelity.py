@@ -96,33 +96,47 @@ def only_hurt_my_helper(rows: Rows, match: Rows, half: int) -> tuple[int, int]:
 PROMPT_WINDOW = 2
 
 
+def _helped_me_before(match: Rows, me: str, when: tuple[int, int]) -> set[str]:
+    """Who had HELPed me before this moment — i.e. who counts as a partner."""
+    return {
+        s["agent_id"]
+        for s in match
+        if s["action"] == "HELP"
+        and s.get("target_id") == me
+        and (s["round"], s["turn"]) < when
+    }
+
+
 def answer_a_betrayal(rows: Rows, match: Rows, half: int) -> tuple[int, int]:
-    """Strike back on your next turn.
+    """A PARTNER who turns on you must be answered on your next turn.
 
-    Rewritten when the preset was. It used to test "as soon as the hit will not
-    drop them to zero", which meant computing the first turn the target could
-    survive a hit — correct arithmetic, and the three presets carrying it struck
-    on 4 of 28 chances. The rule is now a plain deadline, so this is now a plain
-    deadline too.
+    "Partner" is load-bearing and this check used to ignore it, counting every
+    attacker as a betrayer. That reported Tit-for-Tat at 0% in M_7481 for
+    "failing" to answer 26 attacks from Headhunter and No Playbook — neither of
+    whom had ever helped it, so neither had anything to betray. The preset says
+    "if a PARTNER betrays you", and by its own words it did nothing wrong. The
+    number was measuring a rule nobody had written.
 
-    An earlier version asked only whether the betrayer was EVER struck. That
-    scored 78% while Tit-for-Tat answered betrayals 18, 20 and 30 turns late: a
-    rule about responding has to measure the response time or it measures
-    nothing.
+    An attacker counts here only if they had HELPed this agent at some point
+    before the attack. Everything else is just being attacked, which these
+    presets deliberately have no answer to.
     """
     me = rows[0]["agent_id"]
     order = sorted(match, key=lambda s: (s["round"], s["turn"]))
     turns = sorted({(s["round"], s["turn"]) for s in order})
 
-    first_hit: dict[str, tuple[int, int]] = {}
+    betrayals: dict[str, tuple[int, int]] = {}
     for s in order:
-        if s["action"] == "HURT" and s.get("target_id") == me:
-            first_hit.setdefault(s["agent_id"], (s["round"], s["turn"]))
-    if not first_hit:
+        if s["action"] != "HURT" or s.get("target_id") != me:
+            continue
+        when = (s["round"], s["turn"])
+        if s["agent_id"] in _helped_me_before(match, me, when):
+            betrayals.setdefault(s["agent_id"], when)
+    if not betrayals:
         return 0, 0
 
     ok = 0
-    for attacker, when in first_hit.items():
+    for attacker, when in betrayals.items():
         try:
             i = turns.index(when)
         except ValueError:
@@ -135,7 +149,52 @@ def answer_a_betrayal(rows: Rows, match: Rows, half: int) -> tuple[int, int]:
             for s in rows
         ):
             ok += 1
-    return ok, len(first_hit)
+    return ok, len(betrayals)
+
+
+def betray_your_own_partner(rows: Rows, match: Rows, half: int) -> tuple[int, int]:
+    """Turncoat's rule is the mirror image, and was being checked backwards.
+
+    Turncoat is told to build a pact and then HURT THAT PARTNER on its next
+    turn. The check pointed at `answer_a_betrayal`, which measures whether an
+    agent answers attacks ON it — a completely different question, and it
+    reported 0% for a rule it never tested.
+
+    Here: once someone has helped Turncoat and Turncoat has helped them back,
+    the next turn should carry a HURT aimed at them.
+    """
+    me = rows[0]["agent_id"]
+    order = sorted(match, key=lambda s: (s["round"], s["turn"]))
+    turns = sorted({(s["round"], s["turn"]) for s in order})
+
+    gave: set[str] = set()
+    got: set[str] = set()
+    due_at: dict[str, tuple[int, int]] = {}
+    for s in order:
+        if s["action"] == "HELP" and s["agent_id"] == me and s.get("target_id"):
+            gave.add(s["target_id"])
+        if s["action"] == "HELP" and s.get("target_id") == me:
+            got.add(s["agent_id"])
+        for who in gave & got:
+            due_at.setdefault(who, (s["round"], s["turn"]))
+    if not due_at:
+        return 0, 0
+
+    ok = 0
+    for partner, when in due_at.items():
+        try:
+            i = turns.index(when)
+        except ValueError:
+            continue
+        due = turns[i + 1 : i + 1 + PROMPT_WINDOW]
+        if any(
+            s["action"] == "HURT"
+            and s.get("target_id") == partner
+            and (s["round"], s["turn"]) in due
+            for s in rows
+        ):
+            ok += 1
+    return ok, len(due_at)
 
 
 def stop_helping_a_betrayer(rows: Rows, match: Rows, half: int) -> tuple[int, int]:
@@ -226,7 +285,7 @@ RULES: list[tuple[str, str, str, Check]] = [
     ("Tit-for-Tat", "HURT them on your next turn", "answer a betrayal next turn", answer_a_betrayal),
     ("Tit-for-Tat", "stop HELPing them", "stop HELPing a betrayer", stop_helping_a_betrayer),
     ("Underdog's Champion", "HURT them on your next turn", "answer a betrayal next turn", answer_a_betrayal),
-    ("Turncoat", "HURT that partner on your next turn", "betray on the next turn", answer_a_betrayal),
+    ("Turncoat", "HURT that partner on your next turn", "betray your own partner", betray_your_own_partner),
     ("Dealmaker", "never deal with them again", "never HELP a betrayer again", never_deal_again),
     ("Underdog's Champion", "Never HELP anyone in the top half of this round", "never HELP the top half", never_help_top_half),
     ("Hoarder", "HOARD every turn", "HOARD every turn", hoard_by_default),
