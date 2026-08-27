@@ -1,4 +1,36 @@
-"""Constants shipped to every agent and every player."""
+"""Constants shipped to every agent and every player.
+
+WHICH MODEL MEASURED IT IS PART OF THE MEASUREMENT. Every number below has been
+tuned against played matches, and the two models we have run behave differently
+enough that a figure measured on one can be actively misleading about the other.
+Before trusting any "measured at X%" note in this file, check which model
+produced it.
+
+Claude Haiku 4.5 does not reliably follow a preset's instructions, and — more
+importantly for tuning — it misprices this table. Measured 2026-08-26: told to
+HURT someone every single turn, its Headhunter spent eleven turns cooperating
+instead and NEVER ONCE considered hitting a player who was HELPing a third
+party. Its stated model of attacking was "+3 from a hoarder" and "+14 betrayal";
+the middle tier, which pays as much as a pact, was simply absent from its
+reasoning. So a low attack rate on Haiku does NOT mean agents priced attacking
+and declined. It usually means they did not see the move.
+
+Claude Sonnet 5 follows the instructions and reads the table. Same eight presets,
+same rules: eight of its rules scored 96-100% where Haiku managed 71-77%. It
+also finds what the payoffs actually reward — in two matches, No Playbook, a
+preset deliberately given NO strategy, independently chose to attack on 34-35 of
+35 turns and finished at or near the top both times.
+
+The practical consequence: Haiku matches are still useful for anything about
+STRUCTURE (tie rates, round shape, how long a match stays live), because those
+do not depend on any single payoff being priced correctly. They are not
+trustworthy for tuning a payoff. Two agents given no instructions reaching the
+same conclusion is worth more than ten matches of agents who could not see the
+option.
+
+The rest of this file's notes predate that finding. Where one cites an attack
+rate from "ten measured matches", those were Haiku.
+"""
 
 import enum
 
@@ -36,27 +68,42 @@ BETRAYAL_BONUS = 14
 #
 # The payout now scales with what the target was DOING, i.e. with how much they
 # had on the table for you to take:
-HURT_TAKE_HELPER = 6  # they were HELPing someone else — you interrupt that
-HURT_TAKE_HOARDER = 3  # they were HOARDing — you take a cut of the grab
+HURT_TAKE_HELPER = 5  # they were HELPing someone else — you interrupt that
+HURT_TAKE_HOARDER = 2  # they were HOARDing — you take a cut of the grab
 # ...and a target who was HURTing someone gets nothing taken, because they were
 # producing nothing to take. See `hurt_take`, which is the single source.
 #
-# HURT_TAKE_HELPER SITS EXACTLY ON A PACT (6), and that is a deliberate reversal.
+# HURT_TAKE_HELPER SITS BELOW A PACT AGAIN (5 against 6), reverting the v10 rise
+# to parity. This number has now been set from two different models' behaviour
+# and it is worth being explicit about which evidence applies.
 #
-# It was 5 at v9 precisely so it would stay BELOW a pact: at parity, attacking a
-# cooperator pays what cooperating pays AND damages them, so in a head-to-head
-# endgame there is no reason not to swing and the last turn stops being a
-# decision. That reasoning is still true — it is simply no longer the priority.
+# v9 set it to 5 so an attack would stay the THIRD-best move: pot alone 8, pact
+# 6, attack 5. v10 raised it to 6 because ten matches measured a 3.6-8.6% attack
+# rate and the ordering looked like the cause — at 5 attacking was dominated, so
+# agents rationally skipped it.
 #
-# Ten measured matches put the attack rate at 3.6-8.6%. The cause is visible in
-# the ordering: with nobody helping you, taking the pot alone pays 8 and a pact
-# pays 6, so an attack at 5 was your THIRD-best move and agents rationally
-# skipped it. At 6 it ties the pact. The cost is the endgame decision above; the
-# gain is that attacking stops being dominated.
+# EVERY ONE OF THOSE MATCHES RAN ON HAIKU, and Haiku misreads this exact payoff.
+# Its Headhunter, told to attack every turn, spent eleven turns cooperating and
+# never once considered hitting a HELPER; its stated model of attacking was "+3
+# from a hoarder" and "+14 betrayal". The low attack rate was not agents pricing
+# 5 correctly and declining. It was agents who did not know the option existed.
+#
+# On Sonnet, which does follow the table, 6 produced the opposite failure. Two
+# matches: the field attacked 25% then 35%, the three pure cooperators took 78
+# attacks between them and won nothing, and No Playbook — given no strategy at
+# all — independently chose to attack on 34 of 35 turns and tied for the win,
+# twice. At parity an attack pays what a pact pays AND costs the target 8, so it
+# is not an equal choice, it is a strictly better one.
+#
+# The ordering argument that justified 6 counts income and ignores damage. That
+# is why it read as "dominated" on paper while being dominant in play.
 #
 # Do not push this to 7 without a measured reason. Simulation puts the cliff
 # exactly there: at 7 an attack beats a pact outright, cooperation falls by a
 # third and winning scores drop from ~15 to ~11.
+#
+# HURT_TAKE_HOARDER drops 3 -> 2 alongside it, keeping the two tiers ordered and
+# the gap between them.
 # Mutual help decays -1 each time the SAME pair repeats it within a match, flooring
 # the pair's per-side total at MUTUAL_HELP_FLOOR: total =
 # max(MUTUAL_HELP_FLOOR, HELP_POINTS + MUTUAL_HELP_BONUS - k). The floor was set to
@@ -95,7 +142,7 @@ DEFAULT_TURNS_PER_ROUND = 5
 # moves: match length and `mutual_help_mode` are stored per match in their own
 # columns, so they are already recorded exactly, and bumping this for them would
 # make the version say a match is unlike another that differs only by a setting.
-RULES_VERSION = "v10"
+RULES_VERSION = "v11"
 
 
 class MutualHelpMode(str, enum.Enum):
