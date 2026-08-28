@@ -31,10 +31,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.engine.tokens import generate_match_id
+from app.engine.match_creation import allocate_match_id
 from app.models.match import GameState, Match, MatchKind
 from app.models.player import Player
 from app.models.turn import Turn, TurnMessage, TurnSubmission
@@ -110,9 +110,12 @@ async def resume_match_from(
         )
 
     now = datetime.now(timezone.utc)
-    count = await db.scalar(select(func.count()).select_from(Match)) or 0
+    # `allocate_match_id`, not a row count. Counting rows was a second answer to
+    # "what is the next match id?" and a wrong one: matches get deleted, so on
+    # production the count sat far below the highest id and the generated id
+    # collided with a match that already existed — a 500 on every call.
     new_match = Match(
-        id=generate_match_id(count + 1),
+        id=await allocate_match_id(db),
         name=name or f"{source.name} — resumed at R{at.round}T{at.turn}",
         game=source.game,
         created_by_user_id=created_by_user_id,
