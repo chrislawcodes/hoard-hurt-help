@@ -25,27 +25,6 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 RUNNER = REPO_ROOT / "scripts" / "match_runner"
 
 
-def test_the_export_reports_the_same_model_the_turn_payload_sends():
-    """Both readers must go through `resolve_seat_model`, not around it.
-
-    The export used to report `Agent.preferred_model` raw. The payload layers in
-    the provider's default when an agent has no preference, so a seat with none
-    showed as null in the export while really playing the default — two answers
-    to one question, and the export is what every measurement is read from.
-    """
-    export_src = (REPO_ROOT / "app" / "read_models" / "match_export.py").read_text()
-    payload_src = (REPO_ROOT / "app" / "engine" / "agent_play_next_turn.py").read_text()
-
-    assert "resolve_seat_model(" in export_src, (
-        "the export no longer calls resolve_seat_model — it is answering "
-        "'which model does this seat play' on its own again"
-    )
-    assert "resolve_seat_model(" in payload_src
-    assert "agent.preferred_model if agent is not None else None" not in export_src, (
-        "the export is reporting the configured model rather than the resolved one"
-    )
-
-
 def test_the_match_runner_takes_the_model_from_the_server():
     """The runner must not decide a seat's model for itself.
 
@@ -98,17 +77,19 @@ def test_a_seat_with_no_preference_still_resolves_to_its_providers_default():
     )
 
 
-async def test_the_export_shows_the_model_a_seat_will_really_play(client, reset_db):
-    """The behavioural version of the first test, on a real export.
+async def test_editing_an_agent_does_not_change_what_a_finished_match_played(client, reset_db):
+    """The whole point: a match's record must survive its agent being edited.
 
-    An agent with NO configured model still plays its provider's default. The
-    export used to print null for that seat, so a run could look modelless in
-    the record while every turn was really being played on the default. This
-    asserts the export prints what the server would actually send.
+    Before the stamp, the export read the agent's CURRENT `preferred_model`. So
+    switching an agent from Sonnet to Opus today silently rewrote every past
+    match to claim it had played Opus — with nothing to notice it had happened.
+    Two matches on different models is exactly what these runs compare, so the
+    record has to be frozen.
     """
     from datetime import datetime, timedelta, timezone
 
-    from app.engine.model_provider_match import resolve_seat_model
+    from sqlalchemy import select
+
     from app.models.agent import Agent, AgentKind
     from app.models.match import GameState, Match
     from app.models.player import Player
@@ -122,39 +103,97 @@ async def test_the_export_shows_the_model_a_seat_will_really_play(client, reset_
         )
         db.add(admin)
         await db.flush()
-        match = Match(
-            id="G_MODEL",
-            name="model export",
-            state=GameState.COMPLETED,
-            scheduled_start=datetime.now(timezone.utc) - timedelta(hours=1),
+        db.add(
+            Match(
+                id="G_MODEL",
+                name="model export",
+                state=GameState.COMPLETED,
+                scheduled_start=datetime.now(timezone.utc) - timedelta(hours=1),
+            )
         )
-        db.add(match)
-        # One seat with a model set, one with none — the case that used to differ.
-        for seat, preferred in (("Chose", "claude-opus-5"), ("Unset", None)):
-            agent = Agent(
-                user_id=admin.id, name=f"a-{seat}", kind=AgentKind.HUMAN,
-                game="hoard-hurt-help", preferred_model=preferred,
+        agent = Agent(
+            user_id=admin.id, name="a-1", kind=AgentKind.HUMAN,
+            game="hoard-hurt-help", preferred_model="claude-sonnet-5",
+        )
+        db.add(agent)
+        await db.flush()
+        db.add(
+            Player(
+                match_id="G_MODEL", user_id=admin.id, agent_id=agent.id,
+                seat_name="Seat", chosen_provider="claude",
+                joined_at=datetime.now(timezone.utc),
+                # What it really played, stamped when the seat was claimed.
+                played_provider="claude", played_model="claude-sonnet-5",
             )
-            db.add(agent)
-            await db.flush()
-            db.add(
-                Player(
-                    match_id=match.id, user_id=admin.id, agent_id=agent.id,
-                    seat_name=seat, chosen_provider="claude",
-                    joined_at=datetime.now(timezone.utc),
-                )
+        )
+        await db.commit()
+        agent_id = agent.id
+
+    first = await client.get(
+        "/api/admin/matches/G_MODEL/export.json", cookies=_cookies(admin.id)
+    )
+    assert first.status_code == 200, first.text
+    assert first.json()["players"][0]["model"] == "claude-sonnet-5"
+
+    # Now change the agent, the way anyone would between two experiments.
+    async with reset_db() as db:
+        edited = (await db.execute(select(Agent).where(Agent.id == agent_id))).scalar_one()
+        edited.preferred_model = "claude-opus-5"
+        await db.commit()
+
+    again = await client.get(
+        "/api/admin/matches/G_MODEL/export.json", cookies=_cookies(admin.id)
+    )
+    assert again.json()["players"][0]["model"] == "claude-sonnet-5", (
+        "editing the agent rewrote what a finished match says it played"
+    )
+
+
+async def test_a_seat_that_was_never_served_reports_no_model(client, reset_db):
+    """An unrecorded model must read as null, not as a guess.
+
+    Filling it in from the agent's current setting would put the same lie in a
+    new place: an old export would look authoritative while being invented.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    from app.models.agent import Agent, AgentKind
+    from app.models.match import GameState, Match
+    from app.models.player import Player
+    from app.models.user import User, UserRole
+    from tests.test_admin import _cookies
+
+    async with reset_db() as db:
+        admin = User(
+            google_sub="sub-admin", email="admin@test.com", name="admin",
+            role=UserRole.ADMIN,
+        )
+        db.add(admin)
+        await db.flush()
+        db.add(
+            Match(
+                id="G_UNSERVED", name="never played", state=GameState.COMPLETED,
+                scheduled_start=datetime.now(timezone.utc) - timedelta(hours=1),
             )
+        )
+        agent = Agent(
+            user_id=admin.id, name="a-2", kind=AgentKind.HUMAN,
+            game="hoard-hurt-help", preferred_model="claude-opus-5",
+        )
+        db.add(agent)
+        await db.flush()
+        db.add(
+            Player(
+                match_id="G_UNSERVED", user_id=admin.id, agent_id=agent.id,
+                seat_name="Seat", chosen_provider="claude",
+                joined_at=datetime.now(timezone.utc),
+            )
+        )
         await db.commit()
 
     r = await client.get(
-        "/api/admin/matches/G_MODEL/export.json", cookies=_cookies(admin.id)
+        "/api/admin/matches/G_UNSERVED/export.json", cookies=_cookies(admin.id)
     )
-    assert r.status_code == 200, r.text
-    models = [p["model"] for p in r.json()["players"]]
-
-    assert "claude-opus-5" in models, "a configured model must survive to the export"
-    assert None not in models, (
-        "a seat with no configured model exported as null — it will really play "
-        "its provider's default, so the record disagrees with what runs"
+    assert r.json()["players"][0]["model"] is None, (
+        "a seat that never played reported a model — that is a guess, not a record"
     )
-    assert set(models) == {"claude-opus-5", resolve_seat_model("claude", None)}

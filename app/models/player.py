@@ -52,6 +52,13 @@ class Player(Base):
     # chosen_provider, but it stays NULL until the seat's first turn is claimed —
     # so the badge only appears once the AI has really played.
     played_provider: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    # WHICH MODEL THIS SEAT ACTUALLY PLAYED, frozen when the seat is first
+    # claimed. The export used to answer this by reading the agent's CURRENT
+    # `preferred_model`, so changing an agent's model today rewrote what every
+    # past match claimed it played — a live setting displayed next to history.
+    # NULL means "not recorded", which is the honest answer for rows written
+    # before this existed; it is never backfilled from today's settings.
+    played_model: Mapped[str | None] = mapped_column(String(64), nullable=True)
     joined_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

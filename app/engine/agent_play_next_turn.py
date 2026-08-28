@@ -563,6 +563,7 @@ async def _claim_pin(
 ) -> bool:
     dead_ids = ctx.dead_ids
     player = ctx.player_by_key[(cand.agent_id, cand.match_id)]
+    agent_preferred_model = ctx.agent_by_id[cand.agent_id].preferred_model
     claim = cast(
         CursorResult,
         await db.execute(
@@ -584,6 +585,14 @@ async def _claim_pin(
                 # (routing guarantees the serving connection covers it). Stamping
                 # it on first claim drives the public "played by …" badge.
                 played_provider=player.chosen_provider,
+                # And WHICH MODEL, frozen the same moment and by the same
+                # function that tells the seat what to run. Before this the
+                # export answered by reading the agent's CURRENT preference, so
+                # changing an agent's model rewrote what every past match said it
+                # played. A match's record has to survive its agent being edited.
+                played_model=resolve_seat_model(
+                    player.chosen_provider, agent_preferred_model
+                ),
             )
         ),
     )

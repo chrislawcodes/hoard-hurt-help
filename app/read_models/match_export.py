@@ -40,8 +40,6 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.engine.model_provider_match import resolve_seat_model
-from app.models.agent import Agent
 from app.models.agent_version import AgentVersion
 from app.models.match import Match
 from app.models.player import Player
@@ -186,21 +184,23 @@ async def build_json_export(
         strategy_prompt: str | None = None
         if version is not None and viewer.may_read_private_seat_text(p.user_id):
             strategy_prompt = version.strategy_text
-        # Which model this seat plays, from `resolve_seat_model` — the SAME
-        # function that fills the model field in the turn payload. Reporting the
-        # raw `preferred_model` instead was a second answer to one question: the
-        # payload layers in the provider's default when an agent has no
-        # preference, so a seat with none showed as null here while really
-        # playing the default. Anything that needs to know which model a seat
-        # plays calls that function; nothing works it out again.
-        agent = (
-            await db.execute(select(Agent).where(Agent.id == p.agent_id))
-        ).scalar_one_or_none()
-        model = (
-            resolve_seat_model(p.chosen_provider, agent.preferred_model)
-            if agent is not None
-            else None
-        )
+        # WHICH MODEL THIS SEAT PLAYED, read off the seat's own stamp.
+        #
+        # This used to be answered by reading the agent's CURRENT
+        # `preferred_model`, which made the export a live setting shown beside
+        # historical data rather than a record: changing an agent's model today
+        # rewrote what every past match claimed that agent played. Comparing two
+        # matches on different models is the point of running the same roster
+        # twice, so the answer is frozen onto the seat when it is first claimed
+        # (`played_model`, see app/engine/agent_play_next_turn.py) and simply
+        # read back here.
+        #
+        # A seat with no stamp reports null, and that is deliberate: rows
+        # written before the stamp existed, and seats that were never served, do
+        # not carry the answer. Filling it in from today's settings would put
+        # the same lie in a new place, with an old export looking authoritative
+        # while being a guess. Null means "not recorded", which is true.
+        model = p.played_model
         players_payload.append(
             {
                 "agent_id": p.agent_id,
