@@ -64,12 +64,48 @@ def validity(d: dict[str, Any]) -> None:
     )
 
 
+def round_wins_from_submissions(subs: list[dict[str, Any]]) -> Counter[str]:
+    """Count each seat's round wins from the turn rows, splitting ties.
+
+    Lives here, and is imported by replay_match.py, because "who won a round" is
+    a rule and a rule gets one home. Counting from the rows rather than reading
+    `players.total_round_wins` is forced: the two halves of the export do not
+    join — `players` keys by numeric agent id and `submissions` by seat name,
+    with nothing linking them.
+    """
+    last = max(s["turn"] for s in subs)
+    score: dict[int, dict[str, int]] = defaultdict(dict)
+    for s in subs:
+        if s["turn"] == last:
+            score[s["round"]][s["agent_id"]] = s["round_score_after"]
+    wins: Counter[str] = Counter()
+    for standings in score.values():
+        top = max(standings.values())
+        winners = [a for a, v in standings.items() if v == top]
+        for a in winners:
+            wins[a] += 1 / len(winners)  # a tie splits the win
+    return wins
+
+
+def total_points_from_submissions(subs: list[dict[str, Any]]) -> dict[str, int]:
+    """Each seat's match points: its round scores summed over the rounds.
+
+    Shares :func:`round_wins_from_submissions`' reason for reading the move rows
+    rather than `players.total_round_score` — the two halves of the export do
+    not join.
+    """
+    last = max(s["turn"] for s in subs)
+    totals: Counter[str] = Counter()
+    for s in subs:
+        if s["turn"] == last:
+            totals[s["agent_id"]] += s["round_score_after"]
+    return dict(totals)
+
+
 def result(d: dict[str, Any]) -> None:
     """Round wins, the score in every round, what the agent did, and what it took.
 
-    Round wins are counted from the turn rows rather than read off `players`,
-    because the two halves of the export do not join: `players` keys by numeric
-    agent id and `submissions` by seat name, with nothing linking them.
+    Round wins come from :func:`round_wins_from_submissions`.
 
     Totals and best-round are absent by choice. Only round wins count, so a
     steady scorer can finish with the third-highest total and zero wins —
@@ -89,12 +125,7 @@ def result(d: dict[str, Any]) -> None:
         if s["turn"] == last:
             score[s["round"]][s["agent_id"]] = s["round_score_after"]
 
-    wins: Counter[str] = Counter()
-    for standings in score.values():
-        top = max(standings.values())
-        winners = [a for a, v in standings.items() if v == top]
-        for a in winners:
-            wins[a] += 1 / len(winners)  # a tie splits the win
+    wins = round_wins_from_submissions(subs)
 
     mix: dict[str, Counter[str]] = defaultdict(Counter)
     hit: Counter[str] = Counter()
