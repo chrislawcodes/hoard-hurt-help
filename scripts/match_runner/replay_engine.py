@@ -8,6 +8,17 @@ scored by its own copy of the payoff table would answer questions about the
 copy, and this repo has been bitten by a rule living in two places more than
 once.
 
+ONE KNOWN GAP: THE TALK PHASE. A live turn is talk then act — every player posts
+a message, reads what the others posted, and only then moves. This loop opens
+every turn already talk-resolved and runs the act phase alone, so replayed turns
+are played by a table that cannot speak. Recorded history keeps its chat, so a
+seat resuming at the cut still reads what was said before it. But nothing said
+after, because nothing is said: with a two-turn history window, a table replayed
+three turns forward sees a completely silent match. Measured on M_7558 — 14 of
+16 remembered moves carry a chat line at the resume point, 0 of 16 two turns
+later. In a game whose pacts are made in chat, that is a different game, so a
+replayed continuation is evidence about a decision and not a match result.
+
 Import order matters and is easy to get wrong: `app.db` builds its engine at
 module import time from `app.config.settings`, so DATABASE_URL must be set
 before anything under `app` is imported, including transitively. Every `app.*`
@@ -122,7 +133,13 @@ async def run_replay(
         recorded: dict[str, dict[tuple[int, int], Move]] = {s: {} for s in seats}
         for sub in export["submissions"]:
             recorded[sub["agent_id"]][(sub["round"], sub["turn"])] = Move(
-                sub["action"], sub.get("target_id"), sub.get("thinking") or ""
+                sub["action"],
+                sub.get("target_id"),
+                sub.get("thinking") or "",
+                # Carry the chat line too. Replayed history shows each move with what
+                # its player said, so dropping it would hand a resumed agent a table
+                # where everyone had been silent for the whole match.
+                sub.get("message") or "",
             )
         result = ReplayResult(match_id=match.id, turns_replayed=0, turns_played=0)
         last = stop or (total_rounds, turns_per_round)
@@ -226,22 +243,57 @@ async def run_replay(
 
 
 async def _view(db, match, turn, player, players, all_agent_ids, strategy_text) -> dict[str, Any]:
-    """What this seat can see — assembled from the game's own builders, not a copy.
+    """What this seat can see — assembled by the live payload's own builders.
 
-    Three pieces, each from its existing home: the rules-and-identity block from
-    `build_turn_static_dict` (the same dict the live wire payload embeds), the
-    public standings, and the resolved history. If a replayed model sees a
-    different board than a live one would, the comparison is worthless, so none
-    of this is rebuilt here.
+    Deliberately the same four pieces `agent_play_next_turn._build_turn_payload`
+    assembles, from the same functions and the same rolling window:
+
+      static      rules and identity, from `build_turn_static_dict`
+      history     recent resolved turns, `RECENT_HISTORY_TURNS` deep
+      scoreboard  the public standings
+      current     this turn's talk so far
+
+    None of it is rebuilt here. If a replayed seat saw a different board than a
+    live one, every comparison drawn from the replay would be measuring the
+    difference in the board rather than the difference you meant to test.
+
+    `current` comes back empty in a replay, because the replay runs no talk
+    phase — see the module docstring. That is a real gap, not a formatting
+    detail: it is the one part of the live view a replay cannot fill.
     """
-    from app.engine.agent_play_reads import build_public_scoreboard_dicts, build_turn_static_dict
+    from app.engine.agent_play_reads import (
+        RECENT_HISTORY_TURNS,
+        _build_current_turn,
+        _group_into_turns,
+        _load_public_action_records,
+        build_public_scoreboard_dicts,
+        build_turn_static_dict,
+    )
 
-    view = dict(
-        build_turn_static_dict(
-            match, player, all_agent_ids=all_agent_ids, your_strategy=strategy_text
+    history = _group_into_turns(
+        await _load_public_action_records(
+            db, match.id, players, recent_turns=RECENT_HISTORY_TURNS
         )
     )
-    view["round"] = turn.round
-    view["turn"] = turn.turn
-    view["standings"] = build_public_scoreboard_dicts(players)
-    return view
+    return {
+        "static": build_turn_static_dict(
+            match, player, all_agent_ids=all_agent_ids, your_strategy=strategy_text
+        ),
+        "round": turn.round,
+        "turn": turn.turn,
+        "history": [_plain(h) for h in history],
+        "scoreboard": build_public_scoreboard_dicts(players),
+        "current": _plain(await _build_current_turn(db, turn)),
+        # AlwaysDriver ranks seats off this; it is the scoreboard under the name
+        # the drivers already use.
+        "standings": build_public_scoreboard_dicts(players),
+    }
+
+
+def _plain(obj: Any) -> Any:
+    """Pydantic models / dataclasses -> plain data, so the view can be JSON."""
+    if hasattr(obj, "model_dump"):
+        return obj.model_dump()
+    if isinstance(obj, list):
+        return [_plain(o) for o in obj]
+    return obj

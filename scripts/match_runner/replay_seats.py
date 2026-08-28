@@ -142,7 +142,10 @@ class ModelDriver:
         prompt = (
             f"You are {seat} in a game of Hoard Hurt Help.\n\n"
             f"YOUR STRATEGY:\n{self.strategy_text}\n\n"
-            f"THE RULES AND THE CURRENT POSITION:\n{json.dumps(view, indent=2)}\n\n"
+            # default=str: the view carries timestamps, exactly as the live wire
+            # payload does. They serialize there too.
+            f"THE RULES AND THE CURRENT POSITION:\n"
+            f"{json.dumps(view, indent=2, default=str)}\n\n"
             "Choose this turn's action. Reply with ONLY a JSON object:\n"
             '{"thinking": "why", "action": "HOARD|HELP|HURT", "target": "seat name or null"}'
         )

@@ -199,7 +199,13 @@ def main() -> int:
     recorded: dict[str, dict[tuple[int, int], Move]] = {s: {} for s in pos["seats"]}
     for s in export["submissions"]:
         recorded[s["agent_id"]][(s["round"], s["turn"])] = Move(
-            s["action"], s.get("target_id"), s.get("thinking") or ""
+            s["action"],
+            s.get("target_id"),
+            s.get("thinking") or "",
+            # Carry the chat line too. Replayed history shows each move with what
+            # its player said, so dropping it would hand a resumed agent a table
+            # where everyone had been silent for the whole match.
+            s.get("message") or "",
         )
 
     drivers = {}
