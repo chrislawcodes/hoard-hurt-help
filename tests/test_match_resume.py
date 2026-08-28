@@ -332,3 +332,43 @@ async def test_a_plain_user_cannot_resume_a_match(reset_db, client):
     )
 
     assert r.status_code in (401, 403), r.text
+
+
+async def test_it_allocates_an_id_that_does_not_already_exist(reset_db):
+    """The new match must not collide with an existing one.
+
+    This shipped broken. The id came from a row COUNT, which is only the same as
+    the highest id when nothing has ever been deleted — on production the count
+    sat far below the highest id, so every call generated an id that already
+    existed and returned a 500. `allocate_match_id` reads the highest suffix and
+    is the one home for this; counting rows was a second, wrong answer.
+    """
+    source_id = await _played_match(reset_db, rounds=3, turns=2)
+
+    async with reset_db() as db:
+        # A high-numbered match with a big gap below it: exactly the shape a
+        # real database has after matches are deleted.
+        db.add(
+            Match(
+                id="M_9000", name="far ahead", game="hoard-hurt-help",
+                state=GameState.COMPLETED,
+                scheduled_start=datetime.now(timezone.utc) - timedelta(hours=1),
+                per_turn_deadline_seconds=0, total_rounds=1, turns_per_round=1,
+                min_players=3, max_players=10,
+            )
+        )
+        await db.commit()
+
+    async with reset_db() as db:
+        source = (await db.execute(select(Match).where(Match.id == source_id))).scalar_one()
+        new_match, _, _ = await resume_match_from(db, source, ResumePoint(round=2, turn=1))
+        await db.commit()
+        new_id = new_match.id
+
+    assert new_id == "M_9001", f"expected the next id after the highest, got {new_id}"
+
+    async with reset_db() as db:
+        matching = (
+            await db.execute(select(Match.id).where(Match.id == new_id))
+        ).scalars().all()
+    assert len(matching) == 1, "the resume reused an id that already existed"
