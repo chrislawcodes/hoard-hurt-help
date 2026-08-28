@@ -1,179 +1,122 @@
-"""Who plays each seat in a replay, and how.
+"""A replayed seat played by a model instead of by scripted rules.
 
-A replay is only interesting because a seat can play differently than it did.
-This module holds the four ways a seat can be filled and nothing else; the
-replay driver in replay_match.py handles turns, and the payoffs stay in the
-game's own scoring module where they belong.
+The platform asks every seat it plays for two questions each turn — what to say,
+then what to do — through `choose_bot_talk_decision` and
+`choose_bot_action_decision`. A model seat answers those two questions with a
+model call. That is the whole integration: because the answers go back into the
+shipped turn loop, a model seat gets the talk phase, the scoring, the round
+awards and the deadline handling for free, and behaves like any other seat.
 
-The four drivers, cheapest first:
+Everything the model is shown comes off the `BotContext` the platform already
+built for that seat — recent history, the scoreboard, and this turn's talk. No
+view is assembled here. A replayed seat seeing a different board than a live one
+would mean every difference you read was the board rather than your change.
 
-  keep          replay the move that was actually recorded. Free. This is the
-                default for every seat, so a replay with no overrides should
-                reproduce the original match exactly — which is what makes the
-                replay trustworthy enough to change something.
-  always:X      play X every turn. Free. A crude control: it answers "would
-                anyone have stopped a seat that just hoarded?" without a model.
-  bot:STRATEGY  one of the repo's scripted bots. Free, and it reacts to the
-                table, so it is a fair stand-in for a live seat when you care
-                about the shape of the position rather than the prose.
-  model:ID      a real model call, given the same view the live game sends.
-                The only expensive one, and the only one that can answer "would
-                a better model have followed this preset?".
-
-`keep` past the end of the log is an error, not a default. A replay that
-quietly invents moves would produce exactly the kind of fabricated round that
-made this tool necessary.
+What a replay still is not: a live match. There is no deadline pressure, seats
+answer in sequence rather than at once, and a model is reasoning about a position
+it did not play into. Read a replayed decision as evidence, not as a result.
 """
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any
 
-
-@dataclass(frozen=True)
-class Move:
-    action: str
-    target: str | None = None
-    thinking: str = ""
-    message: str = ""
-
-
-class SeatDriver(Protocol):
-    """Decides one seat's move for one turn."""
-
-    name: str
-
-    def move(self, seat: str, view: dict[str, Any]) -> Move: ...
+ACTIONS = {"HOARD", "HELP", "HURT"}
 
 
 @dataclass
-class KeepDriver:
-    """Replay what this seat actually did."""
-
-    recorded: dict[tuple[int, int], Move]
-    name: str = "as recorded"
-
-    def move(self, seat: str, view: dict[str, Any]) -> Move:
-        key = (view["round"], view["turn"])
-        if key not in self.recorded:
-            raise SystemExit(
-                f"seat {seat!r} has no recorded move for R{key[0]}T{key[1]} — the log "
-                f"ends before this turn. Give it a driver (--seat '{seat}=bot:tit_for_tat'), "
-                f"or replay a turn that is in the log."
-            )
-        return self.recorded[key]
-
-
-@dataclass
-class AlwaysDriver:
-    """Play one action every turn, targeting the current leader when a target is needed."""
-
-    action: str
-    name: str = ""
-
-    def __post_init__(self) -> None:
-        self.action = self.action.upper()
-        if self.action not in {"HOARD", "HELP", "HURT"}:
-            raise SystemExit(f"always: wants HOARD, HELP or HURT, got {self.action!r}")
-        self.name = f"always {self.action}"
-
-    def move(self, seat: str, view: dict[str, Any]) -> Move:
-        target = None
-        if self.action in {"HELP", "HURT"}:
-            others = [r["agent_id"] for r in view["standings"] if r["agent_id"] != seat]
-            if not others:
-                return Move("HOARD", thinking="no one else to act on")
-            # Leader for HURT, trailer for HELP — a scripted seat still has to
-            # pick someone, and picking at random would add noise to a control.
-            target = others[0] if self.action == "HURT" else others[-1]
-        return Move(self.action, target, thinking=f"scripted: {self.action} every turn")
-
-
-@dataclass
-class BotDriver:
-    """A seat played by one of the repo's scripted bots.
-
-    This driver decides nothing itself. The seat is seeded into the replay
-    database as a real BOT agent, and the platform's own `auto_submit_bot_phase`
-    fills it in after the other drivers have submitted — that function skips any
-    seat that already has a submission, so the two paths compose without either
-    knowing about the other. Reusing the shipped bot runtime is the point: a
-    second implementation of a strategy would drift from the one the live game
-    plays, and then the replay would be measuring the copy.
-    """
-
-    strategy: str
-    name: str = ""
-
-    def __post_init__(self) -> None:
-        self.name = f"bot: {self.strategy}"
-
-    def move(self, seat: str, view: dict[str, Any]) -> Move:
-        raise AssertionError(
-            "BotDriver.move should never be called — bot seats are filled by the "
-            "platform's auto_submit_bot_phase, not by the replay loop."
-        )
-
-
-@dataclass
-class ModelDriver:
-    """A live model call, given the same view the live game sends an agent.
-
-    The view comes from the game's own `build_turn_static_dict`, so there is one
-    description of what a player can see rather than a replay-flavoured copy of
-    it. What differs from a live match is real and worth stating: no deadline
-    pressure, no other agents moving concurrently, and the model is answering a
-    reconstructed position rather than one it played into. Treat a model seat as
-    evidence about a decision, not as a match result.
-    """
+class ModelSeat:
+    """One seat, answered by a model, inside the real turn loop."""
 
     model: str
     strategy_text: str
-    call: Any  # (model, prompt) -> str; injected so the loop stays testable
+    call: Any  # (model, prompt) -> str; injected so this stays testable
     name: str = ""
 
     def __post_init__(self) -> None:
         self.name = f"model: {self.model}"
 
-    def move(self, seat: str, view: dict[str, Any]) -> Move:
-        import json
+    def talk(self, context: Any) -> Any:
+        from app.engine.bots.types import BotTalkDecision
 
+        got = self._ask(
+            context,
+            "It is the TALK phase. Say one short line to the table — a deal, a"
+            " warning, a bluff, whatever your strategy calls for.",
+            '{"thinking": "why", "message": "what you say out loud"}',
+        )
+        return BotTalkDecision(
+            intent="replay",
+            truth_mode="honest",
+            message=str(got.get("message", ""))[:200],
+            thinking=str(got.get("thinking", ""))[:2000],
+        )
+
+    def act(self, context: Any) -> Any:
+        from app.engine.bots.types import BotActionDecision
+
+        got = self._ask(
+            context,
+            "It is the ACT phase. Everyone has now spoken — their lines are in"
+            " current_talk_messages. Choose this turn's action.",
+            '{"thinking": "why", "action": "HOARD|HELP|HURT", "target": "seat name or null"}',
+        )
+        action = str(got.get("action", "")).upper()
+        if action not in ACTIONS:
+            raise SystemExit(f"{self.name} returned a bad action: {action!r}")
+        target = got.get("target") or None
+        if target and target not in context.all_agent_ids:
+            raise SystemExit(
+                f"{self.name} aimed at {target!r}, which is not a seat in this match"
+            )
+        return BotActionDecision(
+            intent="replay",
+            move={"action": action, "target_agent_id": target},
+            thinking=str(got.get("thinking", ""))[:2000],
+        )
+
+    def _ask(self, context: Any, instruction: str, shape: str) -> dict[str, Any]:
         prompt = (
-            f"You are {seat} in a game of Hoard Hurt Help.\n\n"
+            f"You are {context.your_agent_id} in a game of Hoard Hurt Help.\n\n"
             f"YOUR STRATEGY:\n{self.strategy_text}\n\n"
-            # default=str: the view carries timestamps, exactly as the live wire
-            # payload does. They serialize there too.
-            f"THE RULES AND THE CURRENT POSITION:\n"
-            f"{json.dumps(view, indent=2, default=str)}\n\n"
-            "Choose this turn's action. Reply with ONLY a JSON object:\n"
-            '{"thinking": "why", "action": "HOARD|HELP|HURT", "target": "seat name or null"}'
+            f"THE POSITION:\n{json.dumps(_position(context), indent=2, default=str)}\n\n"
+            f"{instruction}\nReply with ONLY a JSON object:\n{shape}"
         )
         raw = self.call(self.model, prompt)
         try:
             start, end = raw.index("{"), raw.rindex("}") + 1
-            got = json.loads(raw[start:end])
+            parsed = json.loads(raw[start:end])
         except (ValueError, json.JSONDecodeError) as exc:
-            # Loud, not defaulted. A model seat that silently becomes a HOARD is
-            # the same fabricated-data failure the tool exists to undo.
+            # Loud, never defaulted. A seat that silently becomes a HOARD is the
+            # fabricated-data failure this tool exists to undo.
             raise SystemExit(
-                f"seat {seat!r} on {self.model}: could not read a move from the reply.\n"
+                f"{self.name} for {context.your_agent_id}: could not read a reply.\n"
                 f"  error: {exc}\n  reply: {raw[:400]}"
             ) from exc
-        action = str(got.get("action", "")).upper()
-        if action not in {"HOARD", "HELP", "HURT"}:
-            raise SystemExit(f"seat {seat!r} on {self.model}: bad action {action!r}")
-        target = got.get("target") or None
-        return Move(action, target, thinking=str(got.get("thinking", "")))
+        if not isinstance(parsed, dict):
+            raise SystemExit(f"{self.name}: expected a JSON object, got {type(parsed).__name__}")
+        return parsed
 
 
-def build_driver(spec: dict[str, str], *, recorded, strategy_text, call) -> SeatDriver:
-    """Turn one parsed --seat override into the driver it names."""
-    (kind, value), = spec.items()
-    if kind == "always":
-        return AlwaysDriver(value)
-    if kind == "bot":
-        return BotDriver(value)
-    if kind == "model":
-        return ModelDriver(value, strategy_text, call)
-    raise SystemExit(f"unknown seat driver {kind!r}")
+def _position(context: Any) -> dict[str, Any]:
+    """The board, straight off the context the platform built for this seat."""
+    return {
+        "round": context.round,
+        "turn": context.turn,
+        "turns_per_round": context.turns_per_round,
+        "you": context.your_agent_id,
+        "everyone": context.all_agent_ids,
+        "scoreboard": [_plain(r) for r in context.scoreboard],
+        "recent_history": [_plain(h) for h in context.history],
+        "current_talk_messages": [_plain(m) for m in context.current_talk_messages],
+    }
+
+
+def _plain(obj: Any) -> Any:
+    if hasattr(obj, "model_dump"):
+        return obj.model_dump()
+    if hasattr(obj, "__dict__"):
+        return dict(obj.__dict__)
+    return obj

@@ -1,28 +1,28 @@
-"""Rebuild a match in a local database and run it forward.
+"""Rebuild a match's position in a local database, then let the real loop finish it.
 
-The whole design rests on one rule: **nothing here decides points**. Turns are
-scored by the game's own `resolve_turn`, rounds are awarded by the real
-`award_round_winners`, and the match is finished by the real `finalize_game`.
-This module only seeds a position and decides who moves next. A replay that
-scored by its own copy of the payoff table would answer questions about the
-copy, and this repo has been bitten by a rule living in two places more than
-once.
+The design rule is that this file runs NOTHING the game already runs. It seeds
+the turns that were recorded, writes down where the match stopped, and calls the
+shipped `_run_game`. Everything after that — the talk phase, the per-round score
+reset, awarding rounds, finishing the match — is the same code that ran the
+original, because the engine already knows how to resume: `run_match` picks up
+from `current_round`/`current_turn`, and `_run_turn` returns immediately on a
+turn that is already resolved. That resume path exists for mid-deploy restarts
+and works just as well for this.
 
-ONE KNOWN GAP: THE TALK PHASE. A live turn is talk then act — every player posts
-a message, reads what the others posted, and only then moves. This loop opens
-every turn already talk-resolved and runs the act phase alone, so replayed turns
-are played by a table that cannot speak. Recorded history keeps its chat, so a
-seat resuming at the cut still reads what was said before it. But nothing said
-after, because nothing is said: with a two-turn history window, a table replayed
-three turns forward sees a completely silent match. Measured on M_7558 — 14 of
-16 remembered moves carry a chat line at the resume point, 0 of 16 two turns
-later. In a game whose pacts are made in chat, that is a different game, so a
-replayed continuation is evidence about a decision and not a match result.
+The first version of this file did not do that. It reimplemented the turn loop,
+and paid for it twice: it forgot to zero the round scores between rounds (real
+match totals came out fourfold too high) and it had no talk phase at all (a
+table replayed three turns forward saw a completely silent match, in a game
+whose pacts are made in chat). Both were already solved a few files away. If
+something here starts to look like the turn loop, that is the bug.
 
 Import order matters and is easy to get wrong: `app.db` builds its engine at
 module import time from `app.config.settings`, so DATABASE_URL must be set
 before anything under `app` is imported, including transitively. Every `app.*`
-import in this file is therefore inside a function body. See scripts/offline_db.py.
+import here is therefore inside a function body. See scripts/offline_db.py.
+
+Not safe to call inside a shared process (pytest included): it repoints
+DATABASE_URL and drops every loaded `app.*` module. Run it as its own process.
 """
 
 from __future__ import annotations
@@ -36,20 +36,12 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from offline_db import bootstrap_file_db, ensure_repo_root_on_path, set_database_url  # noqa: E402
 
-from replay_seats import BotDriver, Move  # noqa: E402
-
-# Every seat needs a scripted personality at seating time even when a driver
-# will override its every move, because add_bots_to_game validates the profile.
-# A seat whose driver never yields to the bot runtime never plays this.
-PLACEHOLDER_PERSONALITY = "pragmatist"
-
 
 @dataclass
 class ReplayResult:
     match_id: str
-    turns_replayed: int
+    turns_seeded: int
     turns_played: int
-    round_scores: dict[int, dict[str, int]] = field(default_factory=dict)
     round_wins: dict[str, float] = field(default_factory=dict)
     totals: dict[str, int] = field(default_factory=dict)
     moves: list[dict[str, Any]] = field(default_factory=list)
@@ -59,40 +51,44 @@ async def run_replay(
     export: dict[str, Any],
     *,
     start: tuple[int, int],
-    stop: tuple[int, int] | None,
-    drivers: dict[str, Any],
+    seats_play: dict[str, Any],
     db_path: str,
 ) -> ReplayResult:
-    """Seed the position before `start`, then play forward to `stop` (or the end)."""
+    """Seed the position before `start`, then hand the match to the real loop.
+
+    `seats_play` maps each seat name to how it should play from `start` onward:
+    a personality id for a scripted bot, or a driver object with a `.move` for a
+    model-backed seat. Seats are seated as bots either way, because a bot is the
+    seat the platform plays for itself — which is what a replayed seat is.
+    """
     ensure_repo_root_on_path()
     set_database_url(db_path)
-    for m in [k for k in list(sys.modules) if k.startswith("app.")]:
-        del sys.modules[m]
-    SessionLocal = await bootstrap_file_db(db_path)
+    for name in [k for k in list(sys.modules) if k.startswith("app.")]:
+        del sys.modules[name]
+    await bootstrap_file_db(db_path)
 
+    import app.engine.scheduler as scheduler
     from sqlalchemy import select
 
     from app.engine.bots.seating import add_bots_to_game
-    from app.engine.bots.service import auto_submit_bot_phase
-    from app.engine.resolver import finalize_game
     from app.engine.state_machine import assert_transition
     from app.games import get as get_game_module
     from app.models.match import GameState, Match
     from app.models.player import Player
     from app.models.turn import Turn, TurnSubmission
 
-    game_meta = export["game"]
-    # Seat names come from the move rows, never from `players`: that block keys
-    # by numeric agent id, and the two halves of the export do not join.
-    seats = sorted({s["agent_id"] for s in export["submissions"]})
-    # The export's game block carries no shape, so take it from the log itself
-    # rather than defaulting — a wrong turns_per_round silently rewrites which
-    # turn ends a round, and every round score after it.
-    total_rounds = max(s["round"] for s in export["submissions"])
-    turns_per_round = max(s["turn"] for s in export["submissions"])
+    subs = export["submissions"]
+    seats = sorted({s["agent_id"] for s in subs})
+    total_rounds = max(s["round"] for s in subs)
+    turns_per_round = max(s["turn"] for s in subs)
     now = datetime.now(timezone.utc)
+    game_meta = export["game"]
 
-    async with SessionLocal() as db:
+    recorded: dict[tuple[int, int], list[dict[str, Any]]] = {}
+    for sub in subs:
+        recorded.setdefault((sub["round"], sub["turn"]), []).append(sub)
+
+    async with scheduler.SessionLocal() as db:
         match = Match(
             id=game_meta["id"],
             name=f"replay of {game_meta['id']}",
@@ -109,12 +105,11 @@ async def run_replay(
         db.add(match)
         await db.flush()
 
-        roster = []
-        for seat in seats:
-            drv = drivers.get(seat)
-            personality = drv.strategy if isinstance(drv, BotDriver) else PLACEHOLDER_PERSONALITY
-            roster.append((seat[:26], personality))
-        await add_bots_to_game(db, match, roster)
+        # Seat names are capped at 26 characters, so keep the map back to the
+        # export's full names — everything the caller reads is keyed by those.
+        await add_bots_to_game(
+            db, match, [(s[:26], _personality(seats_play.get(s))) for s in seats]
+        )
         assert_transition(match.state, GameState.ACTIVE)
         match.state = GameState.ACTIVE
         match.started_at = now
@@ -124,41 +119,19 @@ async def run_replay(
         players = list(
             (await db.execute(select(Player).where(Player.match_id == match.id))).scalars().all()
         )
-        by_seat = {p.seat_name: p for p in players}
-        # Seat names are truncated to 26 chars at seating; map back to the export's
-        # full names so a long preset name still resolves to its player row.
-        seat_of = {s[:26]: s for s in seats}
-        pid_of = {seat_of[p.seat_name]: p.id for p in players}
+        full_name = {s[:26]: s for s in seats}
+        pid = {p.seat_name: p.id for p in players}
 
-        recorded: dict[str, dict[tuple[int, int], Move]] = {s: {} for s in seats}
-        for sub in export["submissions"]:
-            recorded[sub["agent_id"]][(sub["round"], sub["turn"])] = Move(
-                sub["action"],
-                sub.get("target_id"),
-                sub.get("thinking") or "",
-                # Carry the chat line too. Replayed history shows each move with what
-                # its player said, so dropping it would hand a resumed agent a table
-                # where everyone had been silent for the whole match.
-                sub.get("message") or "",
-            )
-        result = ReplayResult(match_id=match.id, turns_replayed=0, turns_played=0)
-        last = stop or (total_rounds, turns_per_round)
-
-        # The shape of this loop mirrors app/engine/scheduler_turn_loop._run_round:
-        # zero the round scores at the start of every round, run its turns, then
-        # award through the game module. Getting the reset wrong is not subtle and
-        # not visible per-turn — scores simply accumulate across rounds, and the
-        # first version of this loop inflated a real match's totals fourfold.
-        for rnd in range(1, total_rounds + 1):
-            if (rnd, 1) > last:
-                break
-            for player in players:
-                player.current_round_score = 0
+        seeded = 0
+        # Bounded by the match, not by `start`: a cut past the end (the way you
+        # ask for "seed everything") would otherwise iterate rounds that do not
+        # exist and award them.
+        for rnd in range(1, min(start[0], total_rounds) + 1):
+            for p in players:
+                p.current_round_score = 0
             await db.commit()
-
             for tn in range(1, turns_per_round + 1):
-                here = (rnd, tn)
-                if here > last:
+                if (rnd, tn) >= start:
                     break
                 turn = Turn(
                     match_id=match.id,
@@ -172,128 +145,110 @@ async def run_replay(
                 )
                 db.add(turn)
                 await db.flush()
-
-                is_history = here < start
-                for seat in seats:
-                    if is_history:
-                        mv = recorded[seat].get(here)
-                        if mv is None:
-                            continue  # short log here; resolve_turn defaults it
-                    else:
-                        drv = drivers[seat]
-                        if isinstance(drv, BotDriver):
-                            continue  # the platform fills this seat below
-                        view = await _view(
-                            db, match, turn, by_seat[seat[:26]], players,
-                            [p.seat_name for p in players],
-                            getattr(drv, "strategy_text", None),
-                        )
-                        mv = drv.move(seat, view)
-                        result.moves.append(
-                            {"round": rnd, "turn": tn, "seat": seat,
-                             "action": mv.action, "target": mv.target,
-                             "by": drv.name, "thinking": mv.thinking}
-                        )
+                for sub in recorded.get((rnd, tn), []):
+                    target = (sub.get("target_id") or "")[:26]
                     db.add(
                         TurnSubmission(
                             turn_id=turn.id,
-                            player_id=pid_of[seat],
-                            action=mv.action,
-                            target_player_id=pid_of.get(mv.target) if mv.target else None,
-                            thinking=(mv.thinking or "")[:4000],
-                            message=(mv.message or "")[:2000],
+                            player_id=pid[sub["agent_id"][:26]],
+                            action=sub["action"],
+                            target_player_id=pid.get(target),
+                            # Keep the chat: replayed history is read by the seats
+                            # that resume, and a silent past is a different match.
+                            message=sub.get("message") or "",
+                            thinking=sub.get("thinking") or "",
                             submitted_at=now,
                         )
                     )
                 await db.flush()
-
-                if not is_history:
-                    # Scripted seats, played by the shipped bot runtime. It skips
-                    # any seat that already submitted, so the drivers above win.
-                    await auto_submit_bot_phase(db, match, turn, module, phase="act")
-
                 await module.resolve_turn(db, turn)
                 await db.commit()
-                if is_history:
-                    result.turns_replayed += 1
-                else:
-                    result.turns_played += 1
+                seeded += 1
+            # Award only rounds that finished before the cut. A round the replay
+            # is resuming into must stay unawarded, or the real loop will skip it.
+            if (rnd, turns_per_round) < start:
+                await module.award_round(db, match, rnd)
+                await db.commit()
 
-            result.round_scores[rnd] = {
-                seat_of[p.seat_name]: p.current_round_score for p in players
-            }
-            await module.award_round(db, match, rnd)
-            await db.commit()
+        match.current_round, match.current_turn = start
+        await db.commit()
 
-        # Read the totals as columns, not through the ORM objects the loop has
-        # been holding: those are the identity map's copies, and the award step
-        # updates the rows behind them, so an object read reports zeros.
-        final = (
+    moves: list[dict[str, Any]] = []
+    _install_model_seats(seats_play, full_name, moves)
+
+    # From here it is the shipped match loop, unmodified.
+    await scheduler._run_game(match_id=game_meta["id"])
+
+    async with scheduler.SessionLocal() as db:
+        rows = (
             await db.execute(
                 select(Player.seat_name, Player.total_round_wins, Player.total_round_score)
-                .where(Player.match_id == match.id)
+                .where(Player.match_id == game_meta["id"])
             )
         ).all()
-        result.round_wins = {seat_of[name]: wins for name, wins, _ in final}
-        result.totals = {seat_of[name]: pts for name, _, pts in final}
-        if last >= (total_rounds, turns_per_round):
-            await finalize_game(db, match)
-            await db.commit()
-    return result
+    return ReplayResult(
+        match_id=game_meta["id"],
+        turns_seeded=seeded,
+        turns_played=(total_rounds * turns_per_round) - seeded,
+        round_wins={full_name[n]: w for n, w, _ in rows},
+        totals={full_name[n]: p for n, _, p in rows},
+        moves=moves,
+    )
 
 
-async def _view(db, match, turn, player, players, all_agent_ids, strategy_text) -> dict[str, Any]:
-    """What this seat can see — assembled by the live payload's own builders.
+def _personality(play: Any) -> str:
+    """The scripted personality this seat is seated with.
 
-    Deliberately the same four pieces `agent_play_next_turn._build_turn_payload`
-    assembles, from the same functions and the same rolling window:
-
-      static      rules and identity, from `build_turn_static_dict`
-      history     recent resolved turns, `RECENT_HISTORY_TURNS` deep
-      scoreboard  the public standings
-      current     this turn's talk so far
-
-    None of it is rebuilt here. If a replayed seat saw a different board than a
-    live one, every comparison drawn from the replay would be measuring the
-    difference in the board rather than the difference you meant to test.
-
-    `current` comes back empty in a replay, because the replay runs no talk
-    phase — see the module docstring. That is a real gap, not a formatting
-    detail: it is the one part of the live view a replay cannot fill.
+    A model-backed seat still needs one: `add_bots_to_game` validates the bot
+    profile at seating time. Its decisions are replaced before the loop runs, so
+    it never plays this.
     """
-    from app.engine.agent_play_reads import (
-        RECENT_HISTORY_TURNS,
-        _build_current_turn,
-        _group_into_turns,
-        _load_public_action_records,
-        build_public_scoreboard_dicts,
-        build_turn_static_dict,
-    )
+    return play if isinstance(play, str) else "pragmatist"
 
-    history = _group_into_turns(
-        await _load_public_action_records(
-            db, match.id, players, recent_turns=RECENT_HISTORY_TURNS
+
+def _install_model_seats(
+    seats_play: dict[str, Any], full_name: dict[str, str], moves: list[dict[str, Any]]
+) -> None:
+    """Point the named seats at a model instead of their scripted rules.
+
+    The platform asks two questions per bot seat per turn — what to say, and what
+    to do — through `choose_bot_talk_decision` / `choose_bot_action_decision`.
+    Replacing those two for the seats that want a model puts the model inside the
+    real loop, so a model seat gets the talk phase and everything else for free.
+    Seats without a driver fall through to the scripted rules untouched.
+    """
+    drivers = {n: d for n, d in seats_play.items() if not isinstance(d, str)}
+    if not drivers:
+        return
+
+    import app.engine.bots.service as service
+
+    scripted_talk = service.choose_bot_talk_decision
+    scripted_action = service.choose_bot_action_decision
+
+    def talk(context: Any, profile: Any) -> Any:
+        driver = drivers.get(full_name.get(context.your_agent_id, ""))
+        if driver is None:
+            return scripted_talk(context, profile)
+        return driver.talk(context)
+
+    def action(context: Any, profile: Any) -> Any:
+        seat = full_name.get(context.your_agent_id, "")
+        driver = drivers.get(seat)
+        if driver is None:
+            return scripted_action(context, profile)
+        decision = driver.act(context)
+        moves.append(
+            {
+                "round": context.round,
+                "turn": context.turn,
+                "seat": seat,
+                "action": decision.move.get("action"),
+                "target": decision.move.get("target_agent_id"),
+                "by": driver.name,
+            }
         )
-    )
-    return {
-        "static": build_turn_static_dict(
-            match, player, all_agent_ids=all_agent_ids, your_strategy=strategy_text
-        ),
-        "round": turn.round,
-        "turn": turn.turn,
-        "history": [_plain(h) for h in history],
-        "scoreboard": build_public_scoreboard_dicts(players),
-        "current": _plain(await _build_current_turn(db, turn)),
-        # AlwaysDriver ranks seats off this; it is the scoreboard under the name
-        # the drivers already use.
-        "standings": build_public_scoreboard_dicts(players),
-    }
+        return decision
 
-
-def _plain(obj: Any) -> Any:
-    """Pydantic models / dataclasses -> plain data, so the view can be JSON."""
-    if hasattr(obj, "model_dump"):
-        return obj.model_dump()
-    if isinstance(obj, list):
-        return [_plain(o) for o in obj]
-    return obj
+    service.choose_bot_talk_decision = talk
+    service.choose_bot_action_decision = action
