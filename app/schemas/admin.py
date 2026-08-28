@@ -72,3 +72,27 @@ class GameRecord(BaseModel):
 
 class CancelResponse(BaseModel):
     status: str = "cancelled"
+
+
+class ResumeMatchRequest(BaseModel):
+    """Where to cut a finished match so a new one can pick up from there."""
+
+    round: int = Field(ge=1, description="First round to be replayed.")
+    turn: int = Field(ge=1, description="First turn of that round to be replayed.")
+    name: str | None = Field(
+        default=None, description="Name for the new match. Defaults to naming the source."
+    )
+
+
+class ResumeMatchResponse(BaseModel):
+    """What was built, and the one number that says whether it is worth playing."""
+
+    match_id: str
+    source_match_id: str
+    resumes_at: str
+    seeded_turns: int
+    # How many carried-over moves were defaults rather than decisions. A default
+    # scores as a HOARD, so a position built on them is not one anyone played —
+    # which is usually the reason for resuming in the first place. Surfaced in
+    # the response so the caller sees it without going to look.
+    seeded_defaulted_moves: int

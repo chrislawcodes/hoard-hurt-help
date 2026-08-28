@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Path, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from fastapi.responses import StreamingResponse
 
 from app.deps import DbSession, require_platform_admin, require_platform_admin_or_key
@@ -27,7 +27,14 @@ from app.routes.admin_match_actions import (
     export_match_json,
 )
 from app.routes.web_match_loaders import load_match_or_404
-from app.schemas.admin import CancelResponse, CreateGameRequest, GameRecord
+from app.engine.match_resume import ResumeError, ResumePoint, resume_match_from
+from app.schemas.admin import (
+    CancelResponse,
+    CreateGameRequest,
+    GameRecord,
+    ResumeMatchRequest,
+    ResumeMatchResponse,
+)
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -49,6 +56,53 @@ async def create_game(
         game=body.game_type,
         body=body,
         created_by_user_id=user.id,
+    )
+
+
+@router.post(
+    "/matches/{match_id}/resume-from",
+    response_model=ResumeMatchResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def resume_match(
+    match_id: Annotated[str, Path()],
+    body: ResumeMatchRequest,
+    db: DbSession,
+    user: Annotated[User, Depends(require_platform_admin)],
+) -> ResumeMatchResponse:
+    """Build a NEW match holding this one's position just before the given turn.
+
+    For a match that was killed or froze partway: once a turn's deadline passes
+    the missing moves are recorded as defaults, and a default scores as a HOARD,
+    so the fabricated moves sit in the results looking like decisions. There is
+    no way to un-record them. This carries the part that was really played into
+    a fresh match, with the same seats, ready to be played on from there by the
+    ordinary path — real agents, the real scheduler, the real serving code.
+
+    The source match is never touched: this only ever creates a row. Session-only
+    like create and cancel, and for the same reason — a leaked connection key
+    must not be able to spawn matches.
+    """
+    match = await load_match_or_404(db, match_id)
+    try:
+        new_match, seeded, defaulted = await resume_match_from(
+            db,
+            match,
+            ResumePoint(round=body.round, turn=body.turn),
+            name=body.name,
+            created_by_user_id=user.id,
+        )
+    except ResumeError as exc:
+        # 422, not 400: the request is well-formed and the caller is allowed to
+        # make it — this match simply cannot be resumed at that point.
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
+    await db.commit()
+    return ResumeMatchResponse(
+        match_id=new_match.id,
+        source_match_id=match.id,
+        resumes_at=f"R{body.round}T{body.turn}",
+        seeded_turns=seeded,
+        seeded_defaulted_moves=defaulted,
     )
 
 
