@@ -227,9 +227,14 @@ def _install_model_seats(
     scripted_action = service.choose_bot_action_decision
 
     def talk(context: Any, profile: Any) -> Any:
-        driver = drivers.get(full_name.get(context.your_agent_id, ""))
+        seat = full_name.get(context.your_agent_id, "")
+        driver = drivers.get(seat)
         if driver is None:
             return scripted_talk(context, profile)
+        # Progress, flushed: a live run is two model calls per seat per turn and
+        # takes tens of minutes, so a silent process is indistinguishable from a
+        # hung one — which is the confusion that killed M_7558 in the first place.
+        print(f"   R{context.round}T{context.turn} {seat:<20} talk...", flush=True)
         return driver.talk(context)
 
     def action(context: Any, profile: Any) -> Any:
@@ -237,14 +242,20 @@ def _install_model_seats(
         driver = drivers.get(seat)
         if driver is None:
             return scripted_action(context, profile)
+        print(f"   R{context.round}T{context.turn} {seat:<20} act...", flush=True)
         decision = driver.act(context)
+        print(
+            f"   R{context.round}T{context.turn} {seat:<20} "
+            f"{decision.move.get('action')} {decision.move.get('target_id') or ''}",
+            flush=True,
+        )
         moves.append(
             {
                 "round": context.round,
                 "turn": context.turn,
                 "seat": seat,
                 "action": decision.move.get("action"),
-                "target": decision.move.get("target_agent_id"),
+                "target": decision.move.get("target_id"),
                 "by": driver.name,
             }
         )

@@ -73,7 +73,10 @@ class ModelSeat:
             )
         return BotActionDecision(
             intent="replay",
-            move={"action": action, "target_agent_id": target},
+            # "target_id", the key the scripted bots use and the validator reads
+            # (app/engine/bots/runtime.py:_plan_to_move). Getting it wrong fails
+            # loudly on the first HELP or HURT, which is how it was caught.
+            move={"action": action, "target_id": target},
             thinking=str(got.get("thinking", ""))[:2000],
         )
 
