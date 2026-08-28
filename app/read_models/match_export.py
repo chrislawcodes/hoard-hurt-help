@@ -40,6 +40,8 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.engine.model_provider_match import resolve_seat_model
+from app.models.agent import Agent
 from app.models.agent_version import AgentVersion
 from app.models.match import Match
 from app.models.player import Player
@@ -201,11 +203,31 @@ async def build_json_export(
         # the same lie in a new place, with an old export looking authoritative
         # while being a guess. Null means "not recorded", which is true.
         model = p.played_model
+        # AND WHICH MODEL IT WILL PLAY, for a match that has not run yet.
+        #
+        # Two different questions, and collapsing them into one field broke the
+        # match runner: it has to pick a model to launch each agent with BEFORE
+        # any turn exists, so it reads the export — and `model` is empty until a
+        # seat has actually played. Every agent would have fallen back to one
+        # default, which is the bug the stamp was added to stop.
+        #
+        # Same resolver the turn payload uses, so this is the server's answer,
+        # not a second opinion. Once the seat plays, `model` above is the record
+        # and this stays what was intended.
+        agent = (
+            await db.execute(select(Agent).where(Agent.id == p.agent_id))
+        ).scalar_one_or_none()
+        model_to_play = (
+            resolve_seat_model(p.chosen_provider, agent.preferred_model)
+            if agent is not None
+            else None
+        )
         players_payload.append(
             {
                 "agent_id": p.agent_id,
                 "model_self_report": p.played_provider,
                 "model": model,
+                "model_to_play": model_to_play,
                 "total_round_wins": p.total_round_wins,
                 "total_round_score": p.total_round_score,
                 "strategy_prompt": strategy_prompt,
