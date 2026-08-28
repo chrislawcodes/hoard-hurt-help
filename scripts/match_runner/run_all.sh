@@ -3,10 +3,44 @@
 # harness keeps them alive instead of reaping them when a Bash call returns.
 RUN="${1:?usage: run_all.sh <run_dir>}"
 rm -f "$RUN/STOP"
+
+# WHICH MODEL EACH SEAT PLAYS COMES FROM THE SERVER, NOT FROM HERE.
+#
+# The server already answers this — `resolve_seat_model` picks the agent's
+# configured model, or its provider's default — and puts the answer in every
+# turn payload. The always-on connector reads it from there. This runner used to
+# ignore all of that and launch every agent on one CLAUDE_MODEL, so a match
+# whose agents were set to Sonnet and Opus on the site could really have run
+# entirely on Haiku, and the export would still have said Sonnet and Opus.
+# Nothing recorded the difference, which made "does the model change who wins?"
+# unanswerable from the data.
+#
+# So: read each seat's model out of the match export (the same resolved answer)
+# and launch that agent on it. To change what a match runs on, change the
+# agent's model on the site. There is nothing to set here.
+declare -A SEAT_MODEL=()
+if [ -n "${MATCH_ID:-}" ] && [ -s "$HOME/.agentludum/mcp-key" ]; then
+  export_json=$(curl -fsS -H "X-Connection-Key: $(cat "$HOME/.agentludum/mcp-key")" \
+      "https://agentludum.com/api/admin/matches/$MATCH_ID/export.json" 2>/dev/null) || export_json=""
+  if [ -n "$export_json" ]; then
+    while IFS=$'\t' read -r aid amodel; do
+      [ -n "$aid" ] && [ -n "$amodel" ] && SEAT_MODEL["$aid"]="$amodel"
+    done < <(printf '%s' "$export_json" | "$(dirname "$0")/seat_models.py")
+  fi
+fi
+if [ ${#SEAT_MODEL[@]} -eq 0 ]; then
+  # Loud, not silent: launching the whole field on one default while the site
+  # says otherwise is exactly the failure this block exists to stop.
+  echo "WARNING: could not read seat models from the server."
+  echo "         Every agent runs on ${CLAUDE_MODEL:-claude-haiku-4-5}, whatever the site says."
+fi
+
 while IFS=$'\t' read -r id name prov; do
   case "$id" in ''|\#*) continue ;; esac
-  "$RUN/play_agent.sh" "$id" "$name" "$prov" "$RUN" >> "$RUN/supervisor_${id}.log" 2>&1 &
-  echo "started $id ($name)"
+  seat_model="${SEAT_MODEL[$id]:-${CLAUDE_MODEL:-claude-haiku-4-5}}"
+  CLAUDE_MODEL="$seat_model" \
+    "$RUN/play_agent.sh" "$id" "$name" "$prov" "$RUN" >> "$RUN/supervisor_${id}.log" 2>&1 &
+  echo "started $id ($name) on $seat_model"
 done < "$RUN/roster.txt"
 echo "--- holding loops; STOP file ends them ---"
 

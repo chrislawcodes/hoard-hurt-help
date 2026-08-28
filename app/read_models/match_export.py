@@ -40,6 +40,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.engine.model_provider_match import resolve_seat_model
 from app.models.agent import Agent
 from app.models.agent_version import AgentVersion
 from app.models.match import Match
@@ -185,15 +186,21 @@ async def build_json_export(
         strategy_prompt: str | None = None
         if version is not None and viewer.may_read_private_seat_text(p.user_id):
             strategy_prompt = version.strategy_text
-        # Which model this seat was set to play. The export recorded the
-        # PROVIDER ("claude") and nothing finer, so a match run on Haiku and one
-        # run on Sonnet were indistinguishable afterwards — and comparing models
-        # is the point of running the same roster twice. A match record has to
-        # be able to say what produced it.
+        # Which model this seat plays, from `resolve_seat_model` — the SAME
+        # function that fills the model field in the turn payload. Reporting the
+        # raw `preferred_model` instead was a second answer to one question: the
+        # payload layers in the provider's default when an agent has no
+        # preference, so a seat with none showed as null here while really
+        # playing the default. Anything that needs to know which model a seat
+        # plays calls that function; nothing works it out again.
         agent = (
             await db.execute(select(Agent).where(Agent.id == p.agent_id))
         ).scalar_one_or_none()
-        model = agent.preferred_model if agent is not None else None
+        model = (
+            resolve_seat_model(p.chosen_provider, agent.preferred_model)
+            if agent is not None
+            else None
+        )
         players_payload.append(
             {
                 "agent_id": p.agent_id,
