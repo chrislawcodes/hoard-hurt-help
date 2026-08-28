@@ -58,61 +58,50 @@ if [ -n "${MATCH_ID:-}" ]; then
       # payload change could quietly break into a constant zero.
       moves=$(printf '%s' "$body" | grep -o '"action"' | wc -l | tr -d ' ')
 
-      # STORM ALARM — count TURNS ACTUALLY PLAYED, per agent.
+      # STORM ALARM — measured against THE MATCH'S OWN PACE, not the clock.
       #
-      # Three signals were measured against M_7360 before settling on this one.
-      # Two of them cannot work:
+      # This used to stop the run when an agent had played nothing for three
+      # minutes. That threshold came from Sonnet matches, where a turn takes
+      # about 57 seconds. M_7558 put one Opus agent in the field and turns
+      # stretched to 450 seconds, because every turn waits for the slowest
+      # player — so a perfectly healthy agent looked stuck, the alarm killed a
+      # live match, and 120 of 280 moves were defaulted into HOARDs.
       #
-      #   Launches per minute. The storm ran at 4.5/min and healthy ran at 1.4
-      #   peaking at 5 — the distributions OVERLAP, so no threshold separates
-      #   them. The storm is capped by session length, not by frenzy.
+      # A wall-clock threshold asks "has N seconds passed", which is not the
+      # question. The question is "is this agent falling behind the others", and
+      # that is answerable without knowing how fast a turn should be: if the
+      # MATCH advanced and one agent did not, that agent missed a turn.
       #
-      #   Moves in the public feed. A defaulted turn is still recorded as a
-      #   move, with a talk message on it 100% of the time. So an agent that has
-      #   stopped playing looks identical to one that is playing.
-      #
-      # What does separate, cleanly: a successful `submit_action` in Claude
-      # Code's own MCP log. Over the same windows that gave 4.5-vs-1.4 and no
-      # separation at all, this gave 8 and 94 in the clean minutes against 0, 0
-      # and 0 through the storm. It is also the honest question — "did this
-      # agent play a turn" — rather than a proxy for it.
-      #
-      # It stops the WHOLE run, not the one agent. A silent agent is defaulted
-      # every turn and a default scores as a HOARD, so the moment one stops
-      # playing these numbers are spoilt; finishing only spends tokens on a
-      # match nobody can use.
-      if [ "$state" = "active" ]; then
-        played_any=0
+      # Turns missed in a row, not minutes elapsed. Slow is fine; behind is not.
+      MISSED_TURNS_BEFORE_STOP=3
+      if [ "$state" = "active" ] && [ "$moves" != "$prev_moves" ]; then
+        # The match moved. Anyone who did not move with it missed this window.
         for lg in "$RUN"/agent_*.log; do
           [ -e "$lg" ] || continue
           aid=$(basename "$lg" .log | sed 's/^agent_//')
-          # Claude Code files MCP logs under the escaped REAL path of the working
-          # directory, so resolve it — /tmp is a symlink to /private/tmp on macOS
-          # and the unresolved form finds nothing.
           real=$(cd "$RUN/a/$aid" 2>/dev/null && pwd -P)
           [ -n "$real" ] || continue
           mcpdir="$HOME/Library/Caches/claude-cli-nodejs/$(printf '%s' "$real" | tr '/' '-')/mcp-logs-agentludum"
           n=$(grep -rh 'submit_action' "$mcpdir" 2>/dev/null | grep -c 'completed successfully')
           prev_n=$(cat "$RUN/.played_$aid" 2>/dev/null || echo -1)
           echo "$n" > "$RUN/.played_$aid"
-          [ "$n" != "$prev_n" ] && played_any=1
-          stuck_f="$RUN/.stuck_$aid"
+          missed_f="$RUN/.missed_$aid"
           if [ "$n" = "$prev_n" ]; then
-            st=$(cat "$stuck_f" 2>/dev/null || echo 0)
-            st=$(( st + 1 ))
-            echo "$st" > "$stuck_f"
-            if [ "$st" -ge 3 ]; then
-              echo "STORM: agent $aid has played no turn for 3 minutes while the match is live."
-              echo "  It has launched $(grep -c 'launch #' "$lg") sessions in total and is"
-              echo "  getting nowhere. Read the newest lines of $lg — a session that ends"
-              echo "  in seconds did not play, whatever it exited with."
+            m=$(cat "$missed_f" 2>/dev/null || echo 0)
+            m=$(( m + 1 ))
+            echo "$m" > "$missed_f"
+            if [ "$m" -ge "$MISSED_TURNS_BEFORE_STOP" ]; then
+              echo "STORM: agent $aid has missed $m turns the rest of the field played."
+              echo "  It has launched $(grep -c 'launch #' "$lg") sessions and is getting"
+              echo "  nowhere. Read the newest lines of $lg — a session that ends in"
+              echo "  seconds did not play, whatever it exited with."
               echo "  Stopping the whole run: a silent agent defaults every turn, a default"
               echo "  scores as a HOARD, so these numbers are already spoilt."
               touch "$RUN/STOP"
               break
             fi
           else
-            echo 0 > "$stuck_f"
+            echo 0 > "$missed_f"
           fi
         done
         [ -f "$RUN/STOP" ] && break
