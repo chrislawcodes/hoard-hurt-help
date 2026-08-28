@@ -90,6 +90,20 @@ class GameTheme:
     vars: dict[str, str]
 
 
+def default_match_placement_key(*, round_wins: float, total_score: int) -> tuple[float, ...]:
+    """The default finish-order key: more round wins first, then higher total score.
+
+    This is the one home for that rule. ``BaseGameModule.match_placement_key``
+    returns it, and the leaderboard falls back to it for a legacy game_type with
+    no module — those two used to carry separate copies, so changing the default
+    in one would have silently left legacy matches ranked by the old rule.
+
+    A game that ranks differently overrides ``match_placement_key`` instead of
+    editing this (Liar's Dice returns ``(total_score, round_wins)``).
+    """
+    return (round_wins, float(total_score))
+
+
 class GameModule(Protocol):
     """The contract a turn-based game module implements."""
 
@@ -311,7 +325,7 @@ class GameModule(Protocol):
     ) -> tuple[float, ...]:
         """Sort key (descending = better) ranking a completed match's participants
         for the shared rating engine; equal keys are a placement tie. Default:
-        PD's (round_wins, total_score)."""
+        ``default_match_placement_key``."""
         ...
 
     # --- Spectator insights (the contract owns "what the analysis shows") ---
@@ -565,7 +579,7 @@ class BaseGameModule:
     def match_placement_key(
         self, *, round_wins: float, total_score: int
     ) -> tuple[float, ...]:
-        return (round_wins, float(total_score))
+        return default_match_placement_key(round_wins=round_wins, total_score=total_score)
 
     # --- Spectator insights ---
 

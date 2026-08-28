@@ -23,8 +23,13 @@ from app.auth.session import set_session_user
 from app.config import settings
 from app.deps import DbSession
 from app.models.user import User, UserRole
+from app.routes.web_support import safe_internal_next
 
 router = APIRouter()
+
+# Where a dev login lands when no ``next`` is given, and where an unsafe one is
+# sent instead.
+_DEFAULT_NEXT = "/me/agents"
 
 # The seeded local user this logs in as when no ``user_id`` is given.
 _DEV_USER_EMAIL = "dev@localhost"
@@ -65,11 +70,13 @@ async def _ensure_dev_user(db: AsyncSession) -> User:
     return user
 
 
-def _safe_next(target: str) -> str:
-    """Only allow a same-site absolute path — never an off-site or scheme-relative URL."""
-    if target.startswith("/") and not target.startswith(("//", "/\\")):
-        return target
-    return "/me/agents"
+def _safe_next(target: str | None) -> str:
+    """Only allow a local path, to avoid an open redirect; else the default.
+
+    The rule itself lives in ``safe_internal_next`` — this used to re-implement
+    it, so hardening one copy would have left the other on the old rule.
+    """
+    return safe_internal_next(target) or _DEFAULT_NEXT
 
 
 @router.get("/dev/login")
@@ -77,7 +84,7 @@ async def dev_login(
     request: Request,
     db: DbSession,
     user_id: Annotated[int | None, Query()] = None,
-    next_url: Annotated[str, Query(alias="next")] = "/me/agents",
+    next_url: Annotated[str, Query(alias="next")] = _DEFAULT_NEXT,
 ) -> Response:
     """Sign in without Google OAuth. Local dev only (guarded at mount time).
 
