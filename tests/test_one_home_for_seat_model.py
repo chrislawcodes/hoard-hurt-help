@@ -197,3 +197,94 @@ async def test_a_seat_that_was_never_served_reports_no_model(client, reset_db):
     assert r.json()["players"][0]["model"] is None, (
         "a seat that never played reported a model — that is a guess, not a record"
     )
+
+
+def test_the_runner_can_still_read_a_model_before_the_match_has_run():
+    """The case that broke the runner: a match with nothing played yet.
+
+    Two different questions live in the export. `model` is what a seat PLAYED,
+    frozen when it was first served — empty until then. `model_to_play` is what
+    the server WILL send it. The runner has to pick a model to launch each agent
+    with before any turn exists, so it needs the second; collapsing them into
+    one field sent every agent to a single default, which is the bug the stamp
+    was added to stop.
+    """
+    import json
+    import subprocess
+    import sys
+
+    def read(export: dict) -> list[str]:
+        proc = subprocess.run(
+            [sys.executable, str(RUNNER / "seat_models.py")],
+            input=json.dumps(export), capture_output=True, text=True, timeout=60,
+        )
+        assert proc.returncode == 0, proc.stderr
+        return proc.stdout.splitlines()
+
+    # Not yet played: fall back to what the server intends to send.
+    assert read({"players": [
+        {"agent_id": "1", "model": None, "model_to_play": "claude-opus-5"},
+    ]}) == ["1\tclaude-opus-5"]
+
+    # Already played: the record beats the intention, even when they differ.
+    assert read({"players": [
+        {"agent_id": "1", "model": "claude-haiku-4-5", "model_to_play": "claude-opus-5"},
+    ]}) == ["1\tclaude-haiku-4-5"]
+
+    # Neither known: blank, so the caller's loud fallback fires rather than a guess.
+    assert read({"players": [
+        {"agent_id": "1", "model": None, "model_to_play": None},
+    ]}) == ["1\t"]
+
+
+async def test_the_export_carries_both_questions_separately(client, reset_db):
+    """`model` must stay the frozen record while `model_to_play` reads live.
+
+    If `model_to_play` ever leaked into `model`, editing an agent would once
+    again rewrite what a past match claimed it played.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    from app.models.agent import Agent, AgentKind
+    from app.models.match import GameState, Match
+    from app.models.player import Player
+    from app.models.user import User, UserRole
+    from tests.test_admin import _cookies
+
+    async with reset_db() as db:
+        admin = User(
+            google_sub="sub-admin", email="admin@test.com", name="admin",
+            role=UserRole.ADMIN,
+        )
+        db.add(admin)
+        await db.flush()
+        db.add(
+            Match(
+                id="G_BOTH", name="both", state=GameState.REGISTERING,
+                scheduled_start=datetime.now(timezone.utc) + timedelta(hours=1),
+            )
+        )
+        agent = Agent(
+            user_id=admin.id, name="a-both", kind=AgentKind.HUMAN,
+            game="hoard-hurt-help", preferred_model="claude-opus-5",
+        )
+        db.add(agent)
+        await db.flush()
+        db.add(
+            Player(
+                match_id="G_BOTH", user_id=admin.id, agent_id=agent.id,
+                seat_name="Seat", chosen_provider="claude",
+                joined_at=datetime.now(timezone.utc),
+                # Never served, so no stamp — the shape of a match about to run.
+            )
+        )
+        await db.commit()
+
+    seat = (
+        await client.get("/api/admin/matches/G_BOTH/export.json", cookies=_cookies(admin.id))
+    ).json()["players"][0]
+
+    assert seat["model"] is None, "an unplayed seat must not claim to have played a model"
+    assert seat["model_to_play"] == "claude-opus-5", (
+        "the runner has nothing to launch this seat with"
+    )
