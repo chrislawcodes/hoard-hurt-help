@@ -1,29 +1,26 @@
 # Hoard Hurt Help — Project Constitution
 
-This file is the shared working contract for Claude, Codex, and any other agent that works in this repo.
+This file is the working contract for any agent that works in this repo.
 
 Hoard Hurt Help is a multiplayer Prisoner's Dilemma game where LLM agents compete against each other.
 
 ## Communication Style
 
-- Start with a short summary, then details.
-- When there are real options, use a table and give a recommendation with a reason.
+Reading level and sentence length are handled by the `plain-language` output
+style (`.claude/output-styles/plain-language.md`).
+
+- When there are real options, use a table and recommend one with a reason.
 - Be honest about risk, uncertainty, or disagreement.
-
-Sentence length and reading level are handled by the `plain-language` output
-style (`.claude/output-styles/plain-language.md`), on by default for this repo.
-
-## Clarifying Questions
-
-- If you need clarifying questions, decide the full set first.
-- Say how many questions you have before asking the first one.
-- Ask them one at a time.
+- If you need clarifying questions, decide the full set first, say how many you
+  have, then ask them one at a time.
 
 ## Never Do
 
 - Push commits directly to `main`.
 - Merge a PR unless Chris directly asks.
-- Suppress errors to make checks pass (`# type: ignore`, `# noqa`, swallowed exceptions).
+- Suppress errors to make checks pass (`# type: ignore`, `# noqa`, swallowed
+  exceptions). The only exception is a known upstream bug in a third-party
+  library — document it with a comment naming the specific issue.
 - Commit secrets or credentials.
 
 ## Delivery Paths
@@ -40,14 +37,21 @@ style (`.claude/output-styles/plain-language.md`), on by default for this repo.
 - For ad-hoc work where no explicit delivery instruction was given: ask before `git push`.
 - Run the Preflight Gate before any `git push` or PR creation.
 - Every PR must include a `Validation` section listing exact commands run and pass/fail results.
-- To merge a PR, invoke `/ship` — not bare `gh pr merge`. `/ship` rebases onto main, runs preflight, watches CI, and squash-merges.
+- To merge a PR, invoke `/ship` — not bare `gh pr merge`.
 
 ## PR Watching
 
-- After opening a PR, do not watch it on a timer. Report the PR link and stop — opening the PR is the end of the task.
-- Never schedule recurring self check-ins (`send_later` / `ScheduleWakeup`) to re-read a PR "in case something changed". Each wakeup is a full uncached turn that usually finds nothing, and it is the main source of wasted tokens here.
-- Passive webhook events (`<github-webhook-activity>`: review comments, CI failures, merges) still arrive on their own and can be acted on when they fire — they cost nothing until a real event happens. The thing to avoid is *timed polling* of a PR with no pending event; do not unsubscribe reflexively, just don't poll.
-- Enter a watch/poll loop **only** when Chris asks for a terminal delivery action — `/ship`, "squash-merge when it's ready", "merge when green", or "babysit this PR". Then watch until the merge/close completes and prune. Do not proactively offer to babysit a PR.
+- After opening a PR, do not watch it on a timer. Report the PR link and stop —
+  opening the PR is the end of the task. Recurring self check-ins (`send_later` /
+  `ScheduleWakeup`) are the main source of wasted tokens here: each one is a full
+  uncached turn that usually finds nothing.
+- Passive webhook events (`<github-webhook-activity>`: review comments, CI
+  failures, merges) arrive on their own and cost nothing until they fire. Act on
+  those when they land; do not unsubscribe reflexively. The thing to avoid is
+  *timed polling* of a PR with no pending event.
+- Enter a watch loop **only** when Chris asks for a terminal delivery action —
+  `/ship`, "merge when green", "babysit this PR". Then watch until the merge or
+  close completes, and prune.
 
 ## Preflight Gate
 
@@ -67,34 +71,17 @@ Hard rules:
 
 ### Small-Change Lane (Direct Path only)
 
-Small changes do not need the full ritual. A change is "small" when **all** of
-these hold: ≤40 lines changed, ≤5 files touched, no DB migration, no model or
-schema change, no new dependency, and not a new subsystem.
+A small Direct Path change may run the fast test lane
+(`pytest -q -m "not integration"`, ~13s) instead of the full suite. The
+`/preflight` skill owns the size thresholds and picks the lane for you — run it
+rather than judging by eye. CI runs the full `pytest` suite on every PR either
+way, so the fast lane is local signal only.
 
-For a small change, the local gate is the **fast test lane** plus lint and types:
-
-```bash
-cd $(git rev-parse --show-toplevel)
-python3 -m ruff check . && \
-mypy app/ mcp_server/ && \
-pytest -q -m "not integration"   # fast lane (~13s); CI still runs the full suite
-```
-
-Also for a small change:
-- **Skip** the spec / plan / tasks docs and the `STATUS.md` update.
-- **Keep** the worktree-per-task rule and the PR's `Validation` section.
-
-CI runs the full `pytest` suite on every PR, so the full suite is still the real
-gate — the fast lane is just quicker local signal while you iterate.
-
-Anything that is **not** small (any migration, model change, or cross-cutting
-feature) runs the full Preflight Gate above and the normal delivery path.
+A small change also **skips** the spec / plan / tasks docs and the `STATUS.md`
+update. It still **keeps** the worktree-per-task rule and the PR's `Validation`
+section.
 
 ## Python Standards
-
-### No Suppressions
-
-Never use `# type: ignore` or `# noqa` to silence a real error. Fix the root cause. The only exception is a known upstream bug in a third-party library — document it with a comment explaining the specific issue.
 
 ### Type Annotations
 
@@ -160,28 +147,20 @@ Diagnose before fixing. Find the smallest reproducing case. Fix the root cause. 
 
 ## How We Work — Worktrees, Clean Main, Prune On Merge
 
-The goal: the main checkout always sits on a fresh `main`, every task gets its own
-isolated worktree, and branches never pile up. Skipping the prune step is what
-silently rots the repo — dozens of merged and abandoned branches accumulate until
-sessions start landing on stale branches with bad assumptions.
+The main checkout stays on a fresh `main`, every task gets its own worktree, and
+branches get deleted the day they merge. Skipping the prune step is what rots the
+repo — abandoned branches pile up until a session lands on a stale one and builds
+on bad assumptions.
 
-### Keep the main checkout pristine
+**Keep the main checkout pristine.** `hoard-hurt-help/` stays on `main`,
+fast-forwarded to `origin/main`. Explore and answer questions there freely, but
+create your worktree the moment you are about to make your first change — not at
+session start, and never after the first edit. If you find it parked on a feature
+branch, put it back on `main` first.
 
-The primary repo folder (`hoard-hurt-help/`) stays on `main`, always fast-forwarded
-to `origin/main`. Treat it as read-only: explore, read, and answer questions here
-freely. Create your worktree at the moment you are about to make your first change —
-not at session start (a worktree per question just breeds new clutter), and never
-after the first edit (writing in `main` is the bug we are preventing). It is the
-trunk — branches grow *off* it, not *in* it. If you find it parked on a feature
-branch, that is the bug: return it to `main` first.
-
-### One worktree per task
-
-Multiple agent sessions (Claude, Codex, Gemini) must never edit the same working
-directory at once. Concurrent edits clobber each other — a file flips between
-half-finished states between commands, and one session's work gets swept into
-another's commit. Give every task its own isolated worktree, branched fresh off
-`origin/main` (never reuse an old branch as a starting point):
+**One worktree per task.** Two agent sessions editing the same directory clobber
+each other, and one session's work gets swept into another's commit. Branch fresh
+off `origin/main`; never reuse an old branch as a starting point.
 
 ```bash
 scripts/agent-worktree.sh new <branch-name>   # fresh worktree off origin/main
@@ -189,38 +168,22 @@ scripts/agent-worktree.sh list                # show all worktrees
 scripts/agent-worktree.sh rm <branch-name>    # remove worktree + delete branch after merge
 ```
 
-Work, commit, push, and open the PR from inside that worktree.
+Work, commit, push, and open the PR from inside that worktree. If the work spans
+more than one sitting, `git fetch origin main && git rebase origin/main` first.
 
-### Rebase each session
-
-If work spans more than one sitting, sync before continuing so you never build on a
-stale base:
-
-```bash
-git fetch origin main && git rebase origin/main
-```
-
-### Prune the moment it's done — this is the rule that keeps the repo clean
-
-- When a PR squash-merges, tear the branch down immediately: `scripts/agent-worktree.sh rm <branch-name>`.
-- When an A/B experiment ends, delete the loser's branch the same day.
-- When you stop using a Codex/Gemini branch, delete it. "I might look later" is not a
-  reason to keep it — the branch is already on GitHub, so deleting the local copy
-  loses nothing.
-
-Many branches is fine and expected (one feature per branch, phased work, experiments).
-The mess is *un-pruned* branches, not many branches. Prune as you go.
+**Prune the moment it's done.** When a PR merges, an experiment ends, or you stop
+using an agent branch, run `scripts/agent-worktree.sh rm <branch-name>` that day.
+The branch is already on GitHub, so deleting the local copy loses nothing. Many
+branches is fine and expected; *un-pruned* branches are the mess.
 
 ## Read First
 
 Always read:
-- This file (`CLAUDE.md`) for coding standards and preflight
-- `docs/platform/AGENT_LUDUM_ARCHITECTURE.md` for the platform's architecture — start with its **"Where to make a change (quick index)"** task→file table and **"Notable shapes & tensions"** invariants, then read `AGENT_LUDUM_DESIGN.md` for the design rationale
+- `docs/platform/AGENT_LUDUM_ARCHITECTURE.md` for the platform's architecture — start with its **"Where to make a change (quick index)"** task→file table and **"Notable shapes & tensions"** invariants, then read `docs/platform/AGENT_LUDUM_DESIGN.md` for the design rationale
 - `docs/games/<game>/` (e.g. `hoard-hurt-help/`) for that game's design & architecture
 
 Read when relevant:
 - `specs/` for feature specs
-- `MEMORY.md` for persistent project references
 - `docs/operations/debugging-history.md` when something is broken or frozen in
   prod — past incidents, how to diagnose a stuck match, and manual recovery.
   Add an entry whenever you debug a non-trivial production issue.
