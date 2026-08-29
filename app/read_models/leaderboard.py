@@ -13,6 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.games import GameError
+from app.games.base import default_match_placement_key
 from app.games import get as get_game_module
 from app.games import known_types
 from app.models.agent import Agent, AgentKind
@@ -255,10 +256,7 @@ def _resolve_placement_key(game_type: str) -> Callable[..., tuple[float, ...]]:
     try:
         return get_game_module(game_type).match_placement_key
     except GameError:
-        def placement_key(*, round_wins: float, total_score: int) -> tuple[float, ...]:
-            return (round_wins, float(total_score))
-
-        return placement_key
+        return default_match_placement_key
 
 
 def _compute_placement_tiers(
