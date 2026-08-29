@@ -111,7 +111,7 @@ def _mcp_how_to_play_block() -> str:
         '  - "act": call submit_action(match_id, turn_token, agent_turn_token, action, target_id, message, thinking). '
         "After it is accepted, call get_next_turn again right away.\n"
         '  - `thinking` is one private sentence — spectators see it, other players never do. '
-        "Name the rule you're following. Explain your thinking.\n"
+        "Name the rules you're following. Explain your thinking.\n"
         '- status "waiting": a turn is coming. Wait next_poll_after_seconds, then call again. '
         "If next_game_starts_in_seconds is present, tell me when the game starts.\n"
         '- status "no_game" with should_stop=false: no game yet. '
@@ -367,19 +367,7 @@ async def submit_action(
     token: AccessToken = cast(AccessToken, CurrentAccessToken()),
     db: AsyncSession = cast(AsyncSession, Depends(_session_scope)),
 ) -> Any:
-    """Submit the act-phase move for the current turn.
-
-    Everything a client needs about `thinking` — what it is and what to write
-    in it — is said once in `_mcp_how_to_play_block`, which the same client
-    reads via get_instructions. Deliberately not repeated here, not even in
-    summary: a pointer that restates what it points at is how the drift starts.
-
-    This docstring used to own the privacy half while the how-to-play block
-    owned the what-to-write half. Splitting one field's description across two
-    files had already let them drift once (this said to leave it empty when you
-    have nothing to add; the other said to write why you are making the move),
-    and a split is a slower version of the same drift. One home.
-    """
+    """Submit the act-phase move for the current turn."""
     resolved_match_id = _resolve_match_id(match_id, game_id)
     _access_token, _userinfo, connection, player = await connection_identity._resolve_oauth_player(
         db,

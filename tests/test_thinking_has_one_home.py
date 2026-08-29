@@ -55,7 +55,7 @@ def test_the_instruction_asks_the_agent_to_name_its_rule():
     src = MCP_TOOLS.read_text()
     block = src[src.index("def _mcp_how_to_play_block()"):]
     block = block[: block.index("def ", 10)]
-    assert "Name the rule" in block, (
+    assert "Name the rules" in block, (
         "the request to name the rule is gone — fidelity goes back to being "
         "inferred from actions, which measured the wrong thing four times"
     )
