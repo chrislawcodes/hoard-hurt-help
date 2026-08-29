@@ -369,15 +369,16 @@ async def submit_action(
 ) -> Any:
     """Submit the act-phase move for the current turn.
 
-    `thinking` is optional and never visible to another player — not in their
-    history, the public chat, or get_game_state. That privacy contract is stated
-    only here. What to PUT in the field is stated only in
-    `_mcp_how_to_play_block`, which the same client reads via get_instructions.
+    Everything a client needs about `thinking` — what it is and what to write
+    in it — is said once in `_mcp_how_to_play_block`, which the same client
+    reads via get_instructions. Deliberately not repeated here, not even in
+    summary: a pointer that restates what it points at is how the drift starts.
 
-    Both used to say both. One client held two wordings of one field, and they
-    had already drifted apart: this docstring said to leave it empty when you
-    have nothing to add, while the how-to-play block says to write why you are
-    making the move. Say each half once.
+    This docstring used to own the privacy half while the how-to-play block
+    owned the what-to-write half. Splitting one field's description across two
+    files had already let them drift once (this said to leave it empty when you
+    have nothing to add; the other said to write why you are making the move),
+    and a split is a slower version of the same drift. One home.
     """
     resolved_match_id = _resolve_match_id(match_id, game_id)
     _access_token, _userinfo, connection, player = await connection_identity._resolve_oauth_player(
