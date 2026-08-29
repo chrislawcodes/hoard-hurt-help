@@ -1,6 +1,6 @@
 # Agent Ludum — Platform Architecture
 
-> **In a hurry?** Jump to **[Where to make a change (quick index)](#where-to-make-a-change-quick-index)** to find the file for a task, and **[Notable shapes & tensions](#notable-shapes--tensions)** for the invariants you must not break. The per‑subsystem module tables in between are the detailed map.
+> **Start here.** **[Where to make a change (quick index)](#where-to-make-a-change-quick-index)** — find your task's row; it names the file *and* the trap. Then **[Notable shapes & tensions](#notable-shapes--tensions)** if the change touches an invariant. Those two come **first on purpose**: most changes need only them, and reading this file top‑down should reach them before the ~8,000‑word module map below. That map is reference — look modules up in it, don't read it through.
 
 This doc is a **map of the code**: the big subsystems, the large modules inside
 them, and how a request flows through them. It answers "where does X live and
@@ -78,6 +78,155 @@ One Python process, started from `app/main.py`:
 
 ---
 
+## Where to make a change (quick index)
+
+| You want to… | Start here |
+|---|---|
+| Add a new game | `app/games/<name>/` implementing `app/games/base.py`; register in `app/games/__init__.py`. See `docs/writing-a-game-module.md`. |
+| Change PD rules / scoring | `app/games/hoard_hurt_help/scoring.py` (HOARD/HELP/HURT payoff math) + `app/games/hoard_hurt_help/rules.py` (PD constants) + `app/games/hoard_hurt_help/game.py` (move validation, submission). |
+| Change which mutual‑help rule a **new** match gets | `DEFAULT_MUTUAL_HELP_MODE` in `app/games/hoard_hurt_help/rules.py` — every create path (`match_creation.py`, `schemas/admin.py`, `matches_user.py`, the admin form's pre‑selected option) reads it, so that constant is the whole switch. Two things it does **not** move: the `matches.mutual_help_mode` column default (a literal in `app/models/match.py`, because the model layer cannot import a game module — pinned by `test_every_create_default_is_the_platform_default`, and needs a migration to change in the DB), and any **already‑created** match. The platform's own two matches — Practice Arena and the 15‑minute auto‑match — are brought onto the new rule **in place** by `sync_managed_match_rules` (`app/engine/arena.py`), which the poller runs **first**, before `fill_and_start_auto_matches` starts anything (`app/engine/scheduler.py`; ordering pinned by `test_poll_loop_syncs_managed_rules_before_starting_a_due_match`). It only touches SCHEDULED/REGISTERING matches of those two kinds — a started match keeps the rule it was played under, and a player's own match is never revised. |
+| Change PD replay / viewer (robot‑circle, feed, headlines) | `app/games/hoard_hurt_help/viewer.py` (`build_replay_view`) via `app/routes/web_viewer.py`. |
+| Add/adjust a Bot personality | `app/engine/bots/strategies.py`, `bot_presets.py`, `bots/roster.py`. |
+| Change Practice Arena / Auto-Match seeding | `app/engine/arena.py` + `app/engine/bot_presets.py` + `app/engine/bots/roster.py` + `app/routes/connections_*.py` / `agents_*.py`. |
+| Make a platform-wide game-rule change reach the **already-open** Arena / Auto-Match | `sync_managed_match_rules` in `app/engine/arena.py` — the poller's **first** step, editing unstarted managed matches in place (no cancel, so nobody loses a seat). Neither match gets there on its own: the Arena sits open for a year and nothing re-creates it, and the open auto-match would still be played on the old rule before its window rolls. It handles the mutual-help rule today; extend it rather than adding a second sweep. |
+| Change an agent's strategy (its only editable content — no model) | `app/routes/agents_lifecycle.py` — an edit on a frozen (played) version **forks a new `AgentVersion`**; an unplayed draft edits in place. |
+| Change the create‑agent form (name + strategy, no model/provider) | `app/routes/agents_create.py` + `app/templates/agents/new.html` — strategy seeded from the game's `strategy_presets()` plus the "start from an existing agent" reuse picker (`_load_existing_strategies`). |
+| Touch the turn lifecycle | `app/engine/scheduler_turn_loop.py` (the loop itself: `_run_game`, `_open_turn`, wait helpers) + `app/engine/scheduler.py` (registry + poller). |
+| Match frozen / change how stuck turns self‑heal | `app/engine/overdue_sweeper.py` (`sweep_overdue_turns`, `OVERDUE_TURN_GRACE_SECONDS`) — the poller subsystem that force‑advances a turn unresolved >60s past `deadline_at`; wired in `scheduler.py` `_poll_due_loop`, after the watchdog. Triage: the `debugging-playbook` skill + `docs/operations/debugging-history.md`. |
+| Change what an agent sees/submits (both paths) | The shared play‑service layer — `app/engine/agent_play.py` (verbs) + `agent_play_next_turn.py` (next‑turn fan‑out / `_build_turn_payload`) + `agent_play_reads.py` (payload projections) + `agent_play_guards.py` (rate‑limit/binding) — that both the HTTP routes and MCP tools call, + `app/routes/agent_api.py` + `app/routes/agent_next_turn.py` + `app/schemas/agent.py`. |
+| Change what the MCP path sends per turn (lean payload) | Two leanness seams. (a) The **history window** is in the shared read — `RECENT_HISTORY_TURNS` + `_load_public_action_records(recent_turns=...)` in `app/engine/agent_play_reads.py`, applied by `_build_turn_payload` (the next-turn fan-out is the sole turn-payload path). (b) The **static prompt text** (`static.base_prompt` + `static.your_strategy`) is stripped MCP-only in the wrappers in `mcp_server/mcp_tools.py` (`get_next_turn`/`get_next_turns`; `mcp_server/server.py` only re-exports them) — do **not** strip those in the shared builder (the connector needs them to prime its session). |
+| Change the MCP static "how to play" text | `mcp_server/server.py` `get_instructions` tool (`_format_instruction_sections`) — four sections: rules (the game module's `semantic_rules_text`), identity/targets, strategy (`AgentVersion.strategy_text`), and the loop protocol (`_mcp_how_to_play_block` — the `## How to play` block, including the `coach_note` line). |
+| Change the MCP kickoff paste prompt | `app/routes/connections_connect_guide.py` `_PLAY_PROMPT`. |
+| Connect an AI client to `/mcp` via OAuth | `mcp_server/server.py` (fastmcp v3 `GoogleProvider`/`OAuthProxy`, OAuth‑only gate, PRM/AS‑metadata, **stateless‑HTTP**) + the OAuth‑identity→per‑(user, provider) "MCP connection" `Connection` bridge in `app/engine/mcp_connection.py` (`mcp_connection_for`); the per‑client identity helper `_dcr_client_id_from_request` + provider‑from‑`clientInfo` helpers in `mcp_server/server.py`; OAuth config in `app/config.py` + the startup check in `app/main.py`. |
+| Change a play action shared by HTTP **and** MCP | Edit the shared play‑service layer (`app/engine/agent_play.py`) — one implementation; the HTTP route and the MCP tool are thin adapters over it (auth differs, logic is shared). For MCP‑only payload shape changes, strip in the MCP wrapper (`mcp_server/mcp_tools.py`), not the service layer. |
+| Let users pick which AI plays an agent / the join flow | `app/routes/web_join.py` — `_build_ai_options` (the per‑AI picker + its three states `ready`/`idle`/`not_connected`, plus a `busy` **sort key** that is never rendered), `_seat_user_agent` (records `Player.chosen_provider`), `join_form` / `join_submit`; the held‑seat connect screens (`seat_connect` / `seat_connect_status`) are in `app/routes/web_seat_connect.py`. (Both are mounted via the `web_player.py` aggregator.) There is **no** per‑provider seat limit any more (#637) — `providers_busy_for_user` in `app/engine/join_gate_capacity.py` only orders the picker. Template: `app/templates/join.html`; ticking a row picks an AI no other ticked row holds, never refuses, and greys nothing out. |
+| Change turn routing (who serves a turn) | `app/engine/turn_routing.py` (`can_connection_claim_turn`: "connection covers the seat's `chosen_provider`" + sticky‑pin claim) wired into `app/engine/agent_play_next_turn.py` (which passes `player.chosen_provider`) and `app/routes/agent_next_turn.py`; ordering stays in `app/engine/next_turn.py`. `chosen_provider` / `played_provider` / pin columns live on `app/models/player.py`. |
+| Choose / resolve a per‑agent model | The optional `Agent.preferred_model` (`app/models/agent.py`) — picker + effective‑model + verification status on the agent‑settings page (`app/routes/agents_detail.py` / `agents_lifecycle.py` + `app/templates/agents/`); resolution is `resolve_seat_model` in `app/engine/model_provider_match.py`, called from `app/engine/agent_play_next_turn._build_turn_payload`. The join/seat page stays provider‑only (do **not** add a model picker to `web_join.py`). |
+| Change model verification (can this login run this model?) | The `model_verifications` store (`app/models/model_verification.py`, keyed connection+provider+model); written by the connector's verification side‑task (`scripts/agentludum_connector.py` — the ~60s worklist pull + cheap test call) via the up‑channel; read by the agent‑settings status and the join guard (`app/engine/join_gate_capacity.py` gains the union‑of‑live‑connections read — warn, don't block). |
+| Change the verification report endpoints (down worklist / up results + reason) | `app/routes/agent_model_verification.py` — the two dedicated connector endpoints (worklist down, results + play‑time failure reason up), **separate from the turn poll**; the connector side is the verification side‑task in `scripts/agentludum_connector.py`. |
+| Change per‑connection provider toggles / detection | `app/models/connection_provider.py` + the toggle endpoint in `app/routes/connections_lifecycle.py`; detection flows in via `report_pid` in `app/routes/agent_next_turn.py`. |
+| Change connection health / liveness | `app/engine/connection_health_badge.py` (the `ConnectionHealth` enum + `compute_connection_health`; reads `last_seen_at`/`runner_pid` + `players.served_by_connection_id`, not agent attachment). Re‑exported via `connection_health.py`. |
+| Change "is this provider set up / connected / playing" | `app/engine/provider_readiness.py` — `ProviderReadiness` + `provider_readiness()` (the one per‑provider readiness signal; wraps the three existing predicates). Every readiness badge and the play‑setup gate read this, not their own predicate. |
+| Change the play‑setup gate (what's the user's next onboarding step / where to redirect) | `app/routes/nav_context.py` — `resolve_play_setup_state()` returns the first unmet `PlaySetupStage` + the canonical `next_url`; `compute_nav_cta` wraps it for the nav CTA. Called by the nav CTA, `/play` (`web_games_catalog.py`), post‑login (`auth.py`), agent‑create (`agents_create.py`), and join (`web_join._join_setup_redirect`). The handle gate stays in `app/deps.py` (`require_user_with_handle`). |
+| Change a human page | Start in the split `app/routes/web_*.py` module for that page area (or `admin_web.py` for platform admin, `match_manage_web.py` / `match_bots_web.py` for a match's management pages, `connections_*.py` / `agents_*.py` panels) + `app/templates/`. |
+| Create / delete / cancel a match | `app/routes/matches_user.py` — the **one** create path for players and admins (auth + owner/admin policy + the 3‑match cap), delegating to `app/engine/match_creation.py` (create, incl. `state_config_for`) and `app/engine/match_deletion.py` (delete cascade + cancel transition). The **platform‑admin JSON API** (`admin_api.py`) delegates to the shared bodies in `app/routes/admin_match_actions.py`, which calls those same engine helpers. **The delete cascade must clear `MatchState` and `PlayerState`** — neither foreign key cascades, so a missed row fails the whole delete with an integrity error. |
+| Change who is a platform admin | `users.role` is the source of truth, kept additively in sync with `PLATFORM_ADMIN_EMAILS` (config floor) by `app/routes/auth.py` (`sync_google_user`) at login; the guard is `require_platform_admin` in `app/deps.py`; admin UI chrome is `_is_any_admin` in `app/routes/web_support.py`. **There is no second admin role** — the per‑game one was removed, so `users.role` is the whole answer. |
+| Change who may act on **one match** (owner vs platform admin) | `app/routes/match_authz.py` — the four dependencies and their check order. Read that module's docstring before reordering anything: visibility 404 must precede the role/ownership 403, or a 403 confirms an under‑construction game exists. |
+| Change what an export contains | `app/read_models/match_export.py` — `ExportViewer` decides both redactions: other players' `strategy_prompt` is `null` unless the caller is a platform admin or owns that seat, and a non‑admin sees **resolved turns only** (an opponent must not read a rival's in‑flight action before the turn resolves). The `viewer` argument is keyword‑only with **no default** on purpose. |
+| Manage users / promote‑demote admins in‑app | `app/routes/admin_web.py` — the `/admin/users` list, `/admin/users/{id}` detail, and the disable/enable + promote/demote endpoints (each writes an `AdminAuditLog` row in‑transaction and refuses config‑floor admins). The audit model is `app/models/admin_audit_log.py`. |
+| Change how disabling a user is enforced | `app/deps.py` — `require_user` (web → 303 `/disabled`) and `require_connection` (runner → JSON 403 `ACCOUNT_DISABLED`). The `disabled_at` column lives on `app/models/user.py`; the public notice is the `/disabled` route in `app/routes/web_account_notice.py`. |
+| Change the live viewer | `templates/fragments/` + `app/routes/sse.py` + `app/games/hoard_hurt_help/board_signals.py` (PD board signals). |
+| Change sideline coaching (the "Coach" note an owner sends their agent) | `app/routes/web_viewer.py` (`POST .../coach-note` + the `coach_panel.html` fragment, triggered by the **"Coach" button in the standings rail** since #465) writes `player.coach_note` / `coach_note_round`; `app/engine/agent_play_reads.py` (`build_turn_static_dict`) injects it as `static.coach_note` for the round it targets — the static-block builder the next-turn fan-out emits from; the MCP loop honors it via `_mcp_how_to_play_block`. Columns live on `app/models/player.py`. |
+| Alter the schema | new migration in `migrations/versions/` + the model in `app/models/`. |
+
+---
+
+## Notable shapes & tensions
+
+- **One `turn_token` per turn, stable across talk→act.** A turn keeps the same
+  `turn_token` for both phases; the `Turn.phase` column — not the token — is what
+  tells talk and act apart. `_begin_act_phase` resets only the phase + deadline,
+  **never** the token. Re‑minting it at the handoff (the old behavior) silently
+  dropped a slow player's talk: a message that landed just after the talk window
+  closed arrived with a now‑defunct token and was rejected as `STALE_TURN_TOKEN`,
+  worst on the first turn of a round when an agent deliberates longest. With one
+  stable token, a late talk is recognized as the talk window having closed —
+  `submit_talk` returns a graceful `talk_window_closed` (HTTP 202, **not** an
+  error) and the player can act with the token it already holds. Do **not** re‑mint
+  per phase. (`scheduler_turn_loop._begin_act_phase`,
+  `agent_play.submit_talk` + `_load_active_phase_turn(tolerate_phase_advance=...)`.)
+- **Human web routes are split by page area.** Keep `web.py` as the small
+  aggregator and put new human-page routes in the closest `web_*.py` module.
+- **Default Bot names are shared.** `app/engine/bot_presets.py` owns the
+  historical-leader pool and allocator used by Practice Arena, auto-match
+  seeding, and the preset‑Bot provisioning path, so name generation stays
+  consistent everywhere. ("Bot" is the built‑in scripted opponent, formerly
+  "Sim"; a *user's* AI competitor is an **agent**, never a bot.)
+- **Agents carry no AI; the seat carries the chosen AI; routing matches it; one
+  AI may hold several seats.** An agent is just a name + a strategy
+  (`Agent.provider` / `AgentVersion.model` are legacy NULL and not used). The user
+  picks **which connected AI plays it at join**, stored as `Player.chosen_provider`.
+  Turn routing then serves a seat only to a connection that **covers that seat's
+  chosen provider** (`turn_routing.can_connection_claim_turn`, fed
+  `player.chosen_provider`); a legacy `NULL` seat falls back to "any connection".
+  One AI may be the `chosen_provider` of **several** of a user's seats, in one
+  match or across matches (#637 removed the old "one AI = one seat" rule at all
+  four layers — picker state, submit‑side 409, duplicate‑provider rejection, and
+  the page's grey‑out). The client runs a play loop per `agent_id`, so those seats
+  move in parallel rather than queueing. **Nothing now limits seats per AI** —
+  `is_join_blocked` / `max_concurrent_games` are consulted only on the agent‑detail
+  page, never on the join path — so the timeout risk that rule loosely guarded is
+  real and unguarded; the mitigations are the parallel loops and a widened turn
+  window (`HHH_ACT_DEADLINE_SECONDS`). The other tension to watch: a write
+  (`agent_api.py` → `require_agent_player`) is gated only by same‑user + the
+  `agent_turn_token`, **not** a re‑check of provider, so the chosen‑AI guarantee
+  must be enforced where the turn is *served*, never assumed at submit time.
+- **One *user* can hold several seats in a match.** There is **no**
+  one‑seat‑per‑user constraint (migration `0002` dropped
+  the old `(match_id, user_id)` unique key). A user may take a **human seat**
+  (`kind=human` agent) **and** an **AI‑agent seat** in the same match — playing by
+  hand while fielding their own bot — and each seat counts toward `max_players`
+  (capacity is all‑or‑nothing within the one `join_submit` transaction). Seat
+  uniqueness is enforced **per seat**, not per user: `(match_id, seat_name)` and
+  `(agent_id, match_id)`; the human agent is a different `agent_id` than any AI
+  agent, so both seats coexist cleanly. This is allowed in **every** match type,
+  **including ranked**, and human seats count on the leaderboard (self‑play is
+  accepted as fair).
+- **PD's columns persist, but storage and the wire are now partly generalized
+  (the second game shipped).** PD still records moves in the PD‑shaped `turn_submissions`
+  columns (`action`/`target`/`points_delta`). But a **generic per‑title state
+  store** now exists — `match_state` / `player_state` (`app/models/game_state.py`,
+  migration `0033`) — and the submit wire is no longer PD‑only: `SubmitRequest`
+  carries a free‑form **`move: dict`** that a non‑PD game uses over HTTP (Liar's
+  Dice, the second game, does exactly this). The tension that remains: the legacy
+  `turn_submissions` column set is still PD‑shaped, so a new game maps its move
+  onto those columns *and* its own state blob; fully retiring the PD columns is
+  still future work (the design doc's **Game Framework** section).
+  See `../games/hoard-hurt-help/HOARD_HURT_HELP_ARCHITECTURE.md` for the game‑side view.
+- **"Fail loud" contract defaults keep the platform game‑agnostic.** `action_names()`,
+  `default_move()`, `build_replay_view()`, and `viewer_fragment()` all raise
+  `NotImplementedError` in `BaseGameModule`. Adding a new game and forgetting any
+  of them blows up at runtime on the first use, not silently with PD's data.
+  The tension to watch: don't add a new platform path that calls any of these
+  without a corresponding `BaseGameModule` default (or a deliberate loud raise).
+- **Two‑process‑free by design.** The scheduler runs in the web process as asyncio
+  tasks, not a separate worker. Simple to run; the trade‑off is that turn
+  progress is tied to the process being up. Three layers compensate:
+  resume‑on‑startup (deploys/restarts), the poller watchdog (restarts dead
+  tasks), and the overdue‑turn sweeper (`app/engine/overdue_sweeper.py` —
+  force‑advances a turn still unresolved >60s past its deadline, the case
+  restarts can't fix: a deterministic crash or a wedged‑alive task).
+- **Thin adapters over a shared play core (feat `mcp-oauth`).** Play logic lives in
+  one place — the shared play‑service layer (`app/engine/agent_play.py`). The agent
+  HTTP API and the MCP tools are two thin adapters over it that differ only in
+  **auth** (connector/direct uses `X‑Connection‑Key` via `require_connection`;
+  `/mcp` uses Google OAuth → a per‑user "MCP connection" `Connection`). This replaced the
+  old design where the MCP server made network calls back to our own HTTP API and
+  needed a forwarded key to do so — the loopback and that internal credential are
+  gone. The tension to watch: keep new play behavior in the service layer, not in
+  one adapter, or the two paths drift.
+- **Stateless MCP keys per‑client identity on the DCR `client_id`, never `token.client_id` (feat `stateless-mcp-client-identity`).** The `/mcp` sub‑app runs stateless‑HTTP so redeploys don't orphan clients — but that means no per‑session memory, and `fastmcp`'s `AccessToken.client_id` is the Google **subject** (same for all of a user's clients). Telling one user's clients apart **must** use the DCR `client_id` read from the raw bearer JWT (`_dcr_client_id_from_request`), persisted to `connections.oauth_client_id`. The tension to watch: keying on `token.client_id` (or the Google `sub`) silently collapses a user's providers into one connection — exactly the #454 regression #456 fixed.
+- **MCP per‑turn payload is stripped in the MCP wrapper, not the service layer (feat `mcp-prompt-tools-cleanup`).** The shared `_build_turn_payload` builder and the connector HTTP route (`/agent/next-turn`) must always emit the full payload, `static.base_prompt` included — the connector re‑primes from it on **every** turn, not just the first, because a model failure drops its chained session (`sess.token = None`) and the next turn rebuilds the framing from scratch. It reads the strategy from `static.your_strategy`; there is no top‑level `strategy` key to keep. The lean MCP payload is produced by deleting those static keys inside the MCP `get_next_turn` and `get_next_turns` wrappers — `_lean_payload_for_mcp` in `mcp_server/mcp_tools.py`, which `mcp_server/server.py` re‑exports — after calling the shared service. The tension to watch: never add a `channel`/`audience` param to the shared service to drive this — that is an adapter concern and would couple the service to MCP specifics.
+- **The per-poll history is a rolling window, not the whole transcript (feat `lean-poll-history`).** `_build_turn_payload` (the next-turn fan-out) sends only the last `RECENT_HISTORY_TURNS` resolved turns. The turn is re-served every loop, and re-sending the full transcript overflows an MCP client's tool-output buffer and trips its loop detection — which silently stops play. Unlike the static-prompt stripping above (MCP-only), this is windowed in the **shared** read (`agent_play_reads._load_public_action_records`), so the connector route and the MCP path get the *same* small history. The whole game stays reachable on demand (`get_game_state` / `opponent_history` / `get_chat`). The tension to watch: a session that opens MID-game needs more than the window to catch up — the connector pulls full state once when it primes a fresh chained session (`agentludum_connector._fetch_full_history`), and a direct MCP client calls `get_game_state` once. Don't shrink the window below what the connector's per-turn delta needs (it sends "history newer than my last move", so the window must survive a single skipped poll).
+- **Onboarding is strategy‑first (feat `strategy-first-onboarding`).** Designing
+  an agent is the hook; connecting an AI client is the chore — so the order is
+  *design first, connect after*. An agent can be created with **no connection at
+  all** (`agents_create` no longer gates on `enabled_provider_values`); it is
+  saved "ready — needs connecting", where readiness is **derived** from connection
+  coverage (`connection_health.provider_is_covered` / `enabled_provider_values`),
+  not a stored column. The Join hub (`web_join._join_setup_redirect`) routes a
+  no‑agent user to **`/me/agents/new`** (design first), not `/me/connections`.
+  After create, the flow routes to connect *that agent's* provider, passing a
+  `?provider=` hint that preselects the matching client tab on the connect screen
+  (one client = one provider). The create page itself was slimmed (#466): the
+  strategy box is seeded from the game's **strategy presets**, plus a "start from
+  an existing agent" **reuse picker** (`_load_existing_strategies` in
+  `agents_create.py`) that copies a strategy the user already wrote. The tension to watch: a "needs connecting" agent
+  must stay excluded from live‑connection capacity math (`active_matches_for_provider`
+  / `live_provider_capacity`) so it can never bypass or inflate seat limits.
+
+---
+
 ## Subsystems and their large modules
 
 Line counts are rough size signals, not a quality measure.
@@ -109,7 +258,7 @@ Every external entry point. Split by audience.
 | `web_match_loaders.py` | 234 | The game‑slug‑redirect + match‑loading dependency machinery (split out of `web_support.py`): `GameSlugRedirect`, `game_slug_redirect_response`, `raise_for_game_slug_mismatch`, the `_make_game_scoped_match_loader` builder + the `GameScopedMatch*` dependency singletons, the shared match‑by‑id‑or‑404 loader (`load_match_or_404`), and `_match_url`. |
 | `agent_api.py` | 178 | The agent‑facing HTTP API — a **thin adapter** over the shared play‑service layer (`app/engine/agent_play*`): poll for your turn, submit talk/action, read history, chat, opponent stats, standings. Auth by per‑**connection** key (`X-Connection-Key`); each call resolves the playable agent‑player by `(agent_id, match_id)` among the **same user's** agents (`require_agent_player` in `deps.py`) — it does **not** re‑check provider on a write; the `agent_turn_token` minted by the served turn (`turn_token:agent_id:match_id`) is what binds a submit to the right seat. Routing‑by‑chosen‑AI lives upstream, at next‑turn time. |
 | `connections_*.py` / `agents_*.py` | ~2,000+ | The split self‑serve panel (replacing `bots_web.py`): `connections_setup` (now a thin aggregator that splices the siblings + re‑exports their public symbols) drives **`/me/connections`** via `connections_pages` (the pages + poll fragments, incl. the connect screen), `connections_queries` (shared read queries), `connections_machine_setup` (pending‑setup + key minting: `POST /name`, `GET /setup/{id}`), `connections_connect_guide` (the connect‑copy seam), and `connections_credentials`/`connections_lifecycle` (create a **machine** — nickname only, no provider choice — reissue/revoke its key, pause/resume, toggle per‑provider via `connection_providers`, delete → stops that machine's runner but leaves agents ACTIVE; only agents now covered by no live connection show a "no live connection" warning); `agents_setup` (now a thin aggregator + re‑exports) drives **`/me/agents`** + **`/me/agents/new`** via `agents_list`, `agents_create`, `agents_detail`, the shared `agents_health_presenter`, the shared read queries in `agents_queries` (the canonical `load_owned_agent` — parallel to `connections_queries`; it **always** excludes archived agents, so a soft‑deleted agent can't be loaded by a read page or mutated by a write action), and `agents_lifecycle`/`agents_status`. An agent is just a **name + a strategy** — there is **no provider picker** anywhere (the AI is chosen per game on the seat); `agents_create` is name + strategy only (seeded from the game's strategy presets, plus a "start from an existing agent" reuse picker), and `Agent.provider` is left NULL. The **one** optional AI knob is the **advanced per‑agent model picker** on the agent‑settings page (`agents_detail` / `agents_lifecycle`): an optional `Agent.preferred_model` chosen from `PROVIDER_MODELS` (default "provider default"), labeled "used by machine connections only; ignored by MCP", shown alongside the effective model that will run and the **per‑model verification status** (checking / verified / failed‑with‑reason / timeout, or "waiting for your connector") read from `model_verifications`. **Strategy‑first**: an agent is creatable with no connection and saved "ready — needs connecting" (see Notable shapes); per‑agent pause/delete, onboarding+health fragments. Preset **Bots** are auto‑provisioned as connectionless agents. `connections_pages` (with copy from `connections_connect_guide`) renders the redesigned **"Play with your own AI"** connect screen: a state‑aware one‑box flow (NEW → add the MCP server + Google sign‑in; RETURNING → the play‑prompt; LIVE → Join a game), with a `GET /me/connections/live-status` HTMX poll fragment that self‑advances "Listening…→ live" the moment a connection comes up. Connect commands are OAuth / header‑less and mirror `docs/setup-mcp.md` (MCP connection — direct interactive MCP play); clients: Claude Code, Codex, Gemini CLI, Claude Desktop (Cursor dropped). |
-| `matches_user.py` | 453 | **The one match‑create path**, for players and admins alike (`GET/POST /games/{game}/matches/new`). Any signed‑in user picks name, start, min/max players, per‑turn deadline, total rounds and turns per round; an omitted field falls back to that game's own default. `_form_defaults` reads the game module but **clamps rounds/turns into this route's 3–20 band**, so the form it renders can always be submitted (Liar's Dice defaults to 64×256). `mutual_help_mode` is rendered and honoured **only for a platform admin** — a player's submitted value is ignored, not rejected, and their match always gets `DEFAULT_MUTUAL_HELP_MODE` (`app/games/hoard_hurt_help/rules.py`, currently `flat_6`). That constant is the one place the rule for new matches lives; the admin picker pre-selects it too, so no create path can quietly hand out a different rule. The 3‑active‑match cap (`user_active_match_limit`) applies to players and not to admins, and lives **only here**, which is why the duplicate admin create routes were deleted rather than re‑gated. Also owner/admin `POST /matches/{id}/delete` and admin‑only `/cancel`. Guarded by `require_user`; authorizes per match via `Match.created_by_user_id` (owner) or `user.role == ADMIN`. Delegates to `app/engine/match_creation.py` (incl. `state_config_for`) + `match_deletion.py`. |
+| `matches_user.py` | 453 | **The one match‑create path**, for players and admins alike (`GET/POST /games/{game}/matches/new`). Any signed‑in user picks name, start, min/max players, per‑turn deadline, total rounds and turns per round; an omitted field falls back to that game's own default. `_form_defaults` reads the game module but **clamps rounds/turns into this route's 3–20 band**, so the form it renders can always be submitted (Liar's Dice defaults to 64×256). `mutual_help_mode` is rendered and honoured **only for a platform admin** — a player's submitted value is ignored, not rejected, and their match always gets `DEFAULT_MUTUAL_HELP_MODE` (`app/games/hoard_hurt_help/rules.py`). That constant is the one place the rule for new matches lives — read the value there, not here; the admin picker pre-selects it too, so no create path can quietly hand out a different rule. The 3‑active‑match cap (`user_active_match_limit`) applies to players and not to admins, and lives **only here**, which is why the duplicate admin create routes were deleted rather than re‑gated. Also owner/admin `POST /matches/{id}/delete` and admin‑only `/cancel`. Guarded by `require_user`; authorizes per match via `Match.created_by_user_id` (owner) or `user.role == ADMIN`. Delegates to `app/engine/match_creation.py` (incl. `state_config_for`) + `match_deletion.py`. |
 | `admin_web.py` | 386 | **Platform admin** HTML: dashboard, handles, incidents, match delete, **user management** (`/admin/users` paginated+searchable list, `/admin/users/{id}` detail, disable/enable + promote/demote endpoints). Guarded by `require_platform_admin` (now role‑based — reads `User.role`). State‑changing user actions lock the target row, refuse to touch config‑floor admins (`PLATFORM_ADMIN_EMAILS`, case‑insensitive), and write an `AdminAuditLog` row in the same transaction. The existing handles view shows disabled/admin badges and its handle‑reset routes through the same audit path. Match delete delegates to the shared `match_deletion.py` cascade. |
 | `match_authz.py` | 132 | **Who may act on one match.** The four authorization dependencies the match pages and exports use: `PlatformAdminForGame`, `ExportableMatch` (any signed‑in user), `OwnedOrAdminMatch` (the creator, or any platform admin), `AdminMatch`. Each returns the loaded `Match`, so route bodies don't load it twice. **The check order is a security contract**, in this order: `require_user` (401 anonymous, disabled bounced) → `require_can_view_game` (**404** on an under‑construction game) → load the match (404) → role/ownership (403). `require_platform_admin` deliberately never appears as a *signature* sub‑dependency here — FastAPI resolves those before the body, so its 403 would fire ahead of the 404 and confirm a hidden game exists. A match with `created_by_user_id` NULL has **no** owner: platform admin only. |
 | `match_manage_web.py` | 248 | Per‑game match management HTML (was `game_admin_web.py`). Prefix `/games/{game}/admin`. The dashboard and the strategy‑prompts page are **platform admin**; the match‑detail page is **owner or platform admin**, with other players' strategy text blanked for a non‑admin (bot presets stay visible — they are not private, and the owner who seated them must see what they picked); start and cancel are **platform admin** (this start path calls `start_game` directly, skipping the seat and player‑floor checks the player start route runs through `viewer_start_eligibility`). Creating a match is **not** here — its form merged into `matches_user.py`. |
@@ -613,152 +762,3 @@ of any live turn** so it covers the pre‑match state too.
 
 Each broadcast is fanned out by `app/broadcast.py` to the SSE endpoints, which
 push HTML fragments into the live viewer — no client‑side state.
-
----
-
-## Where to make a change (quick index)
-
-| You want to… | Start here |
-|---|---|
-| Add a new game | `app/games/<name>/` implementing `app/games/base.py`; register in `app/games/__init__.py`. See `docs/writing-a-game-module.md`. |
-| Change PD rules / scoring | `app/games/hoard_hurt_help/scoring.py` (HOARD/HELP/HURT payoff math) + `app/games/hoard_hurt_help/rules.py` (PD constants) + `app/games/hoard_hurt_help/game.py` (move validation, submission). |
-| Change which mutual‑help rule a **new** match gets | `DEFAULT_MUTUAL_HELP_MODE` in `app/games/hoard_hurt_help/rules.py` — every create path (`match_creation.py`, `schemas/admin.py`, `matches_user.py`, the admin form's pre‑selected option) reads it, so that constant is the whole switch. Two things it does **not** move: the `matches.mutual_help_mode` column default (a literal in `app/models/match.py`, because the model layer cannot import a game module — pinned by `test_every_create_default_is_the_platform_default`, and needs a migration to change in the DB), and any **already‑created** match. The platform's own two matches — Practice Arena and the 15‑minute auto‑match — are brought onto the new rule **in place** by `sync_managed_match_rules` (`app/engine/arena.py`), which the poller runs **first**, before `fill_and_start_auto_matches` starts anything (`app/engine/scheduler.py`; ordering pinned by `test_poll_loop_syncs_managed_rules_before_starting_a_due_match`). It only touches SCHEDULED/REGISTERING matches of those two kinds — a started match keeps the rule it was played under, and a player's own match is never revised. |
-| Change PD replay / viewer (robot‑circle, feed, headlines) | `app/games/hoard_hurt_help/viewer.py` (`build_replay_view`) via `app/routes/web_viewer.py`. |
-| Add/adjust a Bot personality | `app/engine/bots/strategies.py`, `bot_presets.py`, `bots/roster.py`. |
-| Change Practice Arena / Auto-Match seeding | `app/engine/arena.py` + `app/engine/bot_presets.py` + `app/engine/bots/roster.py` + `app/routes/connections_*.py` / `agents_*.py`. |
-| Make a platform-wide game-rule change reach the **already-open** Arena / Auto-Match | `sync_managed_match_rules` in `app/engine/arena.py` — the poller's **first** step, editing unstarted managed matches in place (no cancel, so nobody loses a seat). Neither match gets there on its own: the Arena sits open for a year and nothing re-creates it, and the open auto-match would still be played on the old rule before its window rolls. It handles the mutual-help rule today; extend it rather than adding a second sweep. |
-| Change an agent's strategy (its only editable content — no model) | `app/routes/agents_lifecycle.py` — an edit on a frozen (played) version **forks a new `AgentVersion`**; an unplayed draft edits in place. |
-| Change the create‑agent form (name + strategy, no model/provider) | `app/routes/agents_create.py` + `app/templates/agents/new.html` — strategy seeded from the game's `strategy_presets()` plus the "start from an existing agent" reuse picker (`_load_existing_strategies`). |
-| Touch the turn lifecycle | `app/engine/scheduler_turn_loop.py` (the loop itself: `_run_game`, `_open_turn`, wait helpers) + `app/engine/scheduler.py` (registry + poller). |
-| Match frozen / change how stuck turns self‑heal | `app/engine/overdue_sweeper.py` (`sweep_overdue_turns`, `OVERDUE_TURN_GRACE_SECONDS`) — the poller subsystem that force‑advances a turn unresolved >60s past `deadline_at`; wired in `scheduler.py` `_poll_due_loop`, after the watchdog. Triage: the `debugging-playbook` skill + `docs/operations/debugging-history.md`. |
-| Change what an agent sees/submits (both paths) | The shared play‑service layer — `app/engine/agent_play.py` (verbs) + `agent_play_next_turn.py` (next‑turn fan‑out / `_build_turn_payload`) + `agent_play_reads.py` (payload projections) + `agent_play_guards.py` (rate‑limit/binding) — that both the HTTP routes and MCP tools call, + `app/routes/agent_api.py` + `app/routes/agent_next_turn.py` + `app/schemas/agent.py`. |
-| Change what the MCP path sends per turn (lean payload) | Two leanness seams. (a) The **history window** is in the shared read — `RECENT_HISTORY_TURNS` + `_load_public_action_records(recent_turns=...)` in `app/engine/agent_play_reads.py`, applied by `_build_turn_payload` (the next-turn fan-out is the sole turn-payload path). (b) The **static prompt text** (`static.base_prompt` + `static.your_strategy`) is stripped MCP-only in the wrappers in `mcp_server/mcp_tools.py` (`get_next_turn`/`get_next_turns`; `mcp_server/server.py` only re-exports them) — do **not** strip those in the shared builder (the connector needs them to prime its session). |
-| Change the MCP static "how to play" text | `mcp_server/server.py` `get_instructions` tool (`_format_instruction_sections`) — four sections: rules (the game module's `semantic_rules_text`), identity/targets, strategy (`AgentVersion.strategy_text`), and the loop protocol (`_mcp_how_to_play_block` — the `## How to play` block, including the `coach_note` line). |
-| Change the MCP kickoff paste prompt | `app/routes/connections_connect_guide.py` `_PLAY_PROMPT`. |
-| Connect an AI client to `/mcp` via OAuth | `mcp_server/server.py` (fastmcp v3 `GoogleProvider`/`OAuthProxy`, OAuth‑only gate, PRM/AS‑metadata, **stateless‑HTTP**) + the OAuth‑identity→per‑(user, provider) "MCP connection" `Connection` bridge in `app/engine/mcp_connection.py` (`mcp_connection_for`); the per‑client identity helper `_dcr_client_id_from_request` + provider‑from‑`clientInfo` helpers in `mcp_server/server.py`; OAuth config in `app/config.py` + the startup check in `app/main.py`. |
-| Change a play action shared by HTTP **and** MCP | Edit the shared play‑service layer (`app/engine/agent_play.py`) — one implementation; the HTTP route and the MCP tool are thin adapters over it (auth differs, logic is shared). For MCP‑only payload shape changes, strip in the MCP wrapper (`mcp_server/mcp_tools.py`), not the service layer. |
-| Let users pick which AI plays an agent / the join flow | `app/routes/web_join.py` — `_build_ai_options` (the per‑AI picker + its three states `ready`/`idle`/`not_connected`, plus a `busy` **sort key** that is never rendered), `_seat_user_agent` (records `Player.chosen_provider`), `join_form` / `join_submit`; the held‑seat connect screens (`seat_connect` / `seat_connect_status`) are in `app/routes/web_seat_connect.py`. (Both are mounted via the `web_player.py` aggregator.) There is **no** per‑provider seat limit any more (#637) — `providers_busy_for_user` in `app/engine/join_gate_capacity.py` only orders the picker. Template: `app/templates/join.html`; ticking a row picks an AI no other ticked row holds, never refuses, and greys nothing out. |
-| Change turn routing (who serves a turn) | `app/engine/turn_routing.py` (`can_connection_claim_turn`: "connection covers the seat's `chosen_provider`" + sticky‑pin claim) wired into `app/engine/agent_play_next_turn.py` (which passes `player.chosen_provider`) and `app/routes/agent_next_turn.py`; ordering stays in `app/engine/next_turn.py`. `chosen_provider` / `played_provider` / pin columns live on `app/models/player.py`. |
-| Choose / resolve a per‑agent model | The optional `Agent.preferred_model` (`app/models/agent.py`) — picker + effective‑model + verification status on the agent‑settings page (`app/routes/agents_detail.py` / `agents_lifecycle.py` + `app/templates/agents/`); resolution is `resolve_seat_model` in `app/engine/model_provider_match.py`, called from `app/engine/agent_play_next_turn._build_turn_payload`. The join/seat page stays provider‑only (do **not** add a model picker to `web_join.py`). |
-| Change model verification (can this login run this model?) | The `model_verifications` store (`app/models/model_verification.py`, keyed connection+provider+model); written by the connector's verification side‑task (`scripts/agentludum_connector.py` — the ~60s worklist pull + cheap test call) via the up‑channel; read by the agent‑settings status and the join guard (`app/engine/join_gate_capacity.py` gains the union‑of‑live‑connections read — warn, don't block). |
-| Change the verification report endpoints (down worklist / up results + reason) | `app/routes/agent_model_verification.py` — the two dedicated connector endpoints (worklist down, results + play‑time failure reason up), **separate from the turn poll**; the connector side is the verification side‑task in `scripts/agentludum_connector.py`. |
-| Change per‑connection provider toggles / detection | `app/models/connection_provider.py` + the toggle endpoint in `app/routes/connections_lifecycle.py`; detection flows in via `report_pid` in `app/routes/agent_next_turn.py`. |
-| Change connection health / liveness | `app/engine/connection_health_badge.py` (the `ConnectionHealth` enum + `compute_connection_health`; reads `last_seen_at`/`runner_pid` + `players.served_by_connection_id`, not agent attachment). Re‑exported via `connection_health.py`. |
-| Change "is this provider set up / connected / playing" | `app/engine/provider_readiness.py` — `ProviderReadiness` + `provider_readiness()` (the one per‑provider readiness signal; wraps the three existing predicates). Every readiness badge and the play‑setup gate read this, not their own predicate. |
-| Change the play‑setup gate (what's the user's next onboarding step / where to redirect) | `app/routes/nav_context.py` — `resolve_play_setup_state()` returns the first unmet `PlaySetupStage` + the canonical `next_url`; `compute_nav_cta` wraps it for the nav CTA. Called by the nav CTA, `/play` (`web_games_catalog.py`), post‑login (`auth.py`), agent‑create (`agents_create.py`), and join (`web_join._join_setup_redirect`). The handle gate stays in `app/deps.py` (`require_user_with_handle`). |
-| Change a human page | Start in the split `app/routes/web_*.py` module for that page area (or `admin_web.py` for platform admin, `match_manage_web.py` / `match_bots_web.py` for a match's management pages, `connections_*.py` / `agents_*.py` panels) + `app/templates/`. |
-| Create / delete / cancel a match | `app/routes/matches_user.py` — the **one** create path for players and admins (auth + owner/admin policy + the 3‑match cap), delegating to `app/engine/match_creation.py` (create, incl. `state_config_for`) and `app/engine/match_deletion.py` (delete cascade + cancel transition). The **platform‑admin JSON API** (`admin_api.py`) delegates to the shared bodies in `app/routes/admin_match_actions.py`, which calls those same engine helpers. **The delete cascade must clear `MatchState` and `PlayerState`** — neither foreign key cascades, so a missed row fails the whole delete with an integrity error. |
-| Change who is a platform admin | `users.role` is the source of truth, kept additively in sync with `PLATFORM_ADMIN_EMAILS` (config floor) by `app/routes/auth.py` (`sync_google_user`) at login; the guard is `require_platform_admin` in `app/deps.py`; admin UI chrome is `_is_any_admin` in `app/routes/web_support.py`. **There is no second admin role** — the per‑game one was removed, so `users.role` is the whole answer. |
-| Change who may act on **one match** (owner vs platform admin) | `app/routes/match_authz.py` — the four dependencies and their check order. Read that module's docstring before reordering anything: visibility 404 must precede the role/ownership 403, or a 403 confirms an under‑construction game exists. |
-| Change what an export contains | `app/read_models/match_export.py` — `ExportViewer` decides both redactions: other players' `strategy_prompt` is `null` unless the caller is a platform admin or owns that seat, and a non‑admin sees **resolved turns only** (an opponent must not read a rival's in‑flight action before the turn resolves). The `viewer` argument is keyword‑only with **no default** on purpose. |
-| Manage users / promote‑demote admins in‑app | `app/routes/admin_web.py` — the `/admin/users` list, `/admin/users/{id}` detail, and the disable/enable + promote/demote endpoints (each writes an `AdminAuditLog` row in‑transaction and refuses config‑floor admins). The audit model is `app/models/admin_audit_log.py`. |
-| Change how disabling a user is enforced | `app/deps.py` — `require_user` (web → 303 `/disabled`) and `require_connection` (runner → JSON 403 `ACCOUNT_DISABLED`). The `disabled_at` column lives on `app/models/user.py`; the public notice is the `/disabled` route in `app/routes/web_account_notice.py`. |
-| Change the live viewer | `templates/fragments/` + `app/routes/sse.py` + `app/games/hoard_hurt_help/board_signals.py` (PD board signals). |
-| Change sideline coaching (the "Coach" note an owner sends their agent) | `app/routes/web_viewer.py` (`POST .../coach-note` + the `coach_panel.html` fragment, triggered by the **"Coach" button in the standings rail** since #465) writes `player.coach_note` / `coach_note_round`; `app/engine/agent_play_reads.py` (`build_turn_static_dict`) injects it as `static.coach_note` for the round it targets — the static-block builder the next-turn fan-out emits from; the MCP loop honors it via `_mcp_how_to_play_block`. Columns live on `app/models/player.py`. |
-| Alter the schema | new migration in `migrations/versions/` + the model in `app/models/`. |
-
----
-
-## Notable shapes & tensions
-
-- **One `turn_token` per turn, stable across talk→act.** A turn keeps the same
-  `turn_token` for both phases; the `Turn.phase` column — not the token — is what
-  tells talk and act apart. `_begin_act_phase` resets only the phase + deadline,
-  **never** the token. Re‑minting it at the handoff (the old behavior) silently
-  dropped a slow player's talk: a message that landed just after the talk window
-  closed arrived with a now‑defunct token and was rejected as `STALE_TURN_TOKEN`,
-  worst on the first turn of a round when an agent deliberates longest. With one
-  stable token, a late talk is recognized as the talk window having closed —
-  `submit_talk` returns a graceful `talk_window_closed` (HTTP 202, **not** an
-  error) and the player can act with the token it already holds. Do **not** re‑mint
-  per phase. (`scheduler_turn_loop._begin_act_phase`,
-  `agent_play.submit_talk` + `_load_active_phase_turn(tolerate_phase_advance=...)`.)
-- **Human web routes are split by page area.** Keep `web.py` as the small
-  aggregator and put new human-page routes in the closest `web_*.py` module.
-- **Default Bot names are shared.** `app/engine/bot_presets.py` owns the
-  historical-leader pool and allocator used by Practice Arena, auto-match
-  seeding, and the preset‑Bot provisioning path, so name generation stays
-  consistent everywhere. ("Bot" is the built‑in scripted opponent, formerly
-  "Sim"; a *user's* AI competitor is an **agent**, never a bot.)
-- **Agents carry no AI; the seat carries the chosen AI; routing matches it; one
-  AI may hold several seats.** An agent is just a name + a strategy
-  (`Agent.provider` / `AgentVersion.model` are legacy NULL and not used). The user
-  picks **which connected AI plays it at join**, stored as `Player.chosen_provider`.
-  Turn routing then serves a seat only to a connection that **covers that seat's
-  chosen provider** (`turn_routing.can_connection_claim_turn`, fed
-  `player.chosen_provider`); a legacy `NULL` seat falls back to "any connection".
-  One AI may be the `chosen_provider` of **several** of a user's seats, in one
-  match or across matches (#637 removed the old "one AI = one seat" rule at all
-  four layers — picker state, submit‑side 409, duplicate‑provider rejection, and
-  the page's grey‑out). The client runs a play loop per `agent_id`, so those seats
-  move in parallel rather than queueing. **Nothing now limits seats per AI** —
-  `is_join_blocked` / `max_concurrent_games` are consulted only on the agent‑detail
-  page, never on the join path — so the timeout risk that rule loosely guarded is
-  real and unguarded; the mitigations are the parallel loops and a widened turn
-  window (`HHH_ACT_DEADLINE_SECONDS`). The other tension to watch: a write
-  (`agent_api.py` → `require_agent_player`) is gated only by same‑user + the
-  `agent_turn_token`, **not** a re‑check of provider, so the chosen‑AI guarantee
-  must be enforced where the turn is *served*, never assumed at submit time.
-- **One *user* can hold several seats in a match.** There is **no**
-  one‑seat‑per‑user constraint (migration `0002` dropped
-  the old `(match_id, user_id)` unique key). A user may take a **human seat**
-  (`kind=human` agent) **and** an **AI‑agent seat** in the same match — playing by
-  hand while fielding their own bot — and each seat counts toward `max_players`
-  (capacity is all‑or‑nothing within the one `join_submit` transaction). Seat
-  uniqueness is enforced **per seat**, not per user: `(match_id, seat_name)` and
-  `(agent_id, match_id)`; the human agent is a different `agent_id` than any AI
-  agent, so both seats coexist cleanly. This is allowed in **every** match type,
-  **including ranked**, and human seats count on the leaderboard (self‑play is
-  accepted as fair).
-- **PD's columns persist, but storage and the wire are now partly generalized
-  (the second game shipped).** PD still records moves in the PD‑shaped `turn_submissions`
-  columns (`action`/`target`/`points_delta`). But a **generic per‑title state
-  store** now exists — `match_state` / `player_state` (`app/models/game_state.py`,
-  migration `0033`) — and the submit wire is no longer PD‑only: `SubmitRequest`
-  carries a free‑form **`move: dict`** that a non‑PD game uses over HTTP (Liar's
-  Dice, the second game, does exactly this). The tension that remains: the legacy
-  `turn_submissions` column set is still PD‑shaped, so a new game maps its move
-  onto those columns *and* its own state blob; fully retiring the PD columns is
-  still future work (the design doc's **Game Framework** section).
-  See `../games/hoard-hurt-help/HOARD_HURT_HELP_ARCHITECTURE.md` for the game‑side view.
-- **"Fail loud" contract defaults keep the platform game‑agnostic.** `action_names()`,
-  `default_move()`, `build_replay_view()`, and `viewer_fragment()` all raise
-  `NotImplementedError` in `BaseGameModule`. Adding a new game and forgetting any
-  of them blows up at runtime on the first use, not silently with PD's data.
-  The tension to watch: don't add a new platform path that calls any of these
-  without a corresponding `BaseGameModule` default (or a deliberate loud raise).
-- **Two‑process‑free by design.** The scheduler runs in the web process as asyncio
-  tasks, not a separate worker. Simple to run; the trade‑off is that turn
-  progress is tied to the process being up. Three layers compensate:
-  resume‑on‑startup (deploys/restarts), the poller watchdog (restarts dead
-  tasks), and the overdue‑turn sweeper (`app/engine/overdue_sweeper.py` —
-  force‑advances a turn still unresolved >60s past its deadline, the case
-  restarts can't fix: a deterministic crash or a wedged‑alive task).
-- **Thin adapters over a shared play core (feat `mcp-oauth`).** Play logic lives in
-  one place — the shared play‑service layer (`app/engine/agent_play.py`). The agent
-  HTTP API and the MCP tools are two thin adapters over it that differ only in
-  **auth** (connector/direct uses `X‑Connection‑Key` via `require_connection`;
-  `/mcp` uses Google OAuth → a per‑user "MCP connection" `Connection`). This replaced the
-  old design where the MCP server made network calls back to our own HTTP API and
-  needed a forwarded key to do so — the loopback and that internal credential are
-  gone. The tension to watch: keep new play behavior in the service layer, not in
-  one adapter, or the two paths drift.
-- **Stateless MCP keys per‑client identity on the DCR `client_id`, never `token.client_id` (feat `stateless-mcp-client-identity`).** The `/mcp` sub‑app runs stateless‑HTTP so redeploys don't orphan clients — but that means no per‑session memory, and `fastmcp`'s `AccessToken.client_id` is the Google **subject** (same for all of a user's clients). Telling one user's clients apart **must** use the DCR `client_id` read from the raw bearer JWT (`_dcr_client_id_from_request`), persisted to `connections.oauth_client_id`. The tension to watch: keying on `token.client_id` (or the Google `sub`) silently collapses a user's providers into one connection — exactly the #454 regression #456 fixed.
-- **MCP per‑turn payload is stripped in the MCP wrapper, not the service layer (feat `mcp-prompt-tools-cleanup`).** The shared `_build_turn_payload` builder and the connector HTTP route (`/agent/next-turn`) must always emit the full payload, `static.base_prompt` included — the connector re‑primes from it on **every** turn, not just the first, because a model failure drops its chained session (`sess.token = None`) and the next turn rebuilds the framing from scratch. It reads the strategy from `static.your_strategy`; there is no top‑level `strategy` key to keep. The lean MCP payload is produced by deleting those static keys inside the MCP `get_next_turn` and `get_next_turns` wrappers — `_lean_payload_for_mcp` in `mcp_server/mcp_tools.py`, which `mcp_server/server.py` re‑exports — after calling the shared service. The tension to watch: never add a `channel`/`audience` param to the shared service to drive this — that is an adapter concern and would couple the service to MCP specifics.
-- **The per-poll history is a rolling window, not the whole transcript (feat `lean-poll-history`).** `_build_turn_payload` (the next-turn fan-out) sends only the last `RECENT_HISTORY_TURNS` resolved turns. The turn is re-served every loop, and re-sending the full transcript overflows an MCP client's tool-output buffer and trips its loop detection — which silently stops play. Unlike the static-prompt stripping above (MCP-only), this is windowed in the **shared** read (`agent_play_reads._load_public_action_records`), so the connector route and the MCP path get the *same* small history. The whole game stays reachable on demand (`get_game_state` / `opponent_history` / `get_chat`). The tension to watch: a session that opens MID-game needs more than the window to catch up — the connector pulls full state once when it primes a fresh chained session (`agentludum_connector._fetch_full_history`), and a direct MCP client calls `get_game_state` once. Don't shrink the window below what the connector's per-turn delta needs (it sends "history newer than my last move", so the window must survive a single skipped poll).
-- **Onboarding is strategy‑first (feat `strategy-first-onboarding`).** Designing
-  an agent is the hook; connecting an AI client is the chore — so the order is
-  *design first, connect after*. An agent can be created with **no connection at
-  all** (`agents_create` no longer gates on `enabled_provider_values`); it is
-  saved "ready — needs connecting", where readiness is **derived** from connection
-  coverage (`connection_health.provider_is_covered` / `enabled_provider_values`),
-  not a stored column. The Join hub (`web_join._join_setup_redirect`) routes a
-  no‑agent user to **`/me/agents/new`** (design first), not `/me/connections`.
-  After create, the flow routes to connect *that agent's* provider, passing a
-  `?provider=` hint that preselects the matching client tab on the connect screen
-  (one client = one provider). The create page itself was slimmed (#466): the
-  strategy box is seeded from the game's **strategy presets**, plus a "start from
-  an existing agent" **reuse picker** (`_load_existing_strategies` in
-  `agents_create.py`) that copies a strategy the user already wrote. The tension to watch: a "needs connecting" agent
-  must stay excluded from live‑connection capacity math (`active_matches_for_provider`
-  / `live_provider_capacity`) so it can never bypass or inflate seat limits.
