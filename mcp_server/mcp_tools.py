@@ -110,9 +110,8 @@ def _mcp_how_to_play_block() -> str:
         'server serves the "act" phase when it opens.\n'
         '  - "act": call submit_action(match_id, turn_token, agent_turn_token, action, target_id, message, thinking). '
         "After it is accepted, call get_next_turn again right away.\n"
-        '  - `thinking` (optional, on both submit_talk and submit_action) is one short sentence of '
-        "private reasoning. Other players never see it, but human spectators watch it in the replay "
-        'as your "thinking" note — so say why you are making this move.\n'
+        '  - `thinking` is one private sentence — spectators see it, other players never do. '
+        "Name the rule you're following. Explain your thinking.\n"
         '- status "waiting": a turn is coming. Wait next_poll_after_seconds, then call again. '
         "If next_game_starts_in_seconds is present, tell me when the game starts.\n"
         '- status "no_game" with should_stop=false: no game yet. '
