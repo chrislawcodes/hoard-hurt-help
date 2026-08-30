@@ -178,11 +178,21 @@ branches is fine and expected; *un-pruned* branches are the mess.
 
 ## Read First
 
-Always read:
-- `docs/platform/AGENT_LUDUM_ARCHITECTURE.md` for the platform's architecture — start with its **"Where to make a change (quick index)"** task→file table and **"Notable shapes & tensions"** invariants, then read `docs/platform/AGENT_LUDUM_DESIGN.md` for the design rationale
-- `docs/games/<game>/` (e.g. `hoard-hurt-help/`) for that game's design & architecture
+**Before changing code**, find your task's row in the **"Where to make a change
+(quick index)"** table near the top of `docs/platform/AGENT_LUDUM_ARCHITECTURE.md`.
+Each row names the file *and* the trap. If the change touches an invariant, read
+**"Notable shapes & tensions"** directly below it.
+
+That is normally enough. Do **not** read the whole architecture doc by default —
+the module map below those two sections is ~8,000 words of reference. Look things
+up in it; don't read it through.
 
 Read when relevant:
+- The **"Subsystems"** section of that doc for a module inventory — or ask
+  `repowise`, which is regenerated from the live tree and cannot go stale
+- `docs/platform/AGENT_LUDUM_DESIGN.md` when changing *why* something is shaped
+  this way, rather than *what* it does
+- `docs/games/<game>/` (e.g. `hoard-hurt-help/`) for that game's design & architecture
 - `specs/` for feature specs
 - `docs/operations/debugging-history.md` when something is broken or frozen in
   prod — past incidents, how to diagnose a stuck match, and manual recovery.
