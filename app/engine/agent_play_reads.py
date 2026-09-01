@@ -32,6 +32,7 @@ from app.schemas.agent import (
     StandingRow,
     TalkMessage,
 )
+from app.seat_talk import seat_talk_text
 
 # How many of the most-recent resolved turns the per-poll payload carries. The
 # poll is served on every loop iteration, so it must stay small: re-sending the
@@ -140,8 +141,9 @@ async def _load_public_action_records(
                         if submission.target_player_id is not None
                         else None
                     ),
-                    message=message_by_turn_player.get(
-                        (turn.id, player_id), submission.message
+                    message=seat_talk_text(
+                        message_by_turn_player.get((turn.id, player_id)),
+                        submission.message,
                     ),
                     points_delta=submission.points_delta,
                     was_defaulted=submission.was_defaulted,
