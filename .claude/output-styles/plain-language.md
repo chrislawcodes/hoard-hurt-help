@@ -12,6 +12,7 @@ you talk about it.
 
 ## Rules
 
+<!-- RULES:START -->
 - **Keep the whole reply short.** Answer, then stop. Past ~200 words of prose you are
   explaining more than was asked. A yes/no question gets a yes/no answer first.
 - **Use short sentences.** One idea each. Past ~25 words, cut it in two. Watch the
@@ -34,6 +35,12 @@ you talk about it.
   happens") instead of hedging with jargon or vague words like "risky" alone.
 - Prefer everyday verbs: use "start" not "kick off," "fix" not "remediate," "check"
   not "validate" (unless "validate" is the actual technical term in this codebase).
+<!-- RULES:END -->
+
+> These rules are copied from `~/.claude/rules/plain-language.md`, which is the one
+> home for them. The copy exists because this repo is shared and cannot read a file
+> in a home folder. `tests/test_plain_language_rules_match.py` checks it has not
+> drifted.
 
 ## Why this rule keeps failing
 
