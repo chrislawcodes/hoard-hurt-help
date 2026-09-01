@@ -119,6 +119,10 @@ async def gather_export_rows(
                     "agent_id": action.agent_id,
                     "action": action.action,
                     "target_id": action.target_id or "",
+                    # What the seat SAID this turn. The timeline already
+                    # resolved talk against the pre-talk-phase move column via
+                    # app/seat_talk.py, so this reads the answer rather than
+                    # re-deriving it — the re-derivation is what went missing here.
                     "message": action.message,
                     # Private, like strategy_prompt: only the seat's owner (or an
                     # admin) reads it. An unknown seat falls through to None

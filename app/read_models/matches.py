@@ -21,6 +21,7 @@ from app.models.match import (
 from app.models.player import Player
 from app.models.turn import Turn, TurnMessage, TurnSubmission
 from app.schemas.agent import ScoreboardRow
+from app.seat_talk import seat_talk_text
 
 
 @dataclass(frozen=True)
@@ -47,7 +48,13 @@ class TimelineMessage:
 
 @dataclass(frozen=True)
 class TimelineAction:
-    """A submitted action with actor/target DB ids resolved to agent ids."""
+    """A submitted action with actor/target DB ids resolved to agent ids.
+
+    ``message`` is what the seat SAID on this turn, already resolved through
+    :func:`app.seat_talk.seat_talk_text` — not the raw ``TurnSubmission.message``
+    column. Readers are handed the answer rather than the ingredients on purpose:
+    the export used to read that raw column and reported a talking seat as silent.
+    """
 
     agent_id: str
     action: str
@@ -456,6 +463,13 @@ async def load_match_timeline(
                 if submission.player_id in rows.players_by_id
             ]
 
+        # One talk row per seat, so the per-seat rule below can tell "this seat
+        # has no talk row" (None — fall back to the move) from "this seat spoke
+        # and said nothing" ("" — the answer, and the normal shape of a quiet
+        # modern turn).
+        talk_text_by_player = {
+            message.player_id: message.text for message in turn_messages
+        }
         actions: list[TimelineAction] = []
         for submission in submissions:
             actor = rows.players_by_id.get(submission.player_id)
@@ -473,7 +487,10 @@ async def load_match_timeline(
                     target_id=target.seat_name if target else None,
                     quantity=submission.quantity,
                     face=submission.face,
-                    message=submission.message,
+                    message=seat_talk_text(
+                        talk_text_by_player.get(submission.player_id),
+                        submission.message,
+                    ),
                     thinking=submission.thinking,
                     points_delta=submission.points_delta,
                     round_score_after=submission.round_score_after,
@@ -497,7 +514,6 @@ async def load_action_records(db: AsyncSession, match_id: str) -> list[ActionRec
 
     records: list[ActionRecord] = []
     for turn in await load_match_timeline(db, match_id):
-        message_by_agent = {message.agent_id: message.text for message in turn.messages}
         for action in turn.actions:
             records.append(
                 ActionRecord(
@@ -506,7 +522,7 @@ async def load_action_records(db: AsyncSession, match_id: str) -> list[ActionRec
                     actor_id=action.agent_id,
                     action=cast(Action, action.action),
                     target_id=action.target_id,
-                    message=message_by_agent.get(action.agent_id, action.message),
+                    message=action.message,
                     points_delta=action.points_delta,
                     round_score_after=action.round_score_after,
                     was_defaulted=action.was_defaulted,
