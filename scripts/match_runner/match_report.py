@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parent))
+from export_talk import read_talk  # noqa: E402
 from preset_fidelity import print_fidelity, tally_rules  # noqa: E402
 
 
@@ -34,16 +35,16 @@ def validity(d: dict[str, Any]) -> None:
 
     They are separate because they fail separately: M_7360 came out 88% / 75% /
     68%, and that spread said the agents degraded (losing their reasoning first,
-    then their chat, then failing to move at all) rather than dropping dead. One
+    then their talk, then failing to move at all) rather than dropping dead. One
     combined number would have hidden that.
 
-    `chat` carries no verdict on purpose: saying nothing is a legitimate move,
+    `talk` carries no verdict on purpose: saying nothing is a legitimate move,
     so a low number is information rather than a fault.
     """
     subs = d["submissions"]
     n = len(subs)
     chosen = sum(1 for s in subs if not s.get("was_defaulted"))
-    chat = sum(1 for s in subs if (s.get("message") or "").strip())
+    talk = sum(1 for s in subs if read_talk(s).strip())
     think = sum(1 for s in subs if (s.get("thinking") or "").strip())
     # A bot holds no strategy text; in an admin export every real agent's is present.
     bots = sum(1 for p in d["players"] if not p.get("strategy_prompt"))
@@ -53,7 +54,7 @@ def validity(d: dict[str, Any]) -> None:
 
     print("1. VALIDITY")
     print(f"   action chosen   {chosen / n * 100:5.1f}%  ({chosen}/{n})")
-    print(f"   chat            {chat / n * 100:5.1f}%  ({chat}/{n})")
+    print(f"   talk            {talk / n * 100:5.1f}%  ({talk}/{n})")
     print(f"   thinking        {think / n * 100:5.1f}%  ({think}/{n})")
     # Which model played. Two matches of the same roster on different models are
     # different experiments, and without this the record cannot tell them apart.

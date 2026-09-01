@@ -19,7 +19,7 @@ passed to every builder:
   to" — Headhunter attacked 57% against an instruction to attack every turn, and
   the reason was only visible by reading its own words.
 * A non-admin sees **resolved turns only**. Without that filter an opponent in
-  a live match could read every rival's chosen action, target and message
+  a live match could read every rival's chosen action, target and talk
   between the act deadline and the resolve.
 
 A platform admin's export is therefore the only one that is unchanged from
@@ -54,7 +54,7 @@ EXPORT_COLUMNS = [
     "agent_id",
     "action",
     "target_id",
-    "message",
+    "talk",
     "thinking",
     "points_delta",
     "round_score_after",
@@ -119,11 +119,14 @@ async def gather_export_rows(
                     "agent_id": action.agent_id,
                     "action": action.action,
                     "target_id": action.target_id or "",
-                    # What the seat SAID this turn. The timeline already
-                    # resolved talk against the pre-talk-phase move column via
-                    # app/seat_talk.py, so this reads the answer rather than
-                    # re-deriving it — the re-derivation is what went missing here.
-                    "message": action.message,
+                    # What the seat SAID this turn, named for the thing it
+                    # holds. It was called `message` until the rename, which is
+                    # how it came to carry four unrelated things and be read as
+                    # none of them; `talk` is the game's own word for this and
+                    # cannot be mistaken for an act-phase field. The timeline
+                    # already resolved it via app/seat_talk.py, so this reads the
+                    # answer rather than re-deriving it.
+                    "talk": action.message,
                     # Private, like strategy_prompt: only the seat's owner (or an
                     # admin) reads it. An unknown seat falls through to None
                     # rather than defaulting to visible.
