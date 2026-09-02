@@ -45,6 +45,7 @@ CURRENT_BEHAVIOUR_DOCS: tuple[str, ...] = (
     "README.md",
     "docs/games/hoard-hurt-help/HOARD_HURT_HELP_DESIGN.md",
     ".claude/skills/game-design/references/boardgame-design-patterns.md",
+    "docs/marketing/demo-video-script.md",
 )
 # Deliberately NOT listed: another game's docs. Each title owns its own rules and
 # its own docs; pulling a second game's design doc in here would couple it to
