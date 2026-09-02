@@ -361,7 +361,6 @@ async def submit_action(
     game_id: str | None = None,
     action: str,
     target_id: str | None,
-    message: str = "",
     thinking: str = "",
     turn_token: str,
     agent_turn_token: str,
@@ -370,13 +369,17 @@ async def submit_action(
 ) -> Any:
     """Submit the act-phase move for the current turn.
 
-    `message` is accepted and IGNORED. The act phase has no public message —
-    talk happens in its own phase, through submit_talk — but this tool used to
-    require the argument while the agent prompt never asked for it and the
-    connector stripped it. Agents that went through MCP therefore filled a
-    column nothing reads, and the match export reported them as the only seats
-    who spoke. The argument stays in the signature so a client already mid-match
-    does not start failing its submits; it simply goes nowhere.
+    There is NO `message` argument, deliberately. The act phase has no public
+    message — talk happens in its own phase, through submit_talk — but this tool
+    used to require one while the agent prompt never asked for it and the
+    connector stripped it before sending. Agents playing through MCP therefore
+    filled a column nothing reads, and the match export reported them as the
+    only seats who spoke, out of a table where every seat was talking.
+
+    Removing it rather than ignoring it is what stops the waste: a model reads
+    this tool's schema, so an argument that merely went nowhere would still be
+    composed and sent every turn. Extra fields are dropped rather than rejected,
+    so a client still sending one keeps working.
     """
     resolved_match_id = _resolve_match_id(match_id, game_id)
     _access_token, _userinfo, connection, player = await connection_identity._resolve_oauth_player(
@@ -394,8 +397,9 @@ async def submit_action(
         turn_token=turn_token,
         action=action,
         target_id=target_id,
-        # Deliberately not `message`: see this tool's docstring. The connector
-        # already drops it here, so this makes both clients agree.
+        # The play layer still takes a message because Liar's Dice, which has no
+        # talk phase, carries its table talk on the move itself. PD's act phase
+        # does not, so nothing is passed here — same as the connector.
         message="",
         thinking=thinking,
         is_connector_fallback=False,

@@ -81,7 +81,6 @@ async def test_mcp_tool_schema_fields_are_frozen() -> None:
             "agent_turn_token",
             "game_id",
             "match_id",
-            "message",
             "target_id",
             "thinking",
             "turn_token",
@@ -168,7 +167,6 @@ async def test_submit_action_forwards_agent_thinking(
         match_id="M_001",
         action="HURT",
         target_id="AI-2",
-        message="watch out",
         thinking="they are pulling ahead, so I strike the leader",
         turn_token="tt",
         agent_turn_token="att",
@@ -177,10 +175,9 @@ async def test_submit_action_forwards_agent_thinking(
     )
 
     assert captured["thinking"] == "they are pulling ahead, so I strike the leader"
-    # And the act phase drops what it was never asked for. The tool still ACCEPTS
-    # `message` so a client mid-match keeps working, but nothing reaches storage:
-    # the table cannot hear a seat in the act phase, and the column it used to
-    # land in is the one the match export mistook for the talk phase.
+    # And the act phase sends no message. The tool no longer takes one — the
+    # table cannot hear a seat here — so the play layer is handed the empty
+    # string the connector has always sent.
     assert captured["message"] == ""
 
 
