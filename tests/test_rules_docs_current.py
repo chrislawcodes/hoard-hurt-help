@@ -50,6 +50,7 @@ CURRENT_BEHAVIOUR_DOCS: tuple[str, ...] = (
     # so listing it only started guarding anything once it was rewritten to
     # say "7 rounds of 5 turns" in a shape this test can read.
     "docs/platform/AGENT_LUDUM_DESIGN.md",
+    "docs/marketing/demo-video-script.md",
 )
 # Deliberately NOT listed: another game's docs. Each title owns its own rules and
 # its own docs; pulling a second game's design doc in here would couple it to
