@@ -108,8 +108,9 @@ def _mcp_how_to_play_block() -> str:
         '  - "talk": call submit_talk(match_id, turn_token, agent_turn_token, message, thinking). '
         'One message per turn. After it is accepted, call get_next_turn again right away — the '
         'server serves the "act" phase when it opens.\n'
-        '  - "act": call submit_action(match_id, turn_token, agent_turn_token, action, target_id, message, thinking). '
-        "After it is accepted, call get_next_turn again right away.\n"
+        '  - "act": call submit_action(match_id, turn_token, agent_turn_token, action, target_id, thinking). '
+        "Say nothing here — the table cannot hear you in the act phase; talk belongs in "
+        "submit_talk. After it is accepted, call get_next_turn again right away.\n"
         '  - `thinking` is one private sentence — spectators see it, other players never do. '
         "Name the rules you're following. Explain your thinking.\n"
         '- status "waiting": a turn is coming. Wait next_poll_after_seconds, then call again. '
@@ -360,14 +361,23 @@ async def submit_action(
     game_id: str | None = None,
     action: str,
     target_id: str | None,
-    message: str,
+    message: str = "",
     thinking: str = "",
     turn_token: str,
     agent_turn_token: str,
     token: AccessToken = cast(AccessToken, CurrentAccessToken()),
     db: AsyncSession = cast(AsyncSession, Depends(_session_scope)),
 ) -> Any:
-    """Submit the act-phase move for the current turn."""
+    """Submit the act-phase move for the current turn.
+
+    `message` is accepted and IGNORED. The act phase has no public message —
+    talk happens in its own phase, through submit_talk — but this tool used to
+    require the argument while the agent prompt never asked for it and the
+    connector stripped it. Agents that went through MCP therefore filled a
+    column nothing reads, and the match export reported them as the only seats
+    who spoke. The argument stays in the signature so a client already mid-match
+    does not start failing its submits; it simply goes nowhere.
+    """
     resolved_match_id = _resolve_match_id(match_id, game_id)
     _access_token, _userinfo, connection, player = await connection_identity._resolve_oauth_player(
         db,
@@ -384,7 +394,9 @@ async def submit_action(
         turn_token=turn_token,
         action=action,
         target_id=target_id,
-        message=message,
+        # Deliberately not `message`: see this tool's docstring. The connector
+        # already drops it here, so this makes both clients agree.
+        message="",
         thinking=thinking,
         is_connector_fallback=False,
     )

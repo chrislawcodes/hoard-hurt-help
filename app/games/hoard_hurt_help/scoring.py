@@ -16,7 +16,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.games.hoard_hurt_help.rules import (
     hurt_blocks,
     hurt_take,
-    DEFAULT_MISSED_MESSAGE,
     DEFAULT_MUTUAL_HELP_MODE,
     HELP_POINTS,
     hoard_share,
@@ -192,12 +191,16 @@ async def resolve_turn(db: AsyncSession, turn: Turn) -> None:
     submitted_player_ids = {s.player_id for s in submissions}
     for p in players:
         if p.id not in submitted_player_ids:
+            # No message. `was_defaulted` already says this seat missed its
+            # turn, and this row used to also say it in prose ("I did not submit
+            # a turn."), which put the same fact in two places and let a silent
+            # seat read as a talking one — M_7360 was misread as a hoarding
+            # convergence off exactly that. The flag is the one home.
             default = TurnSubmission(
                 turn_id=turn.id,
                 player_id=p.id,
                 action="HOARD",
                 target_player_id=None,
-                message=DEFAULT_MISSED_MESSAGE,
                 was_defaulted=True,
                 submitted_at=None,
             )
