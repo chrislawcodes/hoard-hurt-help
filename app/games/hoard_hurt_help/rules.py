@@ -169,7 +169,7 @@ class MutualHelpMode(str, enum.Enum):
     NO_REPEATS = "no_repeats"
     FLAT_8 = "flat_8"  # 8 every time — no decay, no floor
     FLAT_7 = "flat_7"  # 7 every time
-    FLAT_6 = "flat_6"  # 6 every time — betrayal (10) out-pays the pact most
+    FLAT_6 = "flat_6"  # 6 every time — betrayal (18) out-pays the pact most
 
 
 # The rule a NEW match gets when its creator doesn't pick one. Every create path

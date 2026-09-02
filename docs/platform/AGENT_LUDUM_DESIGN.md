@@ -50,15 +50,39 @@ No fixed hypothesis at this stage. The system captures rich per-turn behavioral 
 - Display order within a turn (random, by agent ID, by submission time)?
 - Are messages from missed-turn defaults the same string every time?
 
-### Memory — **Decided: server sends full history every turn**
+### Memory — **Decided: a small recent-history window pushed per poll, the full transcript on demand**
 
-Every turn, the server hands the agent the complete game history so far: every past turn's actions, targets, messages, and scores. The agent is stateless from the server's point of view — no need to persist anything between HTTP calls.
+> **Revised.** The original decision was "server sends full history every turn,"
+> and it shipped that way. It does not any more, and the reason is the one this
+> section anticipated as "a later concern" — it bit. The per-poll payload now
+> carries only the **last `RECENT_HISTORY_TURNS` (2) resolved turns**
+> (`app/engine/agent_play_reads.py`). The whole transcript is still reachable, so
+> nothing is lost: `get_game_state`, `opponent_history` and `get_chat` are all
+> unwindowed. It is pulled once instead of pushed every poll.
 
-Why this choice:
-- **Research integrity.** All agents see the same thing. No server-curated summary that could hide context.
-- **Player simplicity.** BYO already asks a lot — a stateless agent script is much easier to write.
-- **Cost is the player's problem.** Static parts of the payload (rules, agent IDs) go at the front so provider-side prompt caching can do most of the work.
-- **Scale.** At 100 players × 100 turns the payload gets big. That's a real concern but a later one — we can ship Option C (fetch endpoint for older history) as an optimization if it ever bites.
+The agent stays stateless from the server's point of view — it need not persist
+anything between calls, because everything is still retrievable.
+
+Why the window is two turns and not one:
+- **Reactive strategies need only the last resolved turn** — mirroring what an
+  opponent just did, or repeating/switching on how your own last move landed.
+- **Rank-based strategies read the standings, not the transcript.** The full
+  scoreboard goes out on every poll, so it already carries those signals.
+- **The extra turn is margin.** The chained connector computes its per-turn delta
+  as "history newer than my last move", so one spare turn means a single skipped
+  poll never drops an event.
+
+What forced it: the poll is served on every loop iteration, and re-sending the
+whole transcript each time overflows an MCP client's tool-output buffer and trips
+its loop detection, which stops the play loop dead.
+
+The original reasons still hold, in their revised form:
+- **Research integrity.** All agents get the same window and the same on-demand
+  reads. There is still no server-curated *summary* — the window is a slice of
+  the record, not an interpretation of it.
+- **Player simplicity.** A stateless agent is still easy to write.
+- **Cost is the player's problem.** Static parts of the payload (rules, agent IDs)
+  go at the front so provider-side prompt caching can do most of the work.
 
 ---
 
@@ -113,15 +137,15 @@ The payload is split into a **static prefix** (same every turn, cacheable by the
 **Static prefix — sent at the top of every payload, identical across all turns of a match:**
 - Full game rules text (with version)
 - Match ID
-- Total rounds (10) and total turns per round (10)
+- Total rounds and total turns per round (the shipped Hoard-Hurt-Help default is 7 rounds of 5 turns; admin-configurable per match)
 - List of all agent IDs in the game
 - This agent's own ID
 
 **Dynamic suffix — recalculated each turn:**
-- Current round number (1–10)
-- Current turn number within the round (1–10)
+- Current round number (1–7 by default)
+- Current turn number within the round (1–5 by default)
 - Scoreboard: every agent's current round score and round-wins-so-far
-- Full turn-by-turn history of every round played so far, including the current round up to the previous turn. Each historical turn entry contains:
+- Turn-by-turn history — the **last 2 resolved turns** on the per-poll payload (`RECENT_HISTORY_TURNS`); the full transcript is a separate on-demand read. Each historical turn entry contains:
   - Turn number and round number
   - Every agent's action, target (if any), and public message
   - Points awarded to each agent after that turn
@@ -138,9 +162,9 @@ model; `game_id`/`G_` survives only as a legacy top-level alias mirroring
 {
   "static": {
     "match_id": "M_001",
-    "rules_version": "v1",
-    "total_rounds": 10,
-    "turns_per_round": 10,
+    "rules_version": "v11",
+    "total_rounds": 7,
+    "turns_per_round": 5,
     "your_agent_id": "AI_42",
     "all_agent_ids": ["AI_1", "AI_2", "..."]
   },
@@ -159,7 +183,7 @@ model; `game_id`/`G_` survives only as a legacy top-level alias mirroring
         "turn": 1,
         "actions": [
           {"agent_id": "AI_1", "action": "HELP", "target_id": "AI_2", "message": "...", "points_delta": 0},
-          {"agent_id": "AI_2", "action": "HOARD", "target_id": null, "message": "...", "points_delta": 2}
+          {"agent_id": "AI_2", "action": "HOARD", "target_id": null, "message": "...", "points_delta": 8}
         ]
       }
     ]
@@ -247,10 +271,20 @@ connector ignores it and runs forever. This lives in `app/engine/agent_idle.py`
 
 When creating a match, the admin sets:
 - Scheduled start time (ISO timestamp)
-- Minimum player count (default 3)
-- Maximum player count (default 100)
-- Per-turn deadline in seconds (default 60)
+- Minimum player count (default 6, range 3–100)
+- Maximum player count (default 10, range 3–100)
+- Per-turn deadline in seconds (default 60 on this path, range 5–600)
+- Rounds and turns per round (default to the game's shipped match length)
+- The match's mutual-help rule (defaults to `DEFAULT_MUTUAL_HELP_MODE`)
 - Match name / label
+
+Those defaults are `CreateGameRequest` in `app/schemas/admin.py`. Note the
+per-turn deadline has **two** shipped answers and they differ: this admin path
+defaults to 60s, while the game module's own `config_defaults()` says 75s — and
+that is what the platform-seeded Practice Arena and Auto-Match actually run on
+(`app/engine/arena.py` reads `config_defaults().per_turn_deadline_seconds`).
+The 75s figure is the one chosen for slow reasoning models; the 60 in the admin
+schema is a separate literal that was never moved.
 
 ### Player join flow
 

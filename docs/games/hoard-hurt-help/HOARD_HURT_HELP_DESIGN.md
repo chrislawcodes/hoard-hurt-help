@@ -16,59 +16,143 @@ For the research and logging philosophy behind the game (what data we capture an
 
 ## The Game
 
+Rules version **v11**. `app/games/hoard_hurt_help/rules.py` is the single source
+for every number below; this section restates them for readers. If the two ever
+disagree, the code is right and this doc is the bug.
+
 ### Actions — the 3 Hs
 Each turn, every AI picks one action. Actions resolve simultaneously.
 
 | Action | Description |
 |---|---|
-| **Hoard** | Secure resources for yourself. No target. |
+| **Hoard** | Take a share of the pot. No target. |
 | **Help [target]** | Give resources to a specific player. |
-| **Hurt [target]** | Sacrifice your turn to damage a specific player. |
+| **Hurt [target]** | Attack a specific player — and take something off them. |
 
 ### Payoff math
 
-Base values per action:
-
 | Action | Self | Target |
 |---|---|---|
-| Hoard | +2 | n/a |
+| Hoard | share of a +8 pot, split between everyone who Hoards | n/a |
 | Help [T] | 0 | +4 |
-| Hurt [T] | 0 | −4 |
+| Hurt [T] | a *take* priced off what T was doing — see below | −8 |
 
-Combo bonus:
-- If A Helps B **and** B Helps A → each gets a mutual-help bonus on top of the +4 base. How much depends on the match's mutual-help rule (see "Mutual help decays" below) — today's default, `flat_6`, pays a flat **+6** each; the full **+4** bonus (for a total of +8 each) is what `decay`'s first hit and `flat_8` pay.
+**Hoard is a contested pot, not a flat payout.** `HOARD_POT_POINTS` is 8 and
+every hoarder that turn splits it: alone you take 8, two hoarders take 4 each,
+four take 2 each. Integer division, so a remainder is dropped — three hoarders
+take 2 each and 2 goes nowhere. A missed turn defaults to HOARD, so a silent seat
+still thins everyone else's share.
 
-Betraying a helper (the "8/4" split):
-- If A **Hurts** B **and** B **Helps** A on the same turn → A gains a **+4 bonus** on top of the +4 help B still sends (so A nets **+8** that turn), and B takes the **normal −4** (not −8). This is not a new action — it's a conditional payoff on Hurt that restores a real temptation to defect (R=8 mutual help vs. a +8 for betraying a helper). The 12-point relative swing is unchanged from the earlier design; it is re-split so the **attacker rises** (+4 bonus) instead of the victim cratering (−8). See the analysis in `betray-helper-impact-review.md` (superseded by this implementation).
+**Hurt always costs the target 8. What the attacker gains depends on what the
+target was doing.** `hurt_take` is the one source — the resolver, the viewer
+mirror, the replay legend, the per-move chip and the rules text agents read all
+call it, so what a spectator sees can never differ from what was paid.
 
-Mutual help decays (feature `mutual-help-decay`):
-- **Not the default any more.** A match now picks one of five mutual-help rules (`MutualHelpMode` in `app/games/hoard_hurt_help/rules.py`), and a new match gets **`flat_6`** — a flat +6 each side, every time — because at +6 the pact no longer matches the +8 a betrayal pays, so betraying a helper finally wins on points and not only on rank. Decay is still selectable per match; everything below describes what it does when chosen, and stays here because the tie-rate data that motivated it is still the reason the flat modes had to beat something.
-- A given **pair's** mutual-help payoff is worth less each time *that same pair* repeats it within a match. The first mutual help pays the full **+8** each; each later one by the same pair pays **−1** less, flooring at **+2** (the Hoard value): 8, 7, 6, 5, 4, 3, 2, 2, … A **fresh** partner resets to +8. The counter is **per pair, per match** — it does **not** reset each round. One-directional Help stays +4; Hoard, Hurt, and the betrayal rule are unchanged.
-- **Why:** the round winner is the single highest in-round score, but a symmetric +8 pact leaves two partners tied at the top — in simulation ~53% of rounds had no sole winner, and "lock onto one partner and farm +8" dominated. Shrinking the bonus didn't help (ties come from *symmetry*, not size); only making the payoff depend on history breaks it. Decay alone cut the round-tie rate from ~53% to ~29%; adding decay-aware bots that rotate partners took it to ~22% (5 seeds × 40, `aware < decay < baseline` on every seed) while keeping cooperation alive. Full design + data: `docs/workflow/feature-runs/mutual-help-decay/spec.md` and the recorded run in `closeout.md`. Reproduce it with `scripts/decay_validation_sim.py`.
-- **Win-probability overlay — removed from the UI.** The replay no longer shows a per-turn win-probability prediction. The PD viewer glue that fed it (`viewer_win_probs.py`) was deleted and the viewer payload no longer carries `win_probs`. The underlying model/engine (`app/engine/win_probability.py`, the trained `data/*_win_prob_model.pkl`, and the training scripts) remain on disk but are no longer wired into the UI. *(Historical: the models were retrained on the decay + decay-aware-bots engine — round-win ROC-AUC 0.82, match-win 0.80 — before the overlay was removed.)*
+| The target was… | The attacker takes |
+|---|---|
+| HELPing the attacker (**betraying a helper**) | **+14 bonus**, on top of the +4 their help still pays — the attacker nets **+18** |
+| HELPing someone else | +5 |
+| HOARDing | +2 |
+| HURTing someone | 0 — nothing on the table to take |
+
+**Two players who Hurt each other block.** Both swings miss: no damage and no
+take either way (`hurt_blocks`, kept beside `hurt_take` because applying one
+without the other would pay a take on an attack that never landed).
+
+The betrayal payoff is deliberately split as **attacker rises** rather than
+**victim craters** — an earlier design took the victim to −8 below the normal
+hurt instead of paying the attacker a bonus. The impact analysis behind that
+choice is `betray-helper-impact-review.md` (same folder), kept as the record of
+what was weighed; the numbers in it predate v11.
+
+**Several attackers on one target split the take.** Mobbing one player is
+allowed, it just pays each attacker less — integer division again. The betrayal
+bonus is the exception: it is **never split and the betrayer is never counted**,
+because it is earned from a relationship rather than grabbed off the table. Both
+halves matter — splitting it would give anyone a cheap way to spoil someone
+else's betrayal, and counting the betrayer would let a betrayal quietly thin what
+the other attackers share.
+
+### Mutual help — the pact
+
+If A HELPs B and B HELPs A in the same turn, each side gets a bonus on top of the
+base +4. How much depends on the match's **mutual-help mode**, one of five
+(`MutualHelpMode`, all five paid by the one function `mutual_help_value`):
+
+| Mode | Per-side total |
+|---|---|
+| `flat_6` — **today's default for a new match** | 6 every time |
+| `flat_7` | 7 every time |
+| `flat_8` | 8 every time |
+| `decay` | 8 the pair's first time, −1 per repeat, floored at 2. A fresh partner resets to 8. Counted per pair, match-wide — not per round. |
+| `no_repeats` | 8, unless that same pair also mutually helped on the **previous** turn, which pays the plain 4. A one-turn cooldown, not a lifetime cap — a pair can still collect every turn by alternating partners. |
+
+A pair takes at most one mutual-help bonus per turn, and since each agent picks
+one action, each agent is in at most one pact per turn.
+
+`DEFAULT_MUTUAL_HELP_MODE` (`flat_6`) is what a new match gets, so flipping it is
+the whole switch. It is deliberately **not** the same constant as
+`LEGACY_MUTUAL_HELP_MODE` (`decay`), which is how a match row with a NULL mode
+column is read — those rows really were played under decay, and relabelling one
+would corrupt a comparison rather than break something visibly. A missing
+*argument* means "today's rule"; a NULL *column* means "the rule that match was
+played under."
+
+**Why the pot and the pact sit close together.** At `flat_6` a pact pays 6 while
+a solo pot pays 8, so hoarding stays a live alternative. At `flat_8` they both
+pay 8 and the temptation disappears. Betrayal out-pays every pact rate, `flat_8`
+included: the lever this game exists to explore is cooperation-vs-betrayal, not
+cooperation-vs-hoarding.
+
+**Why decay exists, and why it is no longer the default.** The round winner is
+the single highest in-round score, and a symmetric pact leaves two partners tied
+at the top — in simulation ~53% of rounds had no sole winner, and "lock onto one
+partner and farm it" dominated. Shrinking the bonus did not help (ties come from
+*symmetry*, not size); only making the payoff depend on history breaks it. Decay
+cut the round-tie rate from ~53% to ~29%, and adding decay-aware bots that rotate
+partners took it to ~22% while keeping cooperation alive. It stopped being the
+default at `flat_6`, where a betrayal finally out-pays a pact on points and not
+only on rank. Full design and data:
+`docs/workflow/feature-runs/mutual-help-decay/`. Reproduce with
+`scripts/decay_validation_sim.py`.
 
 ### Worked scenarios
 
+One turn, at today's default (`flat_6`):
+
 | Scenario | Player A | Player B |
 |---|---|---|
-| Mutual Help (the Pact): A→B, B→A — today's default (`flat_6`) | +6 | +6 |
-| Hoard-betrayal: A Helps B, B Hoards | 0 | +6 (+2 hoard, +4 from A's help) |
-| Betray a helper: A Hurts B, B Helps A | +8 (+4 from B's help, +4 betrayal bonus) | −4 (the normal Hurt) |
-| Baseline: both Hoard | +2 | +2 |
-| Team Attack: A and B both Hurt C | 0 | 0 (C takes −8) |
+| **The pact** — A→B, B→A | +6 | +6 |
+| **Hoard-betrayal** — A Helps B, B Hoards alone | 0 | +12 (+8 pot, +4 from A) |
+| **Betray a helper** — A Hurts B, B Helps A | **+18** (+4 from B's help, +14 bonus) | **−8** |
+| **Baseline** — A and B both Hoard, nobody else does | +4 | +4 (the 8-pot split two ways) |
+| **Team attack** — A and B both Hurt C, who Hoarded alone | +1 | +1 (the +2 hoarder take, split) |
+| **Blocked** — A Hurts B, B Hurts A | 0 | 0 (both swings miss) |
+
+In the team attack, C takes −8 from each attacker against its own +8 pot, netting
+−8 — or 0 if C had nothing banked, since the floor applies to the summed delta.
 
 ### Edge case rules — **Decided**
 
-- **No self-targeting.** Help and Hurt both require a target other than yourself. Hoard is the only self-action.
-- **Help stacks fully.** If five players Help the same target, the target gets +20.
-- **Hurt stacks fully.** If five players Hurt the same target, the target loses 20 (subject to the floor below).
-- **Scores floor at zero.** Damage that would push a player below 0 is clipped at 0. Implication: an attacker who Hurts an already-at-0 target spends their turn (no +2 from Hoarding) for no further effect on the target. That is intentional — strategic, not a bug.
-- **Independent resolution.** Help and Hurt against the same player both resolve. If A Helps B while B Hurts A: A ends with the damage from B (clipped at 0); B ends with the +4 from A's help. Hoarders Hoard, helpers help, hurters hurt — all in parallel.
-- **Betraying a helper.** Hurting a player who is Helping *you* this same turn earns the attacker a **+4 bonus** on top of the +4 help they receive (attacker nets +8); the victim takes the **normal −4**. Only the attacker the victim Helped gets the bonus; other attackers Hurting the same victim deal the ordinary −4 and get no bonus. The score floor applies to the summed delta as usual (the victim's −4 can floor; the attacker's +4 gain never does).
-- **Mutual-help bonus is per pair, at most one per turn.** Since each agent picks only one action per turn, each agent can be part of at most one mutual-help pair per turn — the one with whoever they Helped. Example: if A Helps B, B Helps A, and C also Helps A, then A receives +4 (from B) + +4 (from C) + +4 (mutual bonus for the A↔B pair) = +12; B receives +4 (from A) + +4 (mutual bonus) = +8; C receives 0 (A didn't Help C back).
-- **Mutual help decays per pair, per match** — *only on a match set to the `decay` rule; a new match defaults to `flat_6`, where every mutual help pays each side +6 and the `+12` example above becomes +10 for A and +6 for B.* The k-th mutual help by the same pair this match pays each side `max(2, 8 − k)` total (k = that pair's prior mutual-help turns this match). Track k by counting the pair's prior mutual-help turns in the match history (resume-safe — no in-memory-only state). Resets only at match end. The `+12` worked example above describes the **first** A↔B pact; once that pair has farmed several mutual helps, their bonus shrinks toward 0 and the pair's total toward +2.
-
----
+- **No self-targeting.** Help and Hurt both require a target other than yourself.
+  Hoard is the only self-action.
+- **Help stacks fully.** Five players Helping one target give it +20.
+- **Hurt stacks fully on the victim.** Five players Hurting one target cost it 40
+  (subject to the floor below). What the *attackers* collect does not stack —
+  they split one target's worth between them.
+- **Scores floor at zero,** applied to each player's **summed** delta for the
+  turn, not per hurt. (The viewer's running-score mirror, `apply_inround_turn`,
+  floors each hurt individually — it is a display approximation and deliberately
+  distinct from the authoritative path.)
+- **Attacking an already-zeroed player still pays the attacker.** The victim
+  takes nothing further, but the take is priced off what they were doing, so the
+  swing is not wasted. This reverses the pre-v9 rule, where the attacker got
+  nothing and had spent their turn.
+- **Independent resolution.** Help and Hurt against the same player both resolve.
+  Hoarders hoard, helpers help, hurters hurt — all in parallel, and the floor is
+  applied once at the end.
+- **A missed turn defaults to HOARD** and broadcasts *"I did not submit a turn."*
+  It takes a share of the pot like any other hoard.
 
 ## Game Structure
 
@@ -178,8 +262,8 @@ A running list of every TBD in this doc, in rough priority order.
 1. ~~**Agent model**~~ — **Decided: BYO agent.** (platform design: **Agent Model**)
 2. ~~**Memory ownership + per-turn payload**~~ — **Decided: server sends full history every turn; static prefix + dynamic suffix.** (platform design: **Communication**, **API / Connectivity**)
 3. ~~**Notification model**~~ — **Decided: pull (polling) with per-turn deadline.** (platform design: **API / Connectivity**)
-4. ~~**Turn deadline length**~~ — **Decided: 60s default, admin-configurable.** Slow-agent kick policy still TBD. (game design: **Game Structure**)
-5. ~~**Scoring edge cases**~~ — **Decided: no self-target, full stack on both Help and Hurt, scores floor at 0, mutual bonus is one-per-pair-per-turn.** (game design: **The Game**)
+4. ~~**Turn deadline length**~~ — **Decided: 75s act-phase default, admin-configurable; the talk phase is capped at 45s.** Slow-agent kick policy since decided (item 14). (game design: **Game Structure**)
+5. ~~**Scoring edge cases**~~ — **Decided: no self-target, full stack on both Help and Hurt, scores floor at 0 on the summed delta, mutual bonus is one-per-pair-per-turn, mutual Hurt blocks.** (game design: **The Game**)
 6. ~~**Research metrics**~~ — **Decided: exploratory; log everything turn-by-turn; CSV + JSON exports per match.** (platform design: **Research goals**)
 7. ~~**Round/game scoring details**~~ — **Decided: binary round-wins (fractional on ties), tiebreaker = total in-round score across the match.** (game design: **Game Structure**)
 8. ~~**Auth**~~ — **Decided: Google OAuth for humans; agents via a per-connection key (`X-Connection-Key`) or OAuth at `/mcp`. Admin via role synced from configured Google emails.** *(Originally "per-match API key"; evolved with the connection/agent split — platform design: **API / Connectivity** & **Connection / Agent Model**.)*
