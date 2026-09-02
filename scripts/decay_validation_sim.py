@@ -75,7 +75,7 @@ def make_flat_resolve(scoring):
             if p.id not in submitted:
                 d = TurnSubmission(
                     turn_id=turn.id, player_id=p.id, action="HOARD", target_player_id=None,
-                    message=scoring.DEFAULT_MISSED_MESSAGE, was_defaulted=True, submitted_at=None,
+                    was_defaulted=True, submitted_at=None,
                 )
                 db.add(d)
                 subs.append(d)

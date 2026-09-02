@@ -108,8 +108,9 @@ def _mcp_how_to_play_block() -> str:
         '  - "talk": call submit_talk(match_id, turn_token, agent_turn_token, message, thinking). '
         'One message per turn. After it is accepted, call get_next_turn again right away — the '
         'server serves the "act" phase when it opens.\n'
-        '  - "act": call submit_action(match_id, turn_token, agent_turn_token, action, target_id, message, thinking). '
-        "After it is accepted, call get_next_turn again right away.\n"
+        '  - "act": call submit_action(match_id, turn_token, agent_turn_token, action, target_id, thinking). '
+        "Say nothing here — the table cannot hear you in the act phase; talk belongs in "
+        "submit_talk. After it is accepted, call get_next_turn again right away.\n"
         '  - `thinking` is one private sentence — spectators see it, other players never do. '
         "Name the rules you're following. Explain your thinking.\n"
         '- status "waiting": a turn is coming. Wait next_poll_after_seconds, then call again. '
@@ -360,14 +361,26 @@ async def submit_action(
     game_id: str | None = None,
     action: str,
     target_id: str | None,
-    message: str,
     thinking: str = "",
     turn_token: str,
     agent_turn_token: str,
     token: AccessToken = cast(AccessToken, CurrentAccessToken()),
     db: AsyncSession = cast(AsyncSession, Depends(_session_scope)),
 ) -> Any:
-    """Submit the act-phase move for the current turn."""
+    """Submit the act-phase move for the current turn.
+
+    There is NO `message` argument, deliberately. The act phase has no public
+    message — talk happens in its own phase, through submit_talk — but this tool
+    used to require one while the agent prompt never asked for it and the
+    connector stripped it before sending. Agents playing through MCP therefore
+    filled a column nothing reads, and the match export reported them as the
+    only seats who spoke, out of a table where every seat was talking.
+
+    Removing it rather than ignoring it is what stops the waste: a model reads
+    this tool's schema, so an argument that merely went nowhere would still be
+    composed and sent every turn. Extra fields are dropped rather than rejected,
+    so a client still sending one keeps working.
+    """
     resolved_match_id = _resolve_match_id(match_id, game_id)
     _access_token, _userinfo, connection, player = await connection_identity._resolve_oauth_player(
         db,
@@ -384,7 +397,10 @@ async def submit_action(
         turn_token=turn_token,
         action=action,
         target_id=target_id,
-        message=message,
+        # The play layer still takes a message because Liar's Dice, which has no
+        # talk phase, carries its table talk on the move itself. PD's act phase
+        # does not, so nothing is passed here — same as the connector.
+        message="",
         thinking=thinking,
         is_connector_fallback=False,
     )

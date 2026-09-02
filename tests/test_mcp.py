@@ -81,7 +81,6 @@ async def test_mcp_tool_schema_fields_are_frozen() -> None:
             "agent_turn_token",
             "game_id",
             "match_id",
-            "message",
             "target_id",
             "thinking",
             "turn_token",
@@ -168,7 +167,6 @@ async def test_submit_action_forwards_agent_thinking(
         match_id="M_001",
         action="HURT",
         target_id="AI-2",
-        message="watch out",
         thinking="they are pulling ahead, so I strike the leader",
         turn_token="tt",
         agent_turn_token="att",
@@ -176,8 +174,34 @@ async def test_submit_action_forwards_agent_thinking(
         db=object(),
     )
 
-    assert captured["message"] == "watch out"
     assert captured["thinking"] == "they are pulling ahead, so I strike the leader"
+    # And the act phase sends no message. The tool no longer takes one — the
+    # table cannot hear a seat here — so the play layer is handed the empty
+    # string the connector has always sent.
+    assert captured["message"] == ""
+
+
+async def test_the_act_tool_does_not_ask_for_a_message() -> None:
+    """The act phase has no public message, so the prose must not request one.
+
+    While it did, MCP agents filled a column nothing reads and the export
+    reported them as the only seats who spoke, from a preset where every seat
+    was talking. The connector strips the field; this keeps both clients saying
+    the same thing.
+    """
+    from mcp_server import mcp_tools
+
+    how_to_play = mcp_tools._mcp_how_to_play_block()
+    act_line = next(
+        line for line in how_to_play.splitlines() if "submit_action(" in line
+    )
+    assert "message" not in act_line, (
+        f"the act call still advertises a message argument: {act_line!r}"
+    )
+    talk_line = next(
+        line for line in how_to_play.splitlines() if "submit_talk(" in line
+    )
+    assert "message" in talk_line, "talk lost its message argument"
 
 
 async def test_mcp_discovery_requires_bearer_token() -> None:

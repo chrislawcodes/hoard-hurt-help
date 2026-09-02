@@ -10,7 +10,6 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.engine.resolver import award_round_winners, finalize_game
-from app.games.hoard_hurt_help.rules import DEFAULT_MISSED_MESSAGE
 from app.games.hoard_hurt_help.rules import (
     BETRAYAL_BONUS,
     HELP_POINTS,
@@ -405,7 +404,7 @@ async def test_missed_turn_defaults_to_hoard(db):
     # A hoarded and B defaulted to HOARD, so the two of them split the pot.
     assert b.current_round_score == hoard_share(2)
 
-    # The defaulted submission row exists with the canonical message.
+    # The defaulted submission row exists, and says nothing.
     from sqlalchemy import select
     sub = (
         await db.execute(
@@ -416,7 +415,10 @@ async def test_missed_turn_defaults_to_hoard(db):
     ).scalar_one()
     assert sub.was_defaulted is True
     assert sub.action == "HOARD"
-    assert sub.message == DEFAULT_MISSED_MESSAGE
+    # No invented prose. `was_defaulted` above is the one home for "this seat
+    # missed its turn"; a sentence here would be that same fact written twice,
+    # and it used to make a silent seat read as a talking one.
+    assert sub.message == ""
 
 
 async def test_round_award_single_winner(db):

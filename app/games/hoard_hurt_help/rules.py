@@ -465,8 +465,6 @@ Each turn has a talk phase followed by an act phase:
 # moved off; `test_default_rules_text_is_the_shipped_mode` pins that.
 GAME_RULES_TEXT = _render_game_rules_text(mode=DEFAULT_MUTUAL_HELP_MODE)
 
-DEFAULT_MISSED_MESSAGE = "I did not submit a turn."
-
 
 def make_game_rules_text(
     total_rounds: int = DEFAULT_TOTAL_ROUNDS,
