@@ -142,8 +142,16 @@ Diagnose before fixing. Find the smallest reproducing case. Fix the root cause. 
 
 ## Project Status
 
-- Update `STATUS.md` (if it exists) when a meaningful task is complete.
-- Mark work done and note what is now unblocked.
+When a meaningful task is complete, write it down in **two places, at two lengths**:
+
+- `STATUS.md` — **one line**: what shipped, and what it unblocks. This is the
+  dashboard someone reads at the start of a session. Keep it scannable.
+- `docs/operations/what-shipped-and-why.md` — **the full account**: the reasoning,
+  what was tried and rejected, what it deliberately left undone. Link to it from
+  the `STATUS.md` line.
+
+The long form goes in the second file. STATUS.md once held both and reached 26,796
+words, which made it useless as a dashboard.
 
 ## How We Work — Worktrees, Clean Main, Prune On Merge
 

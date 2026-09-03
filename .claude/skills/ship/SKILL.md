@@ -117,7 +117,9 @@ merge.
 
 ## Step 7 — Close the loop
 
-- Update `STATUS.md` if this PR completes a meaningful task: mark it done and
-  note what is now unblocked.
+- Update `STATUS.md` if this PR completes a meaningful task: **one line** saying
+  what shipped and what it unblocks. The full account — reasoning, what was
+  rejected, what it left undone — goes in `docs/operations/what-shipped-and-why.md`,
+  linked from that line. Do not put the long version in `STATUS.md`.
 - Report to the user: merged PR link, the squash commit on `main`, CI result,
   and confirmation that the worktree and branch were pruned.
