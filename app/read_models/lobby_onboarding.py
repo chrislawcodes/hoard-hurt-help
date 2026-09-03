@@ -16,13 +16,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.engine.connection_activity import compute_bot_health
 from app.engine.connection_health import LOOP_RUNNING_WINDOW_SECONDS, within_window
-from app.models.agent import Agent, AgentKind
+from app.models.agent import Agent
 from app.models.connection import Connection, ConnectionStatus
 from app.models.match import (
     Match,
     UNFINISHED_STATES,
 )
 from app.models.player import Player
+from app.routes.agents_queries import owned_agent_filter
 
 
 async def user_has_warm_agent_without_match(db: AsyncSession, user_id: int) -> bool:
@@ -38,9 +39,7 @@ async def user_has_warm_agent_without_match(db: AsyncSession, user_id: int) -> b
             select(func.count())
             .select_from(Agent)
             .where(
-                Agent.user_id == user_id,
-                Agent.archived_at.is_(None),
-                Agent.kind == AgentKind.AI,
+                *owned_agent_filter(user_id),
             )
         )
     )

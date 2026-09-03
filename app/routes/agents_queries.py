@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from fastapi import HTTPException
-from sqlalchemy import Select, func, select
+from sqlalchemy import ColumnElement, Select, func, select
 
 from app.deps import DbSession
 from app.models.agent import Agent, AgentKind
@@ -11,6 +11,32 @@ from app.models.agent_version import AgentVersion
 from app.models.match import Match, MatchKind
 from app.models.player import Player
 from app.models.user import User
+
+
+def owned_agent_filter(user_id: int, *, ai_only: bool = True) -> list[ColumnElement[bool]]:
+    """Conditions for "this is *user_id*'s own agent, and it still exists".
+
+    This was written out by hand three times before it had a name: in
+    ``user_agents_select`` below, ten lines further down in ``load_owned_agent``,
+    and a third time in ``web_join._seat_user_agent``. That third copy is where the
+    paused-agent bug lived — a caller that re-derives half a rule is equally free to
+    forget the other half, and that one forgot to check whether the agent could
+    actually play.
+
+    Ownership is a DIFFERENT question from playability
+    (``app.engine.agent_playability.playable_agent_filter``): you can rename or
+    archive an agent that cannot play, and seating one needs both answers. They
+    overlap on kind and archived-ness because both first require "a real agent that
+    still exists"; nothing else is shared, so they stay separate rather than being
+    forced into one filter that answers neither question cleanly.
+    """
+    conditions: list[ColumnElement[bool]] = [
+        Agent.user_id == user_id,
+        Agent.archived_at.is_(None),
+    ]
+    if ai_only:
+        conditions.append(Agent.kind == AgentKind.AI)
+    return conditions
 
 
 def user_agents_select(user_id: int, *, ai_only: bool) -> Select[tuple[Agent, AgentVersion]]:
@@ -27,14 +53,11 @@ def user_agents_select(user_id: int, *, ai_only: bool) -> Select[tuple[Agent, Ag
     helper only shares the part that is identical across all three: the base
     select, the version left-join, and the per-user / non-archived filter.
     """
-    query = (
+    return (
         select(Agent, AgentVersion)
         .join(AgentVersion, AgentVersion.id == Agent.current_version_id, isouter=True)
-        .where(Agent.user_id == user_id, Agent.archived_at.is_(None))
+        .where(*owned_agent_filter(user_id, ai_only=ai_only))
     )
-    if ai_only:
-        query = query.where(Agent.kind == AgentKind.AI)
-    return query
 
 
 async def load_owned_agent(db: DbSession, user: User, agent_id: int) -> Agent:
@@ -48,9 +71,7 @@ async def load_owned_agent(db: DbSession, user: User, agent_id: int) -> Agent:
         await db.execute(
             select(Agent).where(
                 Agent.id == agent_id,
-                Agent.user_id == user.id,
-                Agent.kind == AgentKind.AI,
-                Agent.archived_at.is_(None),
+                *owned_agent_filter(user.id),
             )
         )
     ).scalar_one_or_none()

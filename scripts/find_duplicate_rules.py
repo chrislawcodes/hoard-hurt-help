@@ -146,15 +146,12 @@ def check_duplicate_function_names(root: pathlib.Path) -> list[str]:
     of which carried a comment explaining how it differed from the other two.
     """
     defs: dict[str, list[tuple[pathlib.Path, int]]] = collections.defaultdict(list)
-    imports: dict[pathlib.Path, str] = {}
     for path in _source_files(root):
         src = path.read_text()
-        imports[path] = src
         for i, line in enumerate(src.splitlines(), start=1):
             match = re.match(r"(?:async )?def (\w+)\(", line)
             if match:
                 defs[match.group(1)].append((path, i))
-
 
     findings: list[str] = []
     for name, entries in sorted(defs.items()):

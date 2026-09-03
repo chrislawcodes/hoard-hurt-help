@@ -29,6 +29,7 @@ from app.services.admin_user_actions import (
     reset_handle,
 )
 from app.templating import templates  # shared instance with custom filters
+from app.routes.agents_queries import owned_agent_filter
 
 router = APIRouter(tags=["admin"])
 _USERS_PAGE_SIZE = 50
@@ -189,9 +190,7 @@ async def admin_user_detail(
         await db.execute(
             select(Agent)
             .where(
-                Agent.user_id == user_id,
-                Agent.archived_at.is_(None),
-                Agent.kind == AgentKind.AI,
+                *owned_agent_filter(user_id),
             )
             .order_by(Agent.created_at.desc())
         )
