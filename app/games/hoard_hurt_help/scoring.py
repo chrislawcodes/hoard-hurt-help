@@ -124,7 +124,11 @@ async def resolve_turn(db: AsyncSession, turn: Turn) -> None:
 
     Order matters and matches spec.md §5:
       1. Default any missing submission to HOARD (was_defaulted=True).
-      2. Compute raw deltas (Hoard +2, Help +4 to target, Hurt -4 to target).
+      2. Compute raw deltas: HOARD splits `HOARD_POT_POINTS` between every
+         hoarder this turn (`hoard_share`), HELP pays the target `HELP_POINTS`,
+         and HURT costs the target `HURT_POINTS` while paying the attacker a
+         take priced off what the TARGET did (`hurt_take`) — unless the pair
+         HURT each other, which blocks both swings (`hurt_blocks`).
       3. Add the mutual-help bonus for any A↔B pair, at this match's mode rate —
          `mutual_help_value(mode, k)`, where k is how many times that same pair
          already mutually helped this match, from prior resolved turns.
