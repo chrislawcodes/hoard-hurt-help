@@ -75,11 +75,11 @@ async def test_the_match_really_does_end_long_before_the_ceiling(reset_db) -> No
     nowhere near `total_rounds`. That gap is exactly why calling those numbers
     the "game length" was wrong.
     """
-    from tests.test_liars_dice_module import _seed_match
+    from tests.test_liars_dice_module import _seed_liars_dice_module_match
 
     module = LiarsDice()
     async with reset_db() as db:
-        match, players = await _seed_match(db, match_id="M_LD_END")
+        match, players = await _seed_liars_dice_module_match(db, match_id="M_LD_END")
         assert await module.is_match_over(db, match) is False
 
         # Knock two of the three players out by emptying their dice.

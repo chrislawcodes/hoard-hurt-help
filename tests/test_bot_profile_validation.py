@@ -11,8 +11,6 @@ Covers:
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
-
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
@@ -23,7 +21,8 @@ from app.engine.bots.runtime import build_bot_profile
 from app.engine.bots.seating import BotSeatingError, add_bots_to_game
 from app.engine.bots.strategies import VALID_STRATEGIES
 from app.models.agent import Agent, AgentKind
-from app.models.match import GameState, Match
+from app.models.match import GameState
+from tests.factories import make_match
 
 
 # ---------------------------------------------------------------------------
@@ -87,7 +86,7 @@ def test_validate_bot_profile_fields_accepts_all_known_strategies() -> None:
 
 async def test_build_bot_profile_succeeds_for_valid_agent(reset_db) -> None:
     async with reset_db() as db:
-        match = await _seed_match(db, "M_bp")
+        match = await make_match(db, "M_bp", state=GameState.REGISTERING, name="Test Match", max_players=20)
         created = await add_bots_to_game(db, match, [("Caesar", "grudger")])
         player = created[0]
         from sqlalchemy import select
@@ -103,7 +102,7 @@ async def test_build_bot_profile_succeeds_for_valid_agent(reset_db) -> None:
 
 async def test_build_bot_profile_rejects_missing_strategy(reset_db) -> None:
     async with reset_db() as db:
-        match = await _seed_match(db, "M_bp2")
+        match = await make_match(db, "M_bp2", state=GameState.REGISTERING, name="Test Match", max_players=20)
         created = await add_bots_to_game(db, match, [("Caesar", "grudger")])
         player = created[0]
         from sqlalchemy import select
@@ -118,7 +117,7 @@ async def test_build_bot_profile_rejects_missing_strategy(reset_db) -> None:
 
 async def test_build_bot_profile_rejects_unknown_strategy(reset_db) -> None:
     async with reset_db() as db:
-        match = await _seed_match(db, "M_bp3")
+        match = await make_match(db, "M_bp3", state=GameState.REGISTERING, name="Test Match", max_players=20)
         created = await add_bots_to_game(db, match, [("Caesar", "grudger")])
         player = created[0]
         from sqlalchemy import select
@@ -178,23 +177,11 @@ async def reset_db(reset_db: async_sessionmaker) -> async_sessionmaker:
     return reset_db
 
 
-async def _seed_match(db, match_id: str = "M_test") -> Match:
-    match = Match(
-        id=match_id,
-        name="Test Match",
-        state=GameState.REGISTERING,
-        scheduled_start=datetime.now(timezone.utc) + timedelta(hours=1),
-        max_players=20,
-        game="hoard-hurt-help",
-    )
-    db.add(match)
-    await db.flush()
-    return match
 
 
 async def test_add_bots_to_game_succeeds_for_valid_preset(reset_db) -> None:
     async with reset_db() as db:
-        match = await _seed_match(db)
+        match = await make_match(db, "M_test", state=GameState.REGISTERING, name="Test Match", max_players=20)
         created = await add_bots_to_game(db, match, [("Caesar", "grudger")])
         assert len(created) == 1
         assert created[0].seat_name == "Caesar"
@@ -208,6 +195,6 @@ async def test_add_bots_to_game_succeeds_for_valid_preset(reset_db) -> None:
 
 async def test_add_bots_to_game_rejects_unknown_personality(reset_db) -> None:
     async with reset_db() as db:
-        match = await _seed_match(db)
+        match = await make_match(db, "M_test", state=GameState.REGISTERING, name="Test Match", max_players=20)
         with pytest.raises(BotSeatingError, match="Unknown personality"):
             await add_bots_to_game(db, match, [("Caesar", "galaxy_brain")])

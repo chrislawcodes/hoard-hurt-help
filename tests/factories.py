@@ -230,6 +230,34 @@ async def make_match(
     return match
 
 
+async def seed_match(
+    reset_db,
+    match_id: str,
+    *,
+    state: GameState,
+    name: str | None = None,
+    max_players: int | None = None,
+    owner_id: int | None = None,
+) -> Match:
+    """Open a session, create + commit a Match, and return it.
+
+    The `reset_db`-opening counterpart to `make_match`, for the common case of
+    seeding one match with nothing else in the same transaction.
+    """
+    async with reset_db() as db:
+        match = await make_match(
+            db,
+            match_id,
+            state=state,
+            name=name,
+            max_players=max_players,
+            created_by_user_id=owner_id,
+        )
+        await db.commit()
+        await db.refresh(match)
+        return match
+
+
 async def make_turn(
     db,
     match_id: str,

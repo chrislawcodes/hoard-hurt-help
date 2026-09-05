@@ -555,8 +555,26 @@ files = [
     "tests/test_role_simplification.py",
     "tests/test_smart_join_flow.py",
 ]
-verdict = "unjudged"
-note = ""
+verdict = "merged"
+note = "8 copies merged into tests.factories.seed_match; 2 (test_bot_agents.py, test_bot_profile_validation.py) deleted and call make_match directly since they already held an open session; 3 renamed (see _seed_liars_dice_driver_match, _seed_liars_dice_module_match, _seed_match_from_rounds) because each does game- or scenario-specific work make_match can't represent"
+
+[[test_helpers]]
+name = "_seed_liars_dice_driver_match"
+files = ["tests/test_liars_dice_driver.py"]
+verdict = "rename"
+note = "renamed from _seed_match; seats 3 players (optionally a bot) and writes liars-dice MatchState, not just a Match row, so it doesn't fit tests.factories.seed_match"
+
+[[test_helpers]]
+name = "_seed_liars_dice_module_match"
+files = ["tests/test_liars_dice_module.py"]
+verdict = "rename"
+note = "renamed from _seed_match; seats 3 players plus per-player dice state and an open Turn, so it doesn't fit tests.factories.seed_match. Imported by tests/test_liars_dice_rules_text.py."
+
+[[test_helpers]]
+name = "_seed_match_from_rounds"
+files = ["tests/test_replay_standings_single_source.py"]
+verdict = "rename"
+note = "renamed from _seed_match; builds a full match history (users, players, turns, submissions) from round data, not just a Match row"
 
 [[test_helpers]]
 name = "_seed_turn"

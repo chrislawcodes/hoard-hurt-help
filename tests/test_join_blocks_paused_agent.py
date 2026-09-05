@@ -13,30 +13,16 @@ the template. Both now read `seat_block`, so they cannot disagree.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 from sqlalchemy import select
 
-from app.models import GameState, Match, Player
+from app.models import GameState, Player
 from app.models.agent import AgentStatus
 from tests.conftest import signed_in_cookies as _cookies
-from tests.factories import make_agent, make_connection, make_user
+from tests.factories import make_agent, make_connection, make_user, seed_match
 
 JOIN_URL = "/games/hoard-hurt-help/matches/G_001/join"
-
-
-async def _seed_match(reset_db) -> None:
-    async with reset_db() as db:
-        db.add(
-            Match(
-                id="G_001",
-                name="Test Match",
-                state=GameState.REGISTERING,
-                scheduled_start=datetime.now(timezone.utc) + timedelta(hours=1),
-                per_turn_deadline_seconds=60,
-            )
-        )
-        await db.commit()
 
 
 async def _user_with_agent(reset_db, *, status: AgentStatus):
@@ -59,7 +45,7 @@ async def test_picker_shows_a_paused_agent_as_blocked_with_a_way_to_fix_it(
 ) -> None:
     """Shown, not hidden -- a vanished agent reads as deleted and sends people
     hunting. The row must name the reason and link to the control that fixes it."""
-    await _seed_match(reset_db)
+    await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
     user_id, agent_id = await _user_with_agent(reset_db, status=AgentStatus.PAUSED)
 
     page = await client.get(JOIN_URL, cookies=_cookies(user_id))
@@ -75,7 +61,7 @@ async def test_picker_shows_a_paused_agent_as_blocked_with_a_way_to_fix_it(
 async def test_seating_a_paused_agent_is_refused(client, reset_db) -> None:
     """The route enforces it independently of the picker: a crafted POST never
     renders a template, so a UI-only fix would leave the hole open."""
-    await _seed_match(reset_db)
+    await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
     user_id, agent_id = await _user_with_agent(reset_db, status=AgentStatus.PAUSED)
 
     r = await client.post(
@@ -93,7 +79,7 @@ async def test_seating_a_paused_agent_is_refused(client, reset_db) -> None:
 
 async def test_an_active_agent_still_joins(client, reset_db) -> None:
     """The guard must not block the normal path."""
-    await _seed_match(reset_db)
+    await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
     user_id, agent_id = await _user_with_agent(reset_db, status=AgentStatus.ACTIVE)
 
     r = await client.post(
@@ -113,7 +99,7 @@ async def test_resume_sends_the_user_back_to_the_match_they_came_from(
 ) -> None:
     """Without this the fix-link is a dead end: you resume, land on the agent page,
     and have to find your way back to a match that may be filling up."""
-    await _seed_match(reset_db)
+    await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
     user_id, agent_id = await _user_with_agent(reset_db, status=AgentStatus.PAUSED)
 
     r = await client.post(
@@ -128,7 +114,7 @@ async def test_resume_sends_the_user_back_to_the_match_they_came_from(
 
 async def test_resume_ignores_an_external_next(client, reset_db) -> None:
     """`safe_internal_next` guards the open redirect; pin it on this caller too."""
-    await _seed_match(reset_db)
+    await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
     user_id, agent_id = await _user_with_agent(reset_db, status=AgentStatus.PAUSED)
 
     r = await client.post(

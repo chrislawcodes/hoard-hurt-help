@@ -26,32 +26,12 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from app.config import settings
 from app.models.user import UserRole
 from app.models import GameState, Match
-from tests.factories import make_user
+from tests.factories import make_user, seed_match
 from tests.conftest import signed_in_cookies as _cookies
 
 REAL_GAME = "hoard-hurt-help"
 WRONG_GAME = "liars-dice"
 MATCH_ID = "M_SLUG_1"
-
-
-async def _seed_match(
-    reset_db: async_sessionmaker,
-    *,
-    state: GameState = GameState.REGISTERING,
-) -> None:
-    async with reset_db() as db:
-        db.add(
-            Match(
-                id=MATCH_ID,
-                name="Slug Test Match",
-                game=REAL_GAME,
-                state=state,
-                scheduled_start=datetime.now(timezone.utc) + timedelta(hours=1),
-                per_turn_deadline_seconds=60,
-                max_players=20,
-            )
-        )
-        await db.commit()
 
 
 async def _seed_match_and_user(
@@ -85,7 +65,7 @@ async def _seed_match_and_user(
 
 async def test_form_a_get_viewer_wrong_slug_redirects_301(client, reset_db) -> None:
     """GET viewer with a wrong slug: 301 to the canonical viewer URL (no suffix)."""
-    await _seed_match(reset_db, state=GameState.ACTIVE)
+    await seed_match(reset_db, MATCH_ID, state=GameState.ACTIVE, name="Slug Test Match", max_players=20)
 
     r = await client.get(
         f"/games/{WRONG_GAME}/matches/{MATCH_ID}", follow_redirects=False
@@ -98,7 +78,7 @@ async def test_form_a_get_analysis_wrong_slug_redirects_301_with_suffix(
     client, reset_db
 ) -> None:
     """GET analysis with a wrong slug: 301 keeping the ``/analysis`` path tail."""
-    await _seed_match(reset_db, state=GameState.ACTIVE)
+    await seed_match(reset_db, MATCH_ID, state=GameState.ACTIVE, name="Slug Test Match", max_players=20)
 
     r = await client.get(
         f"/games/{WRONG_GAME}/matches/{MATCH_ID}/analysis", follow_redirects=False
