@@ -21,6 +21,7 @@ was rejected, what it left undone — is in [`what-shipped-and-why.md`](docs/ope
 - **Three more CI ratchets: test clients, oversized files, import cycles** (2026-09-06) — each records today's state and fails only when it gets worse; no cleanup done yet. [Full account](docs/operations/what-shipped-and-why.md#three-more-ci-ratchets-test-clients-oversized-files-import-cycles)
 - **The Feature Factory engine moves from docs to tools** (2026-09-06) — it was sitting under `docs/`, but it's tooling with its own tests, not documentation. [Full account](docs/operations/what-shipped-and-why.md#the-feature-factory-engine-moves-from-docs-to-tools)
 - **One home for seeding a match in tests** (2026-09-05) — 13 copies of `_seed_match` across `tests/*.py` are now 8 merged into `tests.factories.seed_match`, 2 replaced by direct `make_match` calls, and 3 kept and renamed for real per-file behavior; unblocks the next test file from adding a 14th copy unnoticed. [Full account](docs/operations/what-shipped-and-why.md#one-home-for-seeding-a-match-in-tests)
+- **A tripwire test for new copies of `tests/` seeding helpers** (2026-09-05) — PR D of the One Home, Kept plan: records today's 16 duplicate seeding-helper names in `tests/*.py` as a baseline and fails the build if a new one shows up. [Full account](docs/operations/what-shipped-and-why.md#a-tripwire-test-for-new-copies-of-tests-seeding-helpers)
 - **The docs that state a rule are generated from it, and four that had drifted are fixed** (2026-09-03) — the game design doc carried the **v8 payoff table into a v11 game**, and the platform design doc recorded a memory decision that no longer ships. [Full account](docs/operations/what-shipped-and-why.md#the-docs-that-state-a-rule-are-generated-from-it-and-four-that-had-drifted-are-fixed)
 - **"Is this agent yours?" gets one home** (2026-08-30) — four places each answered the same question by hand: **you own it, you have not archived it, and it is an AI rather than a human seat**. [Full account](docs/operations/what-shipped-and-why.md#is-this-agent-yours-gets-one-home)
 - **The talk phase reaches the export, and the column is named for what it holds** (2026-09-01) — M_7975 exported three of its eight seats as **silent on all 35 of their moves** while the viewer showed them talking the whole match. [Full account](docs/operations/what-shipped-and-why.md#the-talk-phase-reaches-the-export-and-the-column-is-named-for-what-it-holds)
@@ -138,6 +139,7 @@ was rejected, what it left undone — is in [`what-shipped-and-why.md`](docs/ope
 - Connection onboarding can now safely wait for the provider's first live call before the real connection row exists.
 - New agent creation now uses the grouped model picker with provider-aware availability notes, and users without a machine are pointed at the connection setup page first.
 - Spectators watching a match can now let the replay run automatically instead of manually starting playback.
+- The 16 recorded `tests/` seeding-helper duplicates can now be merged into `tests/factories.py` one at a time — the ratchet test catches any that come back.
 
 ## Notes
 
