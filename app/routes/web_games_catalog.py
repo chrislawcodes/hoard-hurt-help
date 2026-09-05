@@ -14,25 +14,15 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.deps import DbSession, get_current_user
 from app.game_types import DEFAULT_GAME_TYPE
+from app.games import game_display_name
 from app.games import get as get_game_module
 from app.games import is_admin_only, visible_types
 from app.games.base import GameError
-from app.match_naming import humanize_game_type
 from app.routes.nav_context import LOBBY_URL
 from app.routes.web_support import _is_any_admin
 from app.templating import templates
 
 router = APIRouter(tags=["web"])
-
-
-def _game_display_name(game_type: str) -> str:
-    # The display title is owned by the game module. An unregistered (legacy)
-    # game_type has no module, so fall back to the humanized type — exactly what
-    # the module's own default does for a game that declares no title.
-    try:
-        return get_game_module(game_type).display_name()
-    except GameError:
-        return humanize_game_type(game_type)
 
 
 def _game_tagline(game_type: str) -> str:
@@ -51,7 +41,7 @@ async def games_catalog(request: Request, db: DbSession):
     games = [
         {
             "slug": slug,
-            "name": _game_display_name(slug),
+            "name": game_display_name(slug),
             "tagline": _game_tagline(slug),
             "admin_only": is_admin_only(slug),
         }
@@ -113,7 +103,7 @@ async def agent_instructions_page(
             "user": user,
             "is_admin": _is_any_admin(user),
             "game": game,
-            "game_name": _game_display_name(game),
+            "game_name": game_display_name(game),
             "game_theme": module.theme(),
             "base_prompt": base_prompt,
         },
@@ -125,6 +115,5 @@ __all__ = [
     "games_catalog",
     "operator_join_page",
     "agent_instructions_page",
-    "_game_display_name",
     "_game_tagline",
 ]
