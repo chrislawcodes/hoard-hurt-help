@@ -325,6 +325,27 @@ async def load_open_turn(db: AsyncSession, match_id: str) -> Turn | None:
     ).scalar_one_or_none()
 
 
+async def load_turn_at(
+    db: AsyncSession, match_id: str, round_num: int, turn_num: int
+) -> Turn | None:
+    """Return the turn at this exact (match, round, turn), or None if no such row.
+
+    The one home for this position lookup: it carries the mid-deploy freeze
+    fix's resume idempotency check (see docs/operations/debugging-history.md,
+    G_0012), so its three equalities must never quietly re-diverge into a
+    second, slightly-different copy.
+    """
+    return (
+        await db.execute(
+            select(Turn).where(
+                Turn.match_id == match_id,
+                Turn.round == round_num,
+                Turn.turn == turn_num,
+            )
+        )
+    ).scalar_one_or_none()
+
+
 async def load_open_turns(
     db: AsyncSession, match_ids: Sequence[str]
 ) -> dict[str, Turn]:

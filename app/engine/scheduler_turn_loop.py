@@ -31,6 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.aware_datetime import ensure_aware
 from app.engine import resolver
+from app.engine.agent_play_reads import load_turn_at
 from app.engine.match_cancellation import mark_cancelled
 from app.engine.tokens import generate_turn_token
 from app.engine.turn_clock import SUBMIT_POLL_SECONDS, now_utc
@@ -304,15 +305,7 @@ async def _open_turn(db, game: Match, round_num: int, turn_num: int) -> Turn:
     `current_turn`, with no resume guard. The get-or-create + the `current_round`
     write here are structural, not parameters — see tests/test_turn_openers.py.
     """
-    existing = (
-        await db.execute(
-            select(Turn).where(
-                Turn.match_id == game.id,
-                Turn.round == round_num,
-                Turn.turn == turn_num,
-            )
-        )
-    ).scalar_one_or_none()
+    existing = await load_turn_at(db, game.id, round_num, turn_num)
     if existing is not None:
         game.current_round = round_num
         game.current_turn = turn_num

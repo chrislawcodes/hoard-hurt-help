@@ -49,6 +49,7 @@ from app.engine.agent_play_reads import (
     _public_standings,
     load_match_players,
     load_open_turn,
+    load_turn_at,
     sorted_seat_names,
 )
 from app.engine.connection_activity import increment_turns_played, mark_first_move
@@ -59,7 +60,7 @@ from app.identity.milestones import record_milestone
 from app.models.connection import Connection
 from app.models.match import GameState
 from app.models.player import Player
-from app.models.turn import Turn, TurnSubmission
+from app.models.turn import TurnSubmission
 from app.models.user_milestone import MilestoneKind
 from app.ops_events import log_ops_event
 from app.schemas.agent import (
@@ -447,17 +448,8 @@ async def turn_detail(
 ) -> TurnDetailResponse:
     _check_pull_rate_limit(rate_state, player.agent_id, "turn_detail")
     game = await _game_for(match_id, db)
-    turn_row = (
-        await db.execute(
-            select(Turn).where(
-                Turn.match_id == game.id,
-                Turn.round == round,
-                Turn.turn == turn,
-                Turn.resolved_at.is_not(None),
-            )
-        )
-    ).scalar_one_or_none()
-    if turn_row is None:
+    turn_row = await load_turn_at(db, game.id, round, turn)
+    if turn_row is None or turn_row.resolved_at is None:
         raise _err("NOT_FOUND", "No such resolved turn.", status.HTTP_404_NOT_FOUND)
     all_players = await load_match_players(db, game.id)
     these = [

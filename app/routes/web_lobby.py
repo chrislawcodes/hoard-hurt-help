@@ -71,7 +71,6 @@ from app.routes.web_support import (
 # working without change.
 from app.routes.web_front_page import home
 from app.routes.web_games_catalog import (
-    _game_display_name,
     _game_tagline,
     agent_instructions_page,
     games_catalog,
@@ -336,7 +335,6 @@ __all__ = [
     "games_catalog",
     "operator_join_page",
     "agent_instructions_page",
-    "_game_display_name",
     "_game_tagline",
     "leaderboard_page",
     "_leaderboard_url",

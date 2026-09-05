@@ -49,6 +49,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.aware_datetime import ensure_aware
 from app.db import SessionLocal
 from app.engine import resolver
+from app.engine.agent_play_reads import load_turn_at
 from app.engine.scheduler_turn_loop import _begin_act_phase
 from app.games import get as get_game_module
 from app.models.match import Match, GameState
@@ -241,15 +242,7 @@ async def _load_frozen_state(
     ).scalar_one_or_none()
     if match is None or match.state != GameState.ACTIVE:
         return None
-    turn = (
-        await db.execute(
-            select(Turn).where(
-                Turn.match_id == match_id,
-                Turn.round == round_num,
-                Turn.turn == turn_num,
-            )
-        )
-    ).scalar_one_or_none()
+    turn = await load_turn_at(db, match_id, round_num, turn_num)
     if turn is None or turn.resolved_at is not None:
         return None
     cutoff = datetime.now(timezone.utc) - timedelta(

@@ -52,9 +52,9 @@ pr = "PR A"
 [[function_names]]
 name = "_game_display_name"
 files = ["app/read_models/leaderboard.py", "app/routes/web_games_catalog.py"]
-verdict = "unjudged"
-note = "identical bodies; merged in PR H"
-pr = "PR A"
+verdict = "merged"
+note = "identical bodies; merged into app.games.game_display_name"
+pr = "PR H"
 
 [[function_names]]
 name = "_load_user_agents"
@@ -135,9 +135,6 @@ pr = "PR A"
 # key is the finding's header text exactly as scripts/find_duplicate_rules.py
 # prints it: "Model.field" for a guard_gap, "[Model.field, Model.field, ...]"
 # (brackets included) for a repeated_predicate.
-#
-# [Turn.match_id, Turn.round, Turn.turn] is deliberately NOT listed here — PR H
-# fixes that one, so it should keep showing up as a live candidate until then.
 
 [[scanner_hits]]
 check = "guard_gap"
@@ -162,6 +159,12 @@ check = "repeated_predicate"
 key = "[Connection.deleted_at, Connection.mcp_connected_at, Connection.user_id]"
 verdict = "leave"
 note = "opposites: is_(None) vs is_not(None)"
+
+[[scanner_hits]]
+check = "repeated_predicate"
+key = "[Turn.match_id, Turn.round, Turn.turn]"
+verdict = "leave"
+note = "remaining sites order all turns; the position lookup lives in load_turn_at"
 
 # --- adjudicated --------------------------------------------------------------
 # Mirrors the "Refactors adjudicated" table in
@@ -326,7 +329,6 @@ note = ""
 [[reexports]]
 module = "app/routes/web_lobby.py"
 names = [
-    "_game_display_name",
     "_game_tagline",
     "_leaderboard_url",
     "_upcoming_views",

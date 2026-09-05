@@ -9,6 +9,7 @@ from __future__ import annotations
 from app.games.base import GameConfig, GameError, GameModule
 from app.games.hoard_hurt_help.game import HoardHurtHelp
 from app.games.liars_dice.game import LiarsDice
+from app.match_naming import humanize_game_type
 
 _REGISTRY: dict[str, GameModule] = {}
 
@@ -35,6 +36,16 @@ def get(game_type: str) -> GameModule:
             "UNKNOWN_GAME_TYPE", f"No game module registered for {game_type!r}."
         )
     return module
+
+
+def game_display_name(game_type: str) -> str:
+    # The display title is owned by the game module. An unregistered (legacy)
+    # game_type has no module, so fall back to the humanized type — exactly what
+    # the module's own default does for a game that declares no title.
+    try:
+        return get(game_type).display_name()
+    except GameError:
+        return humanize_game_type(game_type)
 
 
 def known_types() -> list[str]:
@@ -66,6 +77,7 @@ __all__ = [
     "GameConfig",
     "GameError",
     "GameModule",
+    "game_display_name",
     "get",
     "is_admin_only",
     "known_types",

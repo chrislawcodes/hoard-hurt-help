@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.games import GameError
 from app.games.base import default_match_placement_key
+from app.games import game_display_name
 from app.games import get as get_game_module
 from app.games import known_types
 from app.models.agent import Agent, AgentKind
@@ -21,7 +22,7 @@ from app.models.agent_version import AgentVersion
 from app.models.match import GameState, Match
 from app.models.player import Player
 from app.models.user import User
-from app.match_naming import humanize_game_type, is_smoke_test_match_name
+from app.match_naming import is_smoke_test_match_name
 from app.provider_labels import provider_label
 from app.read_models.agent_display import agent_display_name
 
@@ -141,16 +142,6 @@ def _merge_same_key_participants(participants: list[_Participant]) -> list[_Part
                 )
             )
     return merged
-
-
-def _game_display_name(game_type: str) -> str:
-    # The display title is owned by the game module. Unregistered (legacy) game
-    # types have no module, so fall back to the humanized type — the same fallback
-    # the section ordering and placement-key lookup above already use.
-    try:
-        return get_game_module(game_type).display_name()
-    except GameError:
-        return humanize_game_type(game_type)
 
 
 def _normalize_rating_mode(rating_mode: str) -> LeaderboardRatingMode:
@@ -489,7 +480,7 @@ async def load_leaderboard_sections(
         sections.append(
             LeaderboardSection(
                 game_type=game_type,
-                game_name=_game_display_name(game_type),
+                game_name=game_display_name(game_type),
                 rows=_format_leaderboard_rows(states),
                 match_count=contributed_matches,
                 has_bots=has_bots,
