@@ -1,0 +1,189 @@
+# one_home_verdicts.toml
+#
+# The record of "we judged this duplicate" for this repo's One Home Per Rule
+# rule (see CLAUDE.md). Every entry below is a decision a person already made
+# about one hit from scripts/find_duplicate_rules.py — this file is the one
+# place that decision lives, so nobody has to re-decide it, and so a NEW hit
+# of the same shape can't slip in unnoticed.
+#
+# Read by:
+#   - scripts/find_duplicate_rules.py — hides a hit once it has an entry here
+#     (function_names: any verdict but "unjudged"; scanner_hits: any entry
+#     at all), and still prints the ones nobody has judged yet.
+#   - tests/test_one_home_ratchet.py — fails the build when a new same-name
+#     function appears in two files with no entry here, when a recorded
+#     entry's file list has gone stale, or when a "merged" entry's duplicate
+#     has come back.
+#
+# `pr` records which lettered PR of the "One Home, Kept" plan last set that
+# verdict. Every entry below was set in PR A, which introduced this file.
+
+# --- function_names ---------------------------------------------------------
+# verdict is one of: protocol | leave | rename | merged | unjudged
+#   protocol = every file is under app/games/ — one function per game is the
+#              expected shape, not a duplicate to fix.
+#   leave    = looked at, kept as two definitions on purpose.
+#   rename   = looked at, will be told apart by a rename rather than merged.
+#   merged   = it used to be duplicated; the merge landed, so this name
+#              should NOT be found by the scanner any more.
+#   unjudged = nobody has looked at this pair yet.
+
+[[function_names]]
+name = "_best_partner"
+files = ["app/engine/bots/strategies.py", "app/engine/bots/trust.py"]
+verdict = "unjudged"
+note = ""
+pr = "PR A"
+
+[[function_names]]
+name = "_build_rc_data"
+files = ["app/games/hoard_hurt_help/viewer.py", "app/games/liars_dice/viewer.py"]
+verdict = "protocol"
+note = ""
+pr = "PR A"
+
+[[function_names]]
+name = "_clamp"
+files = ["app/engine/bots/trust.py", "app/routes/matches_user.py"]
+verdict = "unjudged"
+note = ""
+pr = "PR A"
+
+[[function_names]]
+name = "_game_display_name"
+files = ["app/read_models/leaderboard.py", "app/routes/web_games_catalog.py"]
+verdict = "unjudged"
+note = "identical bodies; merged in PR H"
+pr = "PR A"
+
+[[function_names]]
+name = "_load_user_agents"
+files = [
+    "app/routes/agents_list.py",
+    "app/routes/connections_queries.py",
+    "app/routes/web_player_shared.py",
+]
+verdict = "leave"
+note = "all three call user_agents_select; differ by ai_only / ordering / return shape (2026-08 triage)"
+pr = "PR A"
+
+[[function_names]]
+name = "_now"
+files = ["app/games/hoard_hurt_help/game.py", "app/games/liars_dice/game.py"]
+verdict = "protocol"
+note = ""
+pr = "PR A"
+
+[[function_names]]
+name = "_safe_next"
+files = ["app/routes/dev_login.py", "app/routes/handle_web.py"]
+verdict = "leave"
+note = "both delegate to safe_internal_next (PR #740)"
+pr = "PR A"
+
+[[function_names]]
+name = "export_csv"
+files = ["app/routes/admin_api.py", "app/routes/match_export_api.py"]
+verdict = "unjudged"
+note = ""
+pr = "PR A"
+
+[[function_names]]
+name = "export_json"
+files = ["app/routes/admin_api.py", "app/routes/match_export_api.py"]
+verdict = "unjudged"
+note = ""
+pr = "PR A"
+
+[[function_names]]
+name = "get_next_turn"
+files = ["app/engine/agent_play_next_turn.py", "mcp_server/mcp_tools.py"]
+verdict = "unjudged"
+note = ""
+pr = "PR A"
+
+[[function_names]]
+name = "get_next_turns"
+files = ["app/engine/agent_play_next_turn.py", "mcp_server/mcp_tools.py"]
+verdict = "unjudged"
+note = ""
+pr = "PR A"
+
+[[function_names]]
+name = "make_game_rules_text"
+files = ["app/games/hoard_hurt_help/rules.py", "app/games/liars_dice/rules_text.py"]
+verdict = "protocol"
+note = ""
+pr = "PR A"
+
+[[function_names]]
+name = "submit_action"
+files = ["app/engine/agent_play.py", "mcp_server/mcp_tools.py"]
+verdict = "unjudged"
+note = ""
+pr = "PR A"
+
+[[function_names]]
+name = "submit_talk"
+files = ["app/engine/agent_play.py", "mcp_server/mcp_tools.py"]
+verdict = "unjudged"
+note = ""
+pr = "PR A"
+
+# --- scanner_hits ------------------------------------------------------------
+# check is one of: guard_gap | repeated_predicate
+# key is the finding's header text exactly as scripts/find_duplicate_rules.py
+# prints it: "Model.field" for a guard_gap, "[Model.field, Model.field, ...]"
+# (brackets included) for a repeated_predicate.
+#
+# [Turn.match_id, Turn.round, Turn.turn] is deliberately NOT listed here — PR H
+# fixes that one, so it should keep showing up as a live candidate until then.
+
+[[scanner_hits]]
+check = "guard_gap"
+key = "Connection.deleted_at"
+verdict = "leave"
+note = "callers delegate to assert_connection_usable"
+
+[[scanner_hits]]
+check = "guard_gap"
+key = "ConnectionSetup.completed_at"
+verdict = "leave"
+note = "flagged callers are update() writers"
+
+[[scanner_hits]]
+check = "guard_gap"
+key = "Player.left_at"
+verdict = "leave"
+note = "incidental Player touches, no rule"
+
+[[scanner_hits]]
+check = "repeated_predicate"
+key = "[Connection.deleted_at, Connection.mcp_connected_at, Connection.user_id]"
+verdict = "leave"
+note = "opposites: is_(None) vs is_not(None)"
+
+# --- adjudicated --------------------------------------------------------------
+# Mirrors the "Refactors adjudicated" table in
+# .claude/skills/failure-archaeology/SKILL.md — candidate is that table's first
+# column, verbatim. tests/test_one_home_ratchet.py checks the two stay in sync.
+
+[[adjudicated]]
+candidate = "C2: unify the two turn-row openers"
+why = "One is get-or-create (resume-safe), the other a blind INSERT — behaviorally different on purpose (the G_0012 lesson)."
+evidence = "dedup run docs/workflow/feature-runs/dedup-engine-cseries/, PR #559"
+
+[[adjudicated]]
+candidate = "D5: extract a `pick_by_trust` helper from 6 seeded trust-tiebreak selectors"
+why = "Per-site seed args / access patterns / signs differ; a shared helper adds determinism risk with no real dedup. Sites pinned by a determinism regression test."
+evidence = "dedup run docs/workflow/feature-runs/dedup-bots/, PR #563"
+
+[[adjudicated]]
+candidate = "Turn-loop twins: merge `_all_submitted`/`_all_messaged` + the two wait loops (`scheduler_turn_loop.py`)"
+why = "Real duplication, adjudicated leave-as-is: this is the code that freezes live games when it breaks (G_0012, M_0279) and the payoff is ~40 lines. Boring, separate functions are the safety feature. Owner call, 2026-07-04."
+evidence = "Tier 4 close-out of the refactoring survey (see STATUS.md entry + its PR)"
+
+[[adjudicated]]
+candidate = "Split `scripts/agentludum_connector.py` into a package"
+why = "Deferred, not refused: operators install by copying the one file, so a split first requires a distribution change (e.g. zipapp) and a one-time re-install for everyone. Section banners added instead. Revisit only if the install story changes."
+evidence = "Tier 4 close-out of the refactoring survey (see STATUS.md entry + its PR)"
