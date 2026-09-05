@@ -29,11 +29,8 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from app.config import settings
 from app.db import make_engine
-from app.engine.connection_health import (
-    ConnectionHealth,
-    ProviderReadiness,
-    provider_readiness,
-)
+from app.engine.connection_health_badge import ConnectionHealth
+from app.engine.provider_readiness import ProviderReadiness, provider_readiness
 from app.engine.seat_hold import confirm_seat_if_live
 from app.models import Base
 from app.models.agent import Agent, AgentKind, AgentStatus

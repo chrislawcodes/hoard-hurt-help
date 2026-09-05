@@ -19,14 +19,13 @@ from starlette.responses import Response
 from app.config import PROVIDER_MODELS, settings
 from app.deps import DbSession, require_user_with_handle
 from app.game_types import DEFAULT_GAME_TYPE
-from app.engine.connection_health import (
+from app.engine.connection_health_badge import (
     CalmConnectionStatus,
     ConnectionHealthStatus,
-    ProviderReadiness,
     calm_connection_status,
     compute_connection_health,
-    provider_readiness,
 )
+from app.engine.provider_readiness import ProviderReadiness, provider_readiness
 from app.engine.machine_connection_dedup import dedupe_machine_connections
 from app.engine.pending_connection_gc import gc_pending_connections
 from app.models.connection import Connection, ConnectionProvider

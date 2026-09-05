@@ -26,10 +26,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.deps import DbSession, get_current_user
 from app.game_types import DEFAULT_GAME_TYPE
-from app.engine.connection_health import (
-    LIVE_WINDOW_SECONDS,
-    READINESS_RANK,
+from app.engine.connection_health_badge import LIVE_WINDOW_SECONDS
+from app.engine.provider_readiness import (
     ProviderReadiness,
+    READINESS_RANK,
     enabled_provider_values,
     provider_readiness,
 )

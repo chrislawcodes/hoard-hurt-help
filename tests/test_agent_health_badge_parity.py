@@ -31,12 +31,12 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from app.engine.connection_health import (
-    ConnectionHealth,
+from app.engine.connection_health_badge import ConnectionHealth
+from app.engine.join_gate_capacity import providers_busy_for_user
+from app.engine.provider_readiness import (
     PlayVerdict,
     ProviderReadiness,
     play_verdict,
-    providers_busy_for_user,
     user_play_readiness,
 )
 from app.models.agent import AgentStatus

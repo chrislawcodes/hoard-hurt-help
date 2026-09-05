@@ -187,3 +187,234 @@ evidence = "Tier 4 close-out of the refactoring survey (see STATUS.md entry + it
 candidate = "Split `scripts/agentludum_connector.py` into a package"
 why = "Deferred, not refused: operators install by copying the one file, so a split first requires a distribution change (e.g. zipapp) and a one-time re-install for everyone. Section banners added instead. Revisit only if the install story changes."
 evidence = "Tier 4 close-out of the refactoring survey (see STATUS.md entry + its PR)"
+
+# --- reexports (PR C) ---------------------------------------------------------
+# verdict is one of: leave | unjudged
+#   leave    = looked at, re-exporting here on purpose (e.g. a thin assembler).
+#   unjudged = nobody has looked at this module's re-exports yet.
+#
+# Read by:
+#   - tests/test_reexports_have_one_home.py — fails the build when a module's
+#     __all__ re-exports (imports, never defines) a name with no entry here, or
+#     when a recorded entry's names have gone stale.
+#
+# `names` lists every name in that module's __all__ that is bound only by an
+# import there, never a def/class/assignment. The module that actually defines
+# each name isn't repeated here — read that module's own imports to find it.
+# PR C emptied app/engine/connection_health.py and three route aggregators
+# (app/routes/agents_setup.py, connections_setup.py, web_player.py) of exactly
+# this pattern; those four have no entry below because they no longer qualify.
+
+[[reexports]]
+module = "app/engine/agent_play.py"
+names = [
+    "PullRateState",
+    "agent_identity_for",
+    "get_next_turn",
+    "get_next_turns",
+]
+verdict = "unjudged"
+note = ""
+
+[[reexports]]
+module = "app/engine/bots/__init__.py"
+names = [
+    "BOT_PACKS",
+    "BotActionDecision",
+    "BotContext",
+    "BotPack",
+    "BotPackEntry",
+    "BotPlan",
+    "BotProfile",
+    "BotProfileChoice",
+    "BotTalkDecision",
+    "TalkSignal",
+    "build_bot_profile",
+    "choose_action_plan",
+    "choose_bot_action_decision",
+    "choose_bot_talk_decision",
+    "compute_trust_map",
+    "expand_pack",
+    "extract_talk_signals",
+    "normalize_strategy_name",
+    "pack_profile_choices",
+    "render_phrase",
+    "resolve_pack",
+    "resolve_profile_choice",
+    "validate_bot_profile_fields",
+]
+verdict = "unjudged"
+note = ""
+
+[[reexports]]
+module = "app/engine/scheduler.py"
+names = [
+    "SimultaneousDriver",
+    "_all_messaged",
+    "_all_submitted",
+    "_begin_act_phase",
+    "_open_turn",
+    "_run_game",
+    "_run_game_guarded",
+    "_select_driver",
+    "_wait_for_messages",
+    "_wait_for_turn",
+    "auto_submit_bot_phase",
+    "publish",
+    "record_background_incident",
+]
+verdict = "unjudged"
+note = ""
+
+[[reexports]]
+module = "app/games/__init__.py"
+names = ["GameConfig", "GameError", "GameModule"]
+verdict = "unjudged"
+note = ""
+
+[[reexports]]
+module = "app/games/liars_dice/__init__.py"
+names = ["LiarsDice"]
+verdict = "unjudged"
+note = ""
+
+[[reexports]]
+module = "app/games/liars_dice/state.py"
+names = ["_next_alive_seat"]
+verdict = "unjudged"
+note = ""
+
+[[reexports]]
+module = "app/models/__init__.py"
+names = [
+    "AdminAction",
+    "AdminAuditLog",
+    "Agent",
+    "AgentKind",
+    "AgentStatus",
+    "AgentVersion",
+    "Base",
+    "Connection",
+    "ConnectionProvider",
+    "ConnectionProviderRow",
+    "ConnectionSetup",
+    "ConnectionStatus",
+    "GameState",
+    "Match",
+    "MatchState",
+    "MilestoneKind",
+    "ModelVerification",
+    "ModelVerificationStatus",
+    "Player",
+    "PlayerState",
+    "RequestIncident",
+    "Turn",
+    "TurnMessage",
+    "TurnSubmission",
+    "User",
+    "UserMilestone",
+]
+verdict = "unjudged"
+note = ""
+
+[[reexports]]
+module = "app/routes/admin_match_actions.py"
+names = ["load_match_or_404"]
+verdict = "unjudged"
+note = ""
+
+[[reexports]]
+module = "app/routes/web_lobby.py"
+names = [
+    "_game_display_name",
+    "_game_tagline",
+    "_leaderboard_url",
+    "_upcoming_views",
+    "account_disabled",
+    "agent_instructions_page",
+    "cancel_overdue_unfilled_games",
+    "contact",
+    "games_catalog",
+    "home",
+    "leaderboard_page",
+    "legacy_play_redirect",
+    "legacy_play_upcoming_redirect",
+    "operator_join_page",
+    "privacy",
+    "terms",
+]
+verdict = "unjudged"
+note = ""
+
+[[reexports]]
+module = "app/routes/web_support.py"
+names = [
+    "GameScopedMatch",
+    "GameScopedMatchOr404",
+    "GameScopedMatchPost",
+    "GameScopedMatchToViewer",
+    "GameSlugRedirect",
+    "_agent_count",
+    "_agent_counts",
+    "_corrected_game_path",
+    "_load_match_or_404",
+    "_make_game_scoped_match_loader",
+    "_make_game_scoped_match_or_404_loader",
+    "_match_url",
+    "_upcoming_views",
+    "game_slug_redirect_response",
+    "load_game_match_or_404",
+    "load_game_scoped_match",
+    "load_game_scoped_match_or_404",
+    "load_game_scoped_match_post",
+    "load_game_scoped_match_to_viewer",
+    "load_match_or_404",
+    "raise_for_game_slug_mismatch",
+]
+verdict = "unjudged"
+note = ""
+
+[[reexports]]
+module = "mcp_server/key_auth.py"
+names = ["looks_like_connection_key"]
+verdict = "unjudged"
+note = ""
+
+[[reexports]]
+module = "mcp_server/server.py"
+names = [
+    "SigninConnectionMiddleware",
+    "_ConnectAtSignInGoogleProvider",
+    "_LAST_PULL",
+    "_MCP_ACCESS_TOKEN_TTL_SECONDS",
+    "_bootstrap_signin_connection",
+    "_bootstrap_signin_connection_from_idp",
+    "_build_auth_provider",
+    "_build_client_storage",
+    "_client_provider_from_initialize",
+    "_connection_from_token",
+    "_dcr_client_id_from_request",
+    "_decode_jwt_claims",
+    "_decode_unverified_jwt_payload",
+    "_format_instruction_sections",
+    "_google_userinfo_from_token",
+    "_lean_payload_for_mcp",
+    "_mcp_how_to_play_block",
+    "_require_access_token",
+    "_resolve_match_id",
+    "_resolve_oauth_connection",
+    "_resolve_oauth_player",
+    "_session_scope",
+    "_sync_signin_user",
+    "_userinfo_from_claims",
+    "get_chat",
+    "get_game_state",
+    "get_instructions",
+    "get_next_turn",
+    "get_next_turns",
+    "register_tools",
+    "submit_action",
+    "submit_talk",
+]
+verdict = "leave"
+note = "thin assembler re-exports on purpose"

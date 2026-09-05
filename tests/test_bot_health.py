@@ -7,7 +7,7 @@ Green (Live/Ready) only when the runner is actually alive (warm heartbeat); red
 from datetime import datetime, timedelta, timezone
 
 
-from app.engine.connection_health import ConnectionHealth, compute_connection_health
+from app.engine.connection_health_badge import ConnectionHealth, compute_connection_health
 from app.engine.tokens import generate_turn_token
 from app.models import Match, GameState, Player, Turn, TurnSubmission
 from app.models.connection import ConnectionStatus

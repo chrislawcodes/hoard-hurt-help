@@ -28,7 +28,7 @@ from app.routes.agents_status import router as agents_status_router
 from app.routes.connections_credentials import router as connections_credentials_router
 from app.routes.connections_lifecycle import router as connections_lifecycle_router
 from app.routes.connections_setup import router as connections_setup_router
-from app.routes.web_player import _seat_name
+from app.routes.web_player_shared import _seat_name
 from tests.factories import (
     make_agent,
     make_connection,

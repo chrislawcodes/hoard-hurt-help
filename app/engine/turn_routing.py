@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from collections.abc import Mapping
 
 from app.aware_datetime import ensure_aware
-from app.engine.connection_health import LIVE_WINDOW_SECONDS
+from app.engine.connection_health_badge import LIVE_WINDOW_SECONDS
 from app.models.connection import ConnectionProvider
 
 

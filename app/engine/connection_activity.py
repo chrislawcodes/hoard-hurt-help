@@ -25,14 +25,14 @@ from app import broadcast
 from app.aware_datetime import ensure_aware
 from app.identity.milestones import record_milestone
 from app.models.user_milestone import MilestoneKind
-from app.engine.connection_health import (
-    LOOP_RUNNING_WINDOW_SECONDS,
+from app.engine.connection_health_badge import (
     ConnectionHealth,
     ConnectionHealthStatus,
+    LOOP_RUNNING_WINDOW_SECONDS,
     _HEALTH_PRESENTATION,
-    within_window,
     agent_is_defaulting,
     humanize_since,
+    within_window,
 )
 from app.engine.onboarding_states import PREGAME_STATES, has_moved
 from app.models.connection import Connection, ConnectionStatus

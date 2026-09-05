@@ -15,7 +15,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.engine.connection_activity import compute_bot_health
-from app.engine.connection_health import LOOP_RUNNING_WINDOW_SECONDS, within_window
+from app.engine.connection_health_badge import LOOP_RUNNING_WINDOW_SECONDS, within_window
 from app.models.agent import Agent
 from app.models.connection import Connection, ConnectionStatus
 from app.models.match import (

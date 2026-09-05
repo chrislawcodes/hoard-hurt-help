@@ -11,14 +11,14 @@ from sqlalchemy import func, select, update
 
 from app.deps import DbSession, require_user_with_handle
 from app.engine.agent_playability import playable_agent_filter
-from app.engine.connection_health import LIVE_WINDOW_SECONDS
+from app.engine.connection_health_badge import LIVE_WINDOW_SECONDS
 from app.models.agent import Agent
 from app.models.connection import Connection, ConnectionProvider, ConnectionStatus
 from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
 from app.models.connection_setup import ConnectionSetup
 from app.models.user import User
 
-from app.routes.connections_setup import _load_owned_connection
+from app.routes.connections_queries import _load_owned_connection
 
 router = APIRouter()
 

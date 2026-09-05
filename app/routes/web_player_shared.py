@@ -15,11 +15,7 @@ from __future__ import annotations
 from fastapi.responses import HTMLResponse
 
 from app.deps import DbSession
-from app.engine.connection_health import (
-    ProviderReadiness,
-    provider_readiness,
-    user_play_readiness,
-)
+from app.engine.provider_readiness import ProviderReadiness, provider_readiness, user_play_readiness
 from app.models.agent import Agent
 from app.models.agent_version import AgentVersion
 from app.models.connection import ConnectionProvider

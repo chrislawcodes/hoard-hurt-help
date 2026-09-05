@@ -18,13 +18,12 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from app.db import make_engine
-from app.engine.connection_health import (
+from app.engine.join_gate_capacity import (
     active_matches_for_provider,
     is_join_blocked,
     live_provider_capacity,
-    provider_is_covered,
-    provider_loop_running,
 )
+from app.engine.provider_readiness import provider_is_covered, provider_loop_running
 from app.models import Base
 from app.models.agent import AgentStatus
 from app.models.connection import ConnectionProvider, ConnectionStatus

@@ -129,7 +129,7 @@ async def test_connections_page_with_provider_hint_keeps_other_live_connections_
 
 
 def test_readiness_state_marks_paused_connections_as_needs_connecting() -> None:
-    from app.engine.connection_health import ConnectionHealth, ConnectionHealthStatus
+    from app.engine.connection_health_badge import ConnectionHealth, ConnectionHealthStatus
 
     paused_health = ConnectionHealthStatus(
         state=ConnectionHealth.PAUSED,
