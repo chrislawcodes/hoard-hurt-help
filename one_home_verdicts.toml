@@ -420,3 +420,173 @@ names = [
 ]
 verdict = "leave"
 note = "thin assembler re-exports on purpose"
+
+# --- test_helpers (PR D) ---
+# Same idea as function_names above, but for tests/*.py seeding helpers.
+# tests/factories.py is the declared home (make_user, make_connection,
+# make_agent, make_version, make_match, make_turn, add_submission,
+# seat_player, seat_prebuilt_player, make_bot). A module-level `def`/`async
+# def` under tests/ (excluding factories.py and conftest.py) whose name
+# matches `^_?(seed|make|create)_` and is defined in two or more files
+# belongs here instead of a fresh copy.
+#
+# Read by tests/test_test_helpers_have_one_home.py, which fails the build
+# when a new such name (or a new file for an existing one) appears with no
+# matching entry here, when a recorded unjudged/leave entry can no longer be
+# found, or when a "merged" entry's duplicate has come back.
+#
+# verdict is one of: leave | merged | unjudged
+#   leave    = looked at, kept as two (or more) definitions on purpose.
+#   merged   = it used to be duplicated; the merge landed, so this name
+#              should NOT be found by the test any more.
+#   unjudged = nobody has looked at this one yet — today's baseline, so the
+#              count can only fall from here.
+
+[[test_helpers]]
+name = "_make_connection"
+files = ["tests/test_agent_detail_fixes.py", "tests/test_mcp_key_auth.py"]
+verdict = "unjudged"
+note = ""
+
+[[test_helpers]]
+name = "_make_game_with_players"
+files = ["tests/test_resolver.py", "tests/test_two_phase_loop.py"]
+verdict = "unjudged"
+note = ""
+
+[[test_helpers]]
+name = "_make_match"
+files = [
+    "tests/test_agent_detail_fixes.py",
+    "tests/test_agent_versions.py",
+    "tests/test_connection_management.py",
+    "tests/test_coverage_health_and_join_gate.py",
+    "tests/test_human_join.py",
+    "tests/test_human_plus_agent_join.py",
+    "tests/test_mutual_help_modes.py",
+    "tests/test_readiness_adoption.py",
+    "tests/test_user_start_solo_match.py",
+]
+verdict = "unjudged"
+note = ""
+
+[[test_helpers]]
+name = "_make_turn"
+files = ["tests/test_connection_management.py", "tests/test_connector_fallback.py"]
+verdict = "unjudged"
+note = ""
+
+[[test_helpers]]
+name = "_make_user"
+files = ["tests/test_handle_gate.py", "tests/test_human_player.py", "tests/test_mcp_connection.py"]
+verdict = "unjudged"
+note = ""
+
+[[test_helpers]]
+name = "_seed_active_match"
+files = ["tests/test_admin.py", "tests/test_migrations.py"]
+verdict = "unjudged"
+note = ""
+
+[[test_helpers]]
+name = "_seed_agent"
+files = [
+    "tests/test_agent_set_model.py",
+    "tests/test_bot_soft_delete.py",
+    "tests/test_join_lineup.py",
+    "tests/test_lobby.py",
+    "tests/test_lobby_join_and_stacking.py",
+]
+verdict = "unjudged"
+note = ""
+
+[[test_helpers]]
+name = "_seed_completed_match"
+files = [
+    "tests/test_leaderboard.py",
+    "tests/test_leaderboard_cache.py",
+    "tests/test_leaderboard_placement.py",
+]
+verdict = "unjudged"
+note = ""
+
+[[test_helpers]]
+name = "_seed_connection"
+files = ["tests/test_bot_agents.py", "tests/test_connection_auth.py"]
+verdict = "unjudged"
+note = ""
+
+[[test_helpers]]
+name = "_seed_disabled_user"
+files = ["tests/test_account_disabled.py", "tests/test_contact_page.py", "tests/test_legal_pages.py"]
+verdict = "unjudged"
+note = ""
+
+[[test_helpers]]
+name = "_seed_game"
+files = [
+    "tests/test_admin_add_bots.py",
+    "tests/test_agent_api.py",
+    "tests/test_agent_ludum_routing.py",
+    "tests/test_agent_two_phase.py",
+    "tests/test_bot_form_validation.py",
+    "tests/test_bot_soft_delete.py",
+    "tests/test_lobby.py",
+    "tests/test_lobby_join_and_stacking.py",
+    "tests/test_turn_openers.py",
+]
+verdict = "unjudged"
+note = ""
+
+[[test_helpers]]
+name = "_seed_match"
+files = [
+    "tests/test_bot_agents.py",
+    "tests/test_bot_profile_validation.py",
+    "tests/test_game_scoped_match_loader.py",
+    "tests/test_join_blocks_paused_agent.py",
+    "tests/test_join_lineup.py",
+    "tests/test_join_seat_hold.py",
+    "tests/test_liars_dice_driver.py",
+    "tests/test_liars_dice_module.py",
+    "tests/test_match_urls.py",
+    "tests/test_matches_user.py",
+    "tests/test_replay_standings_single_source.py",
+    "tests/test_role_simplification.py",
+    "tests/test_smart_join_flow.py",
+]
+verdict = "unjudged"
+note = ""
+
+[[test_helpers]]
+name = "_seed_turn"
+files = ["tests/test_agent_play_service.py", "tests/test_onboarding_states.py"]
+verdict = "unjudged"
+note = ""
+
+[[test_helpers]]
+name = "_seed_user"
+files = [
+    "tests/test_admin.py",
+    "tests/test_admin_add_bots.py",
+    "tests/test_bot_agents.py",
+    "tests/test_bot_soft_delete.py",
+    "tests/test_join_lineup.py",
+    "tests/test_lobby.py",
+    "tests/test_lobby_join_and_stacking.py",
+    "tests/test_matches_user.py",
+]
+verdict = "unjudged"
+note = ""
+
+[[test_helpers]]
+name = "make_connection"
+files = ["tests/test_agent_next_turn_fanout.py", "tests/test_connection_auth.py"]
+verdict = "unjudged"
+note = ""
+
+[[test_helpers]]
+name = "make_user"
+files = ["tests/test_agent_next_turn_fanout.py", "tests/test_connection_auth.py"]
+verdict = "unjudged"
+note = ""
