@@ -46,7 +46,7 @@ from tests.factories import make_bot, make_user
 # --- DB fixtures (mirror tests/test_resolver.py, parametrized by the switch) ---
 
 
-async def _make_match(
+async def _make_mutual_help_match(
     db: AsyncSession, n: int, *, mutual_help_mode: str, match_id: str = "G_SW"
 ) -> tuple[Match, list[Player]]:
     now = datetime.now(timezone.utc)
@@ -111,7 +111,7 @@ async def _submit(db: AsyncSession, turn: Turn, player: Player, action: str, tar
 async def test_off_mutual_help_stays_flat_8(db):
     """OFF: a pair mutually helping 8 turns scores +8 each EVERY time (turns 2-8),
     not the decaying 8,7,6,… an ON match would show."""
-    game, [a, b] = await _make_match(db, 2, mutual_help_mode="flat_8")
+    game, [a, b] = await _make_mutual_help_match(db, 2, mutual_help_mode="flat_8")
     prev = 0
     per_turn = []
     for i in range(8):
@@ -128,7 +128,7 @@ async def test_off_mutual_help_stays_flat_8(db):
 
 async def test_on_mutual_help_still_decays(db):
     """ON (default): the same 8-turn sequence still decays 8,7,6,5,4,3,2,2."""
-    game, [a, b] = await _make_match(db, 2, mutual_help_mode="decay")
+    game, [a, b] = await _make_mutual_help_match(db, 2, mutual_help_mode="decay")
     prev = 0
     per_turn = []
     for i in range(8):
@@ -144,7 +144,7 @@ async def test_on_mutual_help_still_decays(db):
 
 async def test_current_pact_values_off_is_flat_8_while_on_decays(db):
     """After ≥1 farmed mutual help, OFF's live pact value stays 8 while ON drops to 7."""
-    off_game, [oa, ob] = await _make_match(db, 2, mutual_help_mode="flat_8", match_id="G_OFF")
+    off_game, [oa, ob] = await _make_mutual_help_match(db, 2, mutual_help_mode="flat_8", match_id="G_OFF")
     t = await _open_turn(db, off_game, 1)
     await _submit(db, t, oa, "HELP", target=ob)
     await _submit(db, t, ob, "HELP", target=oa)
@@ -153,7 +153,7 @@ async def test_current_pact_values_off_is_flat_8_while_on_decays(db):
         db, off_game.id, oa.id, [ob.id], mode="flat_8"
     ) == {ob.id: 8}
 
-    on_game, [na, nb] = await _make_match(db, 2, mutual_help_mode="decay", match_id="G_ON")
+    on_game, [na, nb] = await _make_mutual_help_match(db, 2, mutual_help_mode="decay", match_id="G_ON")
     t2 = await _open_turn(db, on_game, 1)
     await _submit(db, t2, na, "HELP", target=nb)
     await _submit(db, t2, nb, "HELP", target=na)
@@ -241,7 +241,7 @@ async def test_pact_note_off_has_no_decay_words(db):
     with no decay/floor language; the ON match keeps both."""
     module = get_game_module("hoard-hurt-help")
 
-    off_game, [oa, ob] = await _make_match(db, 2, mutual_help_mode="flat_8", match_id="G_NOFF")
+    off_game, [oa, ob] = await _make_mutual_help_match(db, 2, mutual_help_mode="flat_8", match_id="G_NOFF")
     t = await _open_turn(db, off_game, 1)
     await _submit(db, t, oa, "HELP", target=ob)
     await _submit(db, t, ob, "HELP", target=oa)
@@ -252,7 +252,7 @@ async def test_pact_note_off_has_no_decay_words(db):
     assert "decay" not in note and "floor" not in note
     assert "every time" in note
 
-    on_game, [na, nb] = await _make_match(db, 2, mutual_help_mode="decay", match_id="G_NON")
+    on_game, [na, nb] = await _make_mutual_help_match(db, 2, mutual_help_mode="decay", match_id="G_NON")
     t2 = await _open_turn(db, on_game, 1)
     await _submit(db, t2, na, "HELP", target=nb)
     await _submit(db, t2, nb, "HELP", target=na)
@@ -270,7 +270,7 @@ async def test_pact_note_matches_the_payout_for_every_flat_mode(db):
 
     for i, mode in enumerate((MutualHelpMode.FLAT_6, MutualHelpMode.FLAT_7)):
         want = mutual_help_value(mode, 0)
-        game, [a, b] = await _make_match(
+        game, [a, b] = await _make_mutual_help_match(
             db, 2, mutual_help_mode=mode.value, match_id=f"G_FLATNOTE_{i}"
         )
         t = await _open_turn(db, game, 1)
@@ -541,8 +541,8 @@ async def test_showcase_mutual_help_mode_helper(db):
     from app.routes.showcase_replay import showcase_mutual_help_mode
 
     assert await showcase_mutual_help_mode(db, None) == "decay"  # sample fallback
-    on_game, _ = await _make_match(db, 2, mutual_help_mode="decay", match_id="G_SHOW_ON")
-    off_game, _ = await _make_match(db, 2, mutual_help_mode="flat_8", match_id="G_SHOW_OFF")
+    on_game, _ = await _make_mutual_help_match(db, 2, mutual_help_mode="decay", match_id="G_SHOW_ON")
+    off_game, _ = await _make_mutual_help_match(db, 2, mutual_help_mode="flat_8", match_id="G_SHOW_OFF")
     assert await showcase_mutual_help_mode(db, on_game.id) == "decay"
     assert await showcase_mutual_help_mode(db, off_game.id) == "flat_8"
     assert await showcase_mutual_help_mode(db, "G_MISSING") == "decay"  # missing row → default
@@ -631,7 +631,7 @@ async def test_no_repeats_withholds_the_bonus_on_back_to_back_turns(db):
     """Same pair, two turns running: the second turn pays the plain HELP value."""
     from app.games.hoard_hurt_help.scoring import resolve_turn
 
-    game, [a, b] = await _make_match(
+    game, [a, b] = await _make_mutual_help_match(
         db, 2, mutual_help_mode="no_repeats", match_id="G_NR1"
     )
     first = await _open_turn(db, game, 1)
@@ -657,7 +657,7 @@ async def test_no_repeats_restores_the_bonus_after_a_skipped_turn(db):
     from app.games.hoard_hurt_help.rules import hoard_share
     from app.games.hoard_hurt_help.scoring import resolve_turn
 
-    game, [a, b] = await _make_match(
+    game, [a, b] = await _make_mutual_help_match(
         db, 2, mutual_help_mode="no_repeats", match_id="G_NR2"
     )
     first = await _open_turn(db, game, 1)
@@ -686,7 +686,7 @@ async def test_flat_6_pays_six_every_time(db):
     """A flat mode ignores history — the third mutual help pays what the first did."""
     from app.games.hoard_hurt_help.scoring import resolve_turn
 
-    game, [a, b] = await _make_match(db, 2, mutual_help_mode="flat_6", match_id="G_F6")
+    game, [a, b] = await _make_mutual_help_match(db, 2, mutual_help_mode="flat_6", match_id="G_F6")
     for turn_no in (1, 2, 3):
         t = await _open_turn(db, game, turn_no)
         await _submit(db, t, a, "HELP", target=b)

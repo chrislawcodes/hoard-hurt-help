@@ -15,22 +15,12 @@ from tests.conftest import signed_in_cookies as _cookies
 GAME = "hoard-hurt-help"
 
 
-async def _make_match(db, match_id: str, *, state: GameState, max_players: int = 20) -> Match:
-    # scheduled_start is "now" (joinable immediately), not the factory's
-    # not-yet-started default of an hour out.
-    return await make_match(
-        db,
-        match_id,
-        state=state,
-        scheduled_start=datetime.now(timezone.utc),
-        max_players=max_players,
-    )
-
-
 async def test_join_creates_active_human_seat(reset_db, client) -> None:
     async with reset_db() as db:
         user = await make_user(db, 1)  # handle "agent1"
-        await _make_match(db, "M_0001", state=GameState.REGISTERING)
+        await make_match(
+            db, "M_0001", state=GameState.REGISTERING, scheduled_start=datetime.now(timezone.utc)
+        )
         await db.commit()
 
     r = await client.post(
@@ -59,7 +49,9 @@ async def test_join_creates_active_human_seat(reset_db, client) -> None:
 async def test_join_uses_custom_display_name(reset_db, client) -> None:
     async with reset_db() as db:
         user = await make_user(db, 1)
-        await _make_match(db, "M_0001", state=GameState.REGISTERING)
+        await make_match(
+            db, "M_0001", state=GameState.REGISTERING, scheduled_start=datetime.now(timezone.utc)
+        )
         await db.commit()
 
     await client.post(
@@ -76,7 +68,9 @@ async def test_join_uses_custom_display_name(reset_db, client) -> None:
 async def test_join_is_idempotent_returns_to_viewer(reset_db, client) -> None:
     async with reset_db() as db:
         user = await make_user(db, 1)
-        await _make_match(db, "M_0001", state=GameState.REGISTERING)
+        await make_match(
+            db, "M_0001", state=GameState.REGISTERING, scheduled_start=datetime.now(timezone.utc)
+        )
         await db.commit()
 
     for _ in range(2):
@@ -95,7 +89,13 @@ async def test_join_is_idempotent_returns_to_viewer(reset_db, client) -> None:
 async def test_join_refused_when_full(reset_db, client) -> None:
     async with reset_db() as db:
         owner = await make_user(db, 1)
-        await _make_match(db, "M_0001", state=GameState.REGISTERING, max_players=1)
+        await make_match(
+            db,
+            "M_0001",
+            state=GameState.REGISTERING,
+            scheduled_start=datetime.now(timezone.utc),
+            max_players=1,
+        )
         # seat one other player to fill it
         other = await make_user(db, 2)
         filler_agent = Agent(user_id=other.id, name="filler", kind=AgentKind.HUMAN, game=GAME)
@@ -115,7 +115,9 @@ async def test_join_refused_when_full(reset_db, client) -> None:
 async def test_join_refused_when_not_open(reset_db, client) -> None:
     async with reset_db() as db:
         user = await make_user(db, 1)
-        await _make_match(db, "M_0001", state=GameState.ACTIVE)
+        await make_match(
+            db, "M_0001", state=GameState.ACTIVE, scheduled_start=datetime.now(timezone.utc)
+        )
         await db.commit()
 
     r = await client.post(
@@ -128,7 +130,9 @@ async def test_join_refused_when_not_open(reset_db, client) -> None:
 
 async def test_join_requires_sign_in(reset_db, client) -> None:
     async with reset_db() as db:
-        await _make_match(db, "M_0001", state=GameState.REGISTERING)
+        await make_match(
+            db, "M_0001", state=GameState.REGISTERING, scheduled_start=datetime.now(timezone.utc)
+        )
         await db.commit()
 
     r = await client.post(
@@ -140,7 +144,9 @@ async def test_join_requires_sign_in(reset_db, client) -> None:
 async def test_pre_start_leave_frees_seat(reset_db, client) -> None:
     async with reset_db() as db:
         user = await make_user(db, 1)
-        await _make_match(db, "M_0001", state=GameState.REGISTERING)
+        await make_match(
+            db, "M_0001", state=GameState.REGISTERING, scheduled_start=datetime.now(timezone.utc)
+        )
         await db.commit()
     await client.post(
         f"/games/{GAME}/matches/M_0001/play/join",
@@ -163,7 +169,9 @@ async def test_pre_start_leave_frees_seat(reset_db, client) -> None:
 async def test_in_match_leave_sets_autopilot(reset_db, client) -> None:
     async with reset_db() as db:
         user = await make_user(db, 1)
-        await _make_match(db, "M_0001", state=GameState.REGISTERING)
+        await make_match(
+            db, "M_0001", state=GameState.REGISTERING, scheduled_start=datetime.now(timezone.utc)
+        )
         await db.commit()
     await client.post(
         f"/games/{GAME}/matches/M_0001/play/join",
@@ -196,7 +204,9 @@ async def test_join_screen_leads_with_human_option(reset_db, client) -> None:
     with "Play manually" pre-selected as the first choice."""
     async with reset_db() as db:
         user = await make_user(db, 1)
-        await _make_match(db, "M_0001", state=GameState.REGISTERING)
+        await make_match(
+            db, "M_0001", state=GameState.REGISTERING, scheduled_start=datetime.now(timezone.utc)
+        )
         await db.commit()
 
     r = await client.get(
@@ -218,10 +228,14 @@ async def test_join_defaults_to_human_when_last_entry_was_human(reset_db, client
         user = await make_user(db, 1)
         await make_agent(db, user, name="Atlas")  # owns an agent, but last played human
         hagent, hversion = await get_or_create_human_agent(db, user, GAME)
-        await _make_match(db, "M_PRIOR", state=GameState.COMPLETED)
+        await make_match(
+            db, "M_PRIOR", state=GameState.COMPLETED, scheduled_start=datetime.now(timezone.utc)
+        )
         db.add(Player(match_id="M_PRIOR", user_id=user.id, agent_id=hagent.id,
                       agent_version_id=hversion.id, seat_name="agent1"))
-        await _make_match(db, "M_NEW", state=GameState.REGISTERING)
+        await make_match(
+            db, "M_NEW", state=GameState.REGISTERING, scheduled_start=datetime.now(timezone.utc)
+        )
         await db.commit()
 
     r = await client.get(
@@ -236,7 +250,9 @@ async def test_join_screen_human_submit_seats_player(reset_db, client) -> None:
     """Posting the join form with play_as=human seats a kind=human player."""
     async with reset_db() as db:
         user = await make_user(db, 1)  # handle "agent1"
-        await _make_match(db, "M_0001", state=GameState.REGISTERING)
+        await make_match(
+            db, "M_0001", state=GameState.REGISTERING, scheduled_start=datetime.now(timezone.utc)
+        )
         await db.commit()
 
     r = await client.post(

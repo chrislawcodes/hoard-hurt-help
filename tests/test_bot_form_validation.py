@@ -18,7 +18,7 @@ from app.config import settings
 from app.main import app
 from app.models import Base, GameState, Match, Player, User
 from app.models.user import UserRole
-from tests.factories import make_match
+from tests.factories import seed_match
 from tests.conftest import signed_in_cookies as _cookies
 
 
@@ -64,26 +64,6 @@ async def _seed_admin(reset_db) -> User:
         return u
 
 
-async def _seed_game(
-    reset_db,
-    *,
-    state: GameState = GameState.REGISTERING,
-    max_players: int = 20,
-    match_id: str = "G_bfv",
-) -> Match:
-    async with reset_db() as db:
-        g = await make_match(
-            db,
-            match_id,
-            state=state,
-            name="Bot Form Validation Test",
-            max_players=max_players,
-        )
-        await db.commit()
-        await db.refresh(g)
-        return g
-
-
 def _roster(*pairs: tuple[str, str]) -> dict[str, list[str]]:
     """Build the parallel-array form body matching the add-bots form encoding."""
     return {
@@ -100,7 +80,9 @@ def _roster(*pairs: tuple[str, str]) -> dict[str, list[str]]:
 async def test_invalid_strategy_rejected_with_form_error(client, reset_db) -> None:
     """Submitting an unknown strategy returns 400 with a legible error message."""
     admin = await _seed_admin(reset_db)
-    await _seed_game(reset_db)
+    await seed_match(
+        reset_db, "G_bfv", state=GameState.REGISTERING, max_players=20, name="Bot Form Validation Test"
+    )
 
     r = await client.post(
         "/games/hoard-hurt-help/admin/matches/G_bfv/bots",
@@ -125,7 +107,9 @@ async def test_invalid_strategy_rejected_with_form_error(client, reset_db) -> No
 async def test_invalid_strategy_in_mixed_roster_rejected(client, reset_db) -> None:
     """A single invalid strategy in a multi-bot roster still rejects the whole form."""
     admin = await _seed_admin(reset_db)
-    await _seed_game(reset_db)
+    await seed_match(
+        reset_db, "G_bfv", state=GameState.REGISTERING, max_players=20, name="Bot Form Validation Test"
+    )
 
     r = await client.post(
         "/games/hoard-hurt-help/admin/matches/G_bfv/bots",
@@ -154,7 +138,9 @@ async def test_invalid_strategy_in_mixed_roster_rejected(client, reset_db) -> No
 async def test_valid_strategy_accepted_and_bots_seated(client, reset_db) -> None:
     """Submitting a valid strategy creates the bots and redirects."""
     admin = await _seed_admin(reset_db)
-    await _seed_game(reset_db)
+    await seed_match(
+        reset_db, "G_bfv", state=GameState.REGISTERING, max_players=20, name="Bot Form Validation Test"
+    )
 
     r = await client.post(
         "/games/hoard-hurt-help/admin/matches/G_bfv/bots",

@@ -28,7 +28,7 @@ from app.models import Base
 from app.models.agent import AgentStatus
 from app.models.connection import ConnectionProvider, ConnectionStatus
 from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
-from app.models.match import GameState, Match
+from app.models.match import GameState
 from app.models.player import Player
 from tests.factories import make_agent, make_connection, make_match, make_user
 
@@ -103,22 +103,6 @@ async def test_loop_running_false_when_paused(
     conn.last_polled_at = datetime.now(timezone.utc)
     await db_session.flush()
     assert not await provider_loop_running(db_session, user.id, ConnectionProvider.CLAUDE)
-
-
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
-
-
-async def _make_match(db: AsyncSession, match_id: str, *, state: GameState) -> Match:
-    """Create an already-started match (a valid scheduled_start is required by schema)."""
-    started = _now() - timedelta(hours=1)
-    return await make_match(
-        db,
-        match_id,
-        state=state,
-        scheduled_start=started,
-        started_at=started if state != GameState.SCHEDULED else None,
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -297,7 +281,10 @@ async def test_active_matches_for_provider_counts_correctly(
     user = await make_user(db_session, 20)
     conn, _ = await make_connection(db_session, user, provider=ConnectionProvider.CLAUDE)
     agent, version = await make_agent(db_session, user, connection=conn, model="claude-haiku-4-5")
-    match = await _make_match(db_session, "M_ap1", state=GameState.ACTIVE)
+    started = datetime.now(timezone.utc) - timedelta(hours=1)
+    match = await make_match(
+        db_session, "M_ap1", state=GameState.ACTIVE, scheduled_start=started, started_at=started
+    )
     player = Player(
         match_id=match.id,
         user_id=user.id,
@@ -425,7 +412,10 @@ async def test_join_gate_blocked_at_capacity_one_connection(
     agent, version = await make_agent(
         db_session, user, connection=conn, model="claude-haiku-4-5"
     )
-    match = await _make_match(db_session, "M_gate1", state=GameState.ACTIVE)
+    started = datetime.now(timezone.utc) - timedelta(hours=1)
+    match = await make_match(
+        db_session, "M_gate1", state=GameState.ACTIVE, scheduled_start=started, started_at=started
+    )
     player = Player(
         match_id=match.id,
         user_id=user.id,
@@ -468,7 +458,14 @@ async def test_join_gate_scales_with_two_live_connections(
         db_session, user, connection=conn1, model="claude-haiku-4-5"
     )
     for i in range(3):
-        match = await _make_match(db_session, f"M_scale_{i}", state=GameState.ACTIVE)
+        started = datetime.now(timezone.utc) - timedelta(hours=1)
+        match = await make_match(
+            db_session,
+            f"M_scale_{i}",
+            state=GameState.ACTIVE,
+            scheduled_start=started,
+            started_at=started,
+        )
         player = Player(
             match_id=match.id,
             user_id=user.id,
@@ -487,7 +484,14 @@ async def test_join_gate_scales_with_two_live_connections(
     assert is_join_blocked(active, cap) is False   # 3 < 4 → allowed
 
     # Now add a fourth match → exactly at capacity → blocked.
-    match4 = await _make_match(db_session, "M_scale_4", state=GameState.ACTIVE)
+    started4 = datetime.now(timezone.utc) - timedelta(hours=1)
+    match4 = await make_match(
+        db_session,
+        "M_scale_4",
+        state=GameState.ACTIVE,
+        scheduled_start=started4,
+        started_at=started4,
+    )
     player4 = Player(
         match_id=match4.id,
         user_id=user.id,

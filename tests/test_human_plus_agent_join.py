@@ -19,7 +19,7 @@ from app.models import GameState, Match, Player
 from app.models.agent import Agent, AgentKind
 from app.models.connection import ConnectionProvider
 from app.models.match import MatchKind
-from tests.factories import make_agent, make_connection, make_user
+from tests.factories import make_agent, make_connection, make_match, make_user
 from tests.conftest import signed_in_cookies as _cookies
 
 GAME = "hoard-hurt-help"
@@ -31,29 +31,6 @@ async def client():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         yield c
-
-
-async def _make_match(
-    db,
-    match_id: str = "M_0001",
-    *,
-    state: GameState = GameState.REGISTERING,
-    max_players: int = 20,
-    match_kind: str | None = None,
-) -> Match:
-    match = Match(
-        id=match_id,
-        name=f"Match {match_id}",
-        game=GAME,
-        state=state,
-        scheduled_start=datetime.now(timezone.utc),
-        per_turn_deadline_seconds=60,
-        max_players=max_players,
-        match_kind=match_kind,
-    )
-    db.add(match)
-    await db.flush()
-    return match
 
 
 async def _add_agent(db, user, *, name: str = "Hawk", live: bool = True) -> Agent:
@@ -85,7 +62,13 @@ async def test_human_and_agent_in_one_submit(reset_db, client):
     """play_as=human + an agent + a live AI seats BOTH: a human seat and an AI seat."""
     async with reset_db() as db:
         user = await make_user(db)  # handle "agent0"
-        await _make_match(db)
+        await make_match(
+            db,
+            "M_0001",
+            state=GameState.REGISTERING,
+            scheduled_start=datetime.now(timezone.utc),
+            max_players=20,
+        )
         agent = await _add_agent(db, user, name="Hawk", live=True)
         agent_id = agent.id
 
@@ -119,7 +102,13 @@ async def test_human_only_still_one_seat(reset_db, client):
     """Regression: play_as=human with no agent seats exactly one human player."""
     async with reset_db() as db:
         user = await make_user(db)
-        await _make_match(db)
+        await make_match(
+            db,
+            "M_0001",
+            state=GameState.REGISTERING,
+            scheduled_start=datetime.now(timezone.utc),
+            max_players=20,
+        )
         await db.commit()
 
     r = await client.post(
@@ -140,7 +129,13 @@ async def test_agent_only_unchanged(reset_db, client):
     """Regression: an agent with no play_as seats exactly one AI player, no human."""
     async with reset_db() as db:
         user = await make_user(db)
-        await _make_match(db)
+        await make_match(
+            db,
+            "M_0001",
+            state=GameState.REGISTERING,
+            scheduled_start=datetime.now(timezone.utc),
+            max_players=20,
+        )
         agent = await _add_agent(db, user, live=True)
         agent_id = agent.id
 
@@ -162,7 +157,13 @@ async def test_neither_selected_is_400(reset_db, client):
     """Posting with no human and no agent is a friendly error, creating no seat."""
     async with reset_db() as db:
         user = await make_user(db)
-        await _make_match(db)
+        await make_match(
+            db,
+            "M_0001",
+            state=GameState.REGISTERING,
+            scheduled_start=datetime.now(timezone.utc),
+            max_players=20,
+        )
         await db.commit()
 
     r = await client.post(
@@ -181,7 +182,13 @@ async def test_both_but_only_one_slot_is_409_and_creates_nothing(reset_db, clien
     """If a human + an agent would overflow max_players, neither seat is created."""
     async with reset_db() as db:
         user = await make_user(db)
-        await _make_match(db, max_players=1)
+        await make_match(
+            db,
+            "M_0001",
+            state=GameState.REGISTERING,
+            scheduled_start=datetime.now(timezone.utc),
+            max_players=1,
+        )
         agent = await _add_agent(db, user, live=True)
         agent_id = agent.id
 
@@ -202,7 +209,13 @@ async def test_both_with_unconnected_ai_holds_agent_human_active(reset_db, clien
     connect it — but the human seat is created active right away."""
     async with reset_db() as db:
         user = await make_user(db)
-        await _make_match(db)
+        await make_match(
+            db,
+            "M_0001",
+            state=GameState.REGISTERING,
+            scheduled_start=datetime.now(timezone.utc),
+            max_players=20,
+        )
         agent = await _add_agent(db, user, name="Hawk", live=False)
         agent_id = agent.id
 
@@ -230,8 +243,13 @@ async def test_practice_arena_does_not_autostart_when_agent_held(reset_db, clien
     (alongside the human) must NOT auto-start the game."""
     async with reset_db() as db:
         user = await make_user(db)
-        await _make_match(
-            db, max_players=10, match_kind=MatchKind.PRACTICE_ARENA.value
+        await make_match(
+            db,
+            "M_0001",
+            state=GameState.REGISTERING,
+            scheduled_start=datetime.now(timezone.utc),
+            max_players=10,
+            match_kind=MatchKind.PRACTICE_ARENA.value,
         )
         agent = await _add_agent(db, user, name="Hawk", live=False)
         agent_id = agent.id
@@ -253,7 +271,13 @@ async def test_human_seat_is_idempotent_alongside_agent(reset_db, client):
     second human seat — it just adds the agent seat."""
     async with reset_db() as db:
         user = await make_user(db)
-        await _make_match(db)
+        await make_match(
+            db,
+            "M_0001",
+            state=GameState.REGISTERING,
+            scheduled_start=datetime.now(timezone.utc),
+            max_players=20,
+        )
         agent = await _add_agent(db, user, name="Hawk", live=True)
         agent_id = agent.id
 
@@ -287,7 +311,13 @@ async def test_join_screen_shows_both_independent_choices(reset_db, client):
     independently selectable boxes (keeping the per-agent AI picker cards)."""
     async with reset_db() as db:
         user = await make_user(db)
-        await _make_match(db)
+        await make_match(
+            db,
+            "M_0001",
+            state=GameState.REGISTERING,
+            scheduled_start=datetime.now(timezone.utc),
+            max_players=20,
+        )
         await _add_agent(db, user, name="Hawk", live=True)
 
     r = await client.get(JOIN_URL, cookies=_cookies(user.id), follow_redirects=False)

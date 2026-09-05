@@ -19,7 +19,7 @@ from app.models.agent import Agent
 from app.models.agent_version import AgentVersion
 from app.models.connection import ConnectionProvider
 from app.models.connection_setup import ConnectionSetup
-from app.models.match import GameState, Match, MatchKind
+from app.models.match import GameState, MatchKind
 from app.models.player import Player
 from app.models.user import User
 from app.routes.agents_lifecycle import router as agents_lifecycle_router
@@ -84,25 +84,6 @@ async def client(app: FastAPI) -> AsyncIterator[AsyncClient]:
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         yield c
-
-
-async def _make_match(
-    db: AsyncSession, match_id: str, *, state: GameState, match_kind: str = "manual"
-) -> Match:
-    """Seed a match that "already happened" (started an hour ago), unlike
-    `tests.factories.make_match`'s default of a not-yet-started REGISTERING
-    match — this file's fixtures are all mid-game or finished."""
-    now = datetime.now(timezone.utc)
-    started = now - timedelta(hours=1)
-    return await make_match(
-        db,
-        match_id,
-        state=state,
-        scheduled_start=started,
-        started_at=started if state != GameState.SCHEDULED else None,
-        completed_at=now if state == GameState.COMPLETED else None,
-        match_kind=match_kind,
-    )
 
 
 async def test_create_connection_reuses_existing_pending_setup(
@@ -203,7 +184,16 @@ async def test_version_edit_updates_draft_then_forks_after_rated_match(
         user = (await db.execute(select(User).where(User.id == user.id))).scalar_one()
         agent = (await db.execute(select(Agent).where(Agent.id == agent.id))).scalar_one()
         old_version = (await db.execute(select(AgentVersion).where(AgentVersion.id == version.id))).scalar_one()
-        match = await _make_match(db, "M_1000", state=GameState.COMPLETED)
+        now = datetime.now(timezone.utc)
+        started = now - timedelta(hours=1)
+        match = await make_match(
+            db,
+            "M_1000",
+            state=GameState.COMPLETED,
+            scheduled_start=started,
+            started_at=started,
+            completed_at=now,
+        )
         await seat_prebuilt_player(
             db,
             match=match,
@@ -255,7 +245,10 @@ async def test_seat_name_uniqueness_allows_two_users_with_same_agent_name(
         )
         version_a = await make_version(db, agent_a)
         version_b = await make_version(db, agent_b)
-        match = await _make_match(db, "M_2000", state=GameState.ACTIVE)
+        started = datetime.now(timezone.utc) - timedelta(hours=1)
+        match = await make_match(
+            db, "M_2000", state=GameState.ACTIVE, scheduled_start=started, started_at=started
+        )
         # Seat names expose the agent name only — never the owner's handle.
         # Two users with the same agent name get a "#2" disambiguator.
         existing: set[str] = set()
@@ -325,7 +318,10 @@ async def test_agent_detail_shows_connection_capacity_when_at_limit(
         agent2, _ = await make_agent(
             db, user, connection=connection, name="Beta", create_version=False
         )
-        match = await _make_match(db, "M_3000", state=GameState.ACTIVE)
+        started = datetime.now(timezone.utc) - timedelta(hours=1)
+        match = await make_match(
+            db, "M_3000", state=GameState.ACTIVE, scheduled_start=started, started_at=started
+        )
         await seat_prebuilt_player(
             db,
             match=match,
@@ -360,10 +356,13 @@ async def test_agent_in_active_practice_match_is_locked_against_delete_and_edit(
             db, user, connection=connection, name="Locked", create_version=False
         )
         version = await make_version(db, agent)
-        match = await _make_match(
+        started = datetime.now(timezone.utc) - timedelta(hours=1)
+        match = await make_match(
             db,
             "M_4000",
             state=GameState.ACTIVE,
+            scheduled_start=started,
+            started_at=started,
             match_kind=MatchKind.PRACTICE_ARENA.value,
         )
         await seat_prebuilt_player(

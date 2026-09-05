@@ -172,22 +172,6 @@ async def _make_mcp_connection(
     return conn
 
 
-async def _make_match(
-    db: AsyncSession,
-    match_id: str,
-    *,
-    state: GameState,
-) -> Match:
-    started = datetime.now(timezone.utc) - timedelta(hours=1)
-    return await make_match(
-        db,
-        match_id,
-        state=state,
-        scheduled_start=started,
-        started_at=started if state != GameState.SCHEDULED else None,
-    )
-
-
 async def _make_agent_for_provider(
     db: AsyncSession,
     user: User,
@@ -598,7 +582,10 @@ async def test_seat_hold_confirms_and_resolver_ready_when_live(
         last_polled_at=_recently(),  # play loop running → LIVE
     )
     agent, version = await _make_agent_for_provider(db_session, user)
-    match = await _make_match(db_session, "M_seat_live", state=GameState.ACTIVE)
+    started = datetime.now(timezone.utc) - timedelta(hours=1)
+    match = await make_match(
+        db_session, "M_seat_live", state=GameState.ACTIVE, scheduled_start=started, started_at=started
+    )
     player = await _make_player_with_held_seat(db_session, user, agent, version, match)
     await db_session.flush()
 
@@ -634,7 +621,10 @@ async def test_seat_hold_does_not_confirm_and_resolver_not_ready_when_seen_not_p
         last_polled_at=None,        # not polling
     )
     agent, version = await _make_agent_for_provider(db_session, user)
-    match = await _make_match(db_session, "M_seat_seen", state=GameState.ACTIVE)
+    started = datetime.now(timezone.utc) - timedelta(hours=1)
+    match = await make_match(
+        db_session, "M_seat_seen", state=GameState.ACTIVE, scheduled_start=started, started_at=started
+    )
     player = await _make_player_with_held_seat(db_session, user, agent, version, match)
     await db_session.flush()
 
@@ -669,7 +659,10 @@ async def test_seat_hold_does_not_confirm_and_resolver_not_ready_when_connected_
         last_polled_at=None,
     )
     agent, version = await _make_agent_for_provider(db_session, user)
-    match = await _make_match(db_session, "M_seat_cnl", state=GameState.ACTIVE)
+    started = datetime.now(timezone.utc) - timedelta(hours=1)
+    match = await make_match(
+        db_session, "M_seat_cnl", state=GameState.ACTIVE, scheduled_start=started, started_at=started
+    )
     player = await _make_player_with_held_seat(db_session, user, agent, version, match)
     await db_session.flush()
 
@@ -697,7 +690,14 @@ async def test_seat_hold_does_not_confirm_and_resolver_not_ready_when_no_mcp_con
     user = await make_user(db_session, 403)
     # No connection → NO_MCP_CONNECTION
     agent, version = await _make_agent_for_provider(db_session, user)
-    match = await _make_match(db_session, "M_seat_noconn", state=GameState.ACTIVE)
+    started = datetime.now(timezone.utc) - timedelta(hours=1)
+    match = await make_match(
+        db_session,
+        "M_seat_noconn",
+        state=GameState.ACTIVE,
+        scheduled_start=started,
+        started_at=started,
+    )
     player = await _make_player_with_held_seat(db_session, user, agent, version, match)
     await db_session.flush()
 
@@ -743,7 +743,14 @@ async def test_seat_hold_does_not_confirm_hermes_stale_seen_but_polling(
     agent, version = await _make_agent_for_provider(
         db_session, user, provider=ConnectionProvider.HERMES
     )
-    match = await _make_match(db_session, "M_seat_hermes", state=GameState.ACTIVE)
+    started = datetime.now(timezone.utc) - timedelta(hours=1)
+    match = await make_match(
+        db_session,
+        "M_seat_hermes",
+        state=GameState.ACTIVE,
+        scheduled_start=started,
+        started_at=started,
+    )
     player = await _make_player_with_held_seat(db_session, user, agent, version, match)
     await db_session.flush()
 

@@ -42,7 +42,7 @@ async def client():
         yield c
 
 
-async def _seed_game(
+async def _seed_game_with_players(
     reset_db: async_sessionmaker,
     state: GameState = GameState.REGISTERING,
     n_players: int = 0,
@@ -65,7 +65,7 @@ async def _seed_game(
 
 
 async def test_next_turn_invalid_key(client, reset_db):
-    await _seed_game(reset_db, state=GameState.ACTIVE)
+    await _seed_game_with_players(reset_db, state=GameState.ACTIVE)
     r = await client.get(
         "/api/agent/next-turn",
         headers={"X-Connection-Key": "sk_game_bogus"},
@@ -77,7 +77,7 @@ async def test_next_turn_invalid_key(client, reset_db):
 async def test_next_turn_your_turn_then_submit(client, reset_db):
     """Poll the next-turn loop → your_turn → submit → 202, and an idempotent
     re-submit → 202 again."""
-    _, players = await _seed_game(reset_db, state=GameState.ACTIVE, n_players=2)
+    _, players = await _seed_game_with_players(reset_db, state=GameState.ACTIVE, n_players=2)
     key = players[0]._test_key
 
     # Open a turn in the DB.
@@ -136,7 +136,7 @@ async def test_next_turn_your_turn_then_submit(client, reset_db):
 
 
 async def test_submit_invalid_target(client, reset_db):
-    _, players = await _seed_game(reset_db, state=GameState.ACTIVE, n_players=2)
+    _, players = await _seed_game_with_players(reset_db, state=GameState.ACTIVE, n_players=2)
     p0 = players[0]
     key = p0._test_key
 
@@ -215,7 +215,7 @@ async def _submit_help(client, key, turn_token, agent_id, target_id):
 
 async def test_submit_target_case_insensitive(client, reset_db):
     """A HELP that names a real player with different casing still resolves (202)."""
-    _, players = await _seed_game(reset_db, state=GameState.ACTIVE, n_players=2)
+    _, players = await _seed_game_with_players(reset_db, state=GameState.ACTIVE, n_players=2)
     p0, p1 = players[0], players[1]
     turn_token = await _open_act_turn(reset_db)
     r = await _submit_help(client, p0._test_key, turn_token, p0.agent_id, p1.seat_name.lower())
@@ -224,7 +224,7 @@ async def test_submit_target_case_insensitive(client, reset_db):
 
 async def test_submit_target_whitespace_trimmed(client, reset_db):
     """A HELP target with stray surrounding whitespace still resolves (202)."""
-    _, players = await _seed_game(reset_db, state=GameState.ACTIVE, n_players=2)
+    _, players = await _seed_game_with_players(reset_db, state=GameState.ACTIVE, n_players=2)
     p0, p1 = players[0], players[1]
     turn_token = await _open_act_turn(reset_db)
     r = await _submit_help(client, p0._test_key, turn_token, p0.agent_id, f"  {p1.seat_name}  ")
@@ -233,7 +233,7 @@ async def test_submit_target_whitespace_trimmed(client, reset_db):
 
 async def test_submit_unknown_target_still_rejected(client, reset_db):
     """A target that matches no player is still a 400 — the guard isn't loosened."""
-    _, players = await _seed_game(reset_db, state=GameState.ACTIVE, n_players=2)
+    _, players = await _seed_game_with_players(reset_db, state=GameState.ACTIVE, n_players=2)
     p0 = players[0]
     turn_token = await _open_act_turn(reset_db)
     r = await _submit_help(client, p0._test_key, turn_token, p0.agent_id, "NoSuchAgent")
@@ -243,7 +243,7 @@ async def test_submit_unknown_target_still_rejected(client, reset_db):
 
 async def test_submit_self_target_case_variant_still_rejected(client, reset_db):
     """A case-variant self-target resolves to self and is still rejected (400)."""
-    _, players = await _seed_game(reset_db, state=GameState.ACTIVE, n_players=2)
+    _, players = await _seed_game_with_players(reset_db, state=GameState.ACTIVE, n_players=2)
     p0 = players[0]
     turn_token = await _open_act_turn(reset_db)
     r = await _submit_help(client, p0._test_key, turn_token, p0.agent_id, p0.seat_name.lower())
@@ -290,7 +290,7 @@ async def _seed_resolved_turn(reset_db, match_id, rnd, turn, subs):
 
 
 async def test_pull_opponent_history(client, reset_db):
-    _, players = await _seed_game(reset_db, state=GameState.ACTIVE, n_players=3)
+    _, players = await _seed_game_with_players(reset_db, state=GameState.ACTIVE, n_players=3)
     p0, p1, p2 = players
     await _seed_resolved_turn(
         reset_db,
@@ -316,7 +316,7 @@ async def test_pull_opponent_history(client, reset_db):
 
 
 async def test_pull_opponent_history_unknown(client, reset_db):
-    _, players = await _seed_game(reset_db, state=GameState.ACTIVE, n_players=2)
+    _, players = await _seed_game_with_players(reset_db, state=GameState.ACTIVE, n_players=2)
     r = await client.get(
         "/api/games/G_001/history/opponents/NOPE", headers={"X-Connection-Key": players[0]._test_key}
     )
@@ -325,7 +325,7 @@ async def test_pull_opponent_history_unknown(client, reset_db):
 
 
 async def test_pull_chat_since_cursor(client, reset_db):
-    _, players = await _seed_game(reset_db, state=GameState.ACTIVE, n_players=2)
+    _, players = await _seed_game_with_players(reset_db, state=GameState.ACTIVE, n_players=2)
     p0, p1 = players
     await _seed_resolved_turn(reset_db, "G_001", 1, 1, [(p0.id, "HOARD", None, "turn one", 2, 2)])
     await _seed_resolved_turn(reset_db, "G_001", 1, 2, [(p1.id, "HOARD", None, "turn two", 2, 2)])
@@ -339,7 +339,7 @@ async def test_pull_chat_since_cursor(client, reset_db):
 
 
 async def test_pull_turn_detail(client, reset_db):
-    _, players = await _seed_game(reset_db, state=GameState.ACTIVE, n_players=2)
+    _, players = await _seed_game_with_players(reset_db, state=GameState.ACTIVE, n_players=2)
     p0, p1 = players
     await _seed_resolved_turn(
         reset_db,
@@ -356,7 +356,7 @@ async def test_pull_turn_detail(client, reset_db):
 
 
 async def test_pull_turn_detail_missing(client, reset_db):
-    _, players = await _seed_game(reset_db, state=GameState.ACTIVE, n_players=2)
+    _, players = await _seed_game_with_players(reset_db, state=GameState.ACTIVE, n_players=2)
     r = await client.get("/api/games/G_001/turns/9/9", headers={"X-Connection-Key": players[0]._test_key})
     assert r.status_code == 404
     assert r.json()["detail"]["error"]["code"] == "NOT_FOUND"
@@ -365,7 +365,7 @@ async def test_pull_turn_detail_missing(client, reset_db):
 async def test_pull_standings(client, reset_db):
     from sqlalchemy import select
 
-    _, players = await _seed_game(reset_db, state=GameState.ACTIVE, n_players=3)
+    _, players = await _seed_game_with_players(reset_db, state=GameState.ACTIVE, n_players=3)
     async with reset_db() as db:
         ps = (await db.execute(select(Player).where(Player.match_id == "G_001"))).scalars().all()
         for p in ps:
@@ -379,7 +379,7 @@ async def test_pull_standings(client, reset_db):
 
 
 async def test_pull_rate_limited(client, reset_db):
-    _, players = await _seed_game(reset_db, state=GameState.ACTIVE, n_players=2)
+    _, players = await _seed_game_with_players(reset_db, state=GameState.ACTIVE, n_players=2)
     key = players[0]._test_key
     r1 = await client.get("/api/games/G_001/standings", headers={"X-Connection-Key": key})
     assert r1.status_code == 200
@@ -392,7 +392,7 @@ async def test_directed_message_appears_next_turn(client, reset_db):
     """A move + message from last turn shows up in the raw history the bot reads."""
     from sqlalchemy import select
 
-    _, players = await _seed_game(reset_db, state=GameState.ACTIVE, n_players=2)
+    _, players = await _seed_game_with_players(reset_db, state=GameState.ACTIVE, n_players=2)
     p0, p1 = players
     # Turn 1 resolves: AI_1 hurts AI_0 with a pointed message.
     await _seed_resolved_turn(
@@ -443,7 +443,7 @@ async def test_load_public_action_records_windows_to_recent_turns(reset_db):
 
     from app.engine.agent_play_reads import _load_public_action_records
 
-    _, players = await _seed_game(reset_db, state=GameState.ACTIVE, n_players=2)
+    _, players = await _seed_game_with_players(reset_db, state=GameState.ACTIVE, n_players=2)
     p0, _p1 = players
     for t in range(1, 5):  # four resolved turns: (1,1)..(1,4)
         await _seed_resolved_turn(
@@ -469,7 +469,7 @@ async def test_chat_returns_whole_unwindowed_transcript(client, reset_db):
     """The turn payload's history is windowed to recent turns (covered on the
     next-turn path and by test_load_public_action_records_windows_to_recent_turns);
     the on-demand chat is the catch-up channel that returns the WHOLE transcript."""
-    _, players = await _seed_game(reset_db, state=GameState.ACTIVE, n_players=2)
+    _, players = await _seed_game_with_players(reset_db, state=GameState.ACTIVE, n_players=2)
     p0, _p1 = players
     for t in range(1, 5):  # resolved turns (1,1)..(1,4)
         await _seed_resolved_turn(
@@ -498,7 +498,7 @@ async def test_blurb_never_reaches_the_agent_payload_or_spectator_state(client, 
     from app.routes.spectator_api import public_state
 
     sentinel = "BLURBSENTINEL7Q"
-    _, players = await _seed_game(reset_db, state=GameState.ACTIVE, n_players=2)
+    _, players = await _seed_game_with_players(reset_db, state=GameState.ACTIVE, n_players=2)
     key = players[0]._test_key
 
     async with reset_db() as db:
