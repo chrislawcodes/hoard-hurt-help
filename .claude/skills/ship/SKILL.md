@@ -29,6 +29,9 @@ Stop and ask if:
 
 Work from the branch's own worktree, not the main checkout.
 
+- A PR that splits a module leaves no forwarding module and no re-exported
+  names behind; importers move to the real module in the same PR.
+
 ## Step 1 — Rebase onto main
 
 ```bash

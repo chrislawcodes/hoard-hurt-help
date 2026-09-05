@@ -198,12 +198,14 @@ produces noise and then gets ignored.
 
 **Before reporting anything**, read the *"Refactors adjudicated do not
 re-attempt"* table in `.claude/skills/failure-archaeology/SKILL.md` and drop
-every candidate that already has a verdict.
+every candidate that already has a verdict. Also drop any candidate with a
+verdict in `one_home_verdicts.toml`.
 
 That table is deliberately **not** copied here. It has one home, and duplicating
 it would be the exact bug this skill hunts. Several known duplications in this
 repo are intentional — merging them reintroduces a known bug. A **new**
-leave-as-is verdict gets recorded there, not here.
+leave-as-is verdict is recorded in `one_home_verdicts.toml` (and in the
+archaeology table if it was a refactor), never in this file.
 
 ## Step 2 — The semantic sweep
 
