@@ -33,7 +33,7 @@ from tests.factories import make_agent
 MATCH_ID = "G_STAND"
 
 
-async def _seed_match(
+async def _seed_match_from_rounds(
     reset_db,
     *,
     rounds: list[list[tuple[str, str, str | None, int]]],
@@ -134,7 +134,7 @@ async def _seed_wins_beat_points(reset_db) -> None:
     board; Ajax with 1 round-win and 6 — the exact shape the old JS got backwards.
     Seat names are picked so alphabetical order is NOT the right answer either.
     """
-    await _seed_match(
+    await _seed_match_from_rounds(
         reset_db,
         rounds=[
             [("Zeno", "HOARD", None, 6), ("Ajax", "HELP", "Zeno", 0)],
@@ -234,7 +234,7 @@ async def test_round_win_credit_lands_on_the_turn_that_ends_the_round(
 
 async def test_a_tied_round_ships_its_split_win(client, reset_db) -> None:
     """A tie splits the round, and the fraction survives into the payload."""
-    await _seed_match(
+    await _seed_match_from_rounds(
         reset_db,
         rounds=[
             # Round 1: both HOARD to 2 — a dead-level round, split 0.5/0.5.

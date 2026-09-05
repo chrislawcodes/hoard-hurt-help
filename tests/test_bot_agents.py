@@ -17,12 +17,12 @@ from app.models import (
     ConnectionProvider,
     ConnectionStatus,
     GameState,
-    Match,
     Player,
     User,
 )
 from app.read_models.leaderboard import load_leaderboard_sections
 from app.schemas.agent import ScoreboardRow
+from tests.factories import make_match
 
 
 async def _seed_user(db, index: int, handle: str | None = None) -> User:
@@ -98,22 +98,6 @@ async def _seed_ai_agent(
     return agent, version
 
 
-async def _seed_match(db, *, name: str = "Ranked Match") -> Match:
-    match = Match(
-        id="M_bot_agents",
-        name=name,
-        state=GameState.COMPLETED,
-        scheduled_start=datetime(2026, 6, 4, tzinfo=timezone.utc),
-        started_at=datetime(2026, 6, 4, tzinfo=timezone.utc),
-        completed_at=datetime(2026, 6, 4, tzinfo=timezone.utc),
-        per_turn_deadline_seconds=60,
-        game="hoard-hurt-help",
-    )
-    db.add(match)
-    await db.flush()
-    return match
-
-
 async def test_bot_agent_and_ai_agent_kinds(reset_db) -> None:
     async with reset_db() as db:
         bot_owner = await _seed_user(db, 1, handle=None)
@@ -183,7 +167,15 @@ async def test_leaderboard_labels_ai_and_bot_rows_and_filters(reset_db) -> None:
             name="Beta",
             model="claude-haiku",
         )
-        match = await _seed_match(db)
+        match = await make_match(
+            db,
+            "M_bot_agents",
+            name="Ranked Match",
+            state=GameState.COMPLETED,
+            scheduled_start=datetime(2026, 6, 4, tzinfo=timezone.utc),
+            started_at=datetime(2026, 6, 4, tzinfo=timezone.utc),
+            completed_at=datetime(2026, 6, 4, tzinfo=timezone.utc),
+        )
         db.add_all(
             [
                 Player(

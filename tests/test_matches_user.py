@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from app.engine.match_creation import create_match
 from app.models import GameState, Match, User
 from app.models.user import UserRole
-from tests.factories import make_user, seat_player
+from tests.factories import make_user, seat_player, seed_match
 from tests.conftest import signed_in_cookies as _cookies
 
 
@@ -253,30 +253,13 @@ async def test_admin_can_delete_any_match(client, reset_db):
         assert await db.get(Match, "M_ADMIN") is None
 
 
-async def _seed_match(reset_db, *, match_id, owner_id, state):
-    future = datetime.now(timezone.utc) + timedelta(hours=1)
-    async with reset_db() as db:
-        db.add(
-            Match(
-                id=match_id,
-                name=match_id,
-                game="hoard-hurt-help",
-                state=state,
-                scheduled_start=future,
-                per_turn_deadline_seconds=60,
-                created_by_user_id=owner_id,
-            )
-        )
-        await db.commit()
-
-
 # Cancel is admin-only (admins are the "organizers"). Regular users — even the
 # match owner — cannot cancel; they can only delete their own match pre-start.
 
 
 async def test_owner_cannot_cancel_their_match(client, reset_db):
     user = await _seed_user(reset_db, i=20)
-    await _seed_match(reset_db, match_id="M_C1", owner_id=user.id, state=GameState.REGISTERING)
+    await seed_match(reset_db, "M_C1", state=GameState.REGISTERING, name="M_C1", owner_id=user.id)
 
     r = await client.post(
         "/matches/M_C1/cancel", cookies=_cookies(user.id), follow_redirects=False
@@ -289,7 +272,7 @@ async def test_owner_cannot_cancel_their_match(client, reset_db):
 
 async def test_signed_out_cannot_cancel(client, reset_db):
     owner = await _seed_user(reset_db, i=21)
-    await _seed_match(reset_db, match_id="M_C2", owner_id=owner.id, state=GameState.ACTIVE)
+    await seed_match(reset_db, "M_C2", state=GameState.ACTIVE, name="M_C2", owner_id=owner.id)
 
     r = await client.post("/matches/M_C2/cancel", follow_redirects=False)
     assert r.status_code == 401
@@ -298,8 +281,8 @@ async def test_signed_out_cannot_cancel(client, reset_db):
 async def test_admin_can_cancel_pre_start_and_active(client, reset_db):
     admin = await _seed_user(reset_db, i=22, role=UserRole.ADMIN)
     owner = await _seed_user(reset_db, i=23)
-    await _seed_match(reset_db, match_id="M_C3", owner_id=owner.id, state=GameState.REGISTERING)
-    await _seed_match(reset_db, match_id="M_C4", owner_id=owner.id, state=GameState.ACTIVE)
+    await seed_match(reset_db, "M_C3", state=GameState.REGISTERING, name="M_C3", owner_id=owner.id)
+    await seed_match(reset_db, "M_C4", state=GameState.ACTIVE, name="M_C4", owner_id=owner.id)
 
     for mid in ("M_C3", "M_C4"):
         r = await client.post(
@@ -312,7 +295,7 @@ async def test_admin_can_cancel_pre_start_and_active(client, reset_db):
 
 async def test_admin_cancel_already_ended_match_is_rejected(client, reset_db):
     admin = await _seed_user(reset_db, i=24, role=UserRole.ADMIN)
-    await _seed_match(reset_db, match_id="M_C5", owner_id=admin.id, state=GameState.COMPLETED)
+    await seed_match(reset_db, "M_C5", state=GameState.COMPLETED, name="M_C5", owner_id=admin.id)
 
     r = await client.post(
         "/matches/M_C5/cancel", cookies=_cookies(admin.id), follow_redirects=False

@@ -30,7 +30,7 @@ from app.models import Base, Agent, Connection, GameState, User
 from app.models.connection import ConnectionProvider
 from app.routes.agents_create import _AGENT_BLURB_MAX
 from tests.conftest import signed_in_cookies as _cookies
-from tests.factories import make_agent, make_connection, make_match, make_user
+from tests.factories import make_agent, make_connection, make_user, seed_match
 
 GAME = "hoard-hurt-help"
 JOIN_URL = f"/games/{GAME}/matches/G_001/join"
@@ -57,12 +57,6 @@ async def _seed_user(reset_db: async_sessionmaker) -> User:
         await db.commit()
         await db.refresh(u)
         return u
-
-
-async def _seed_match(reset_db: async_sessionmaker) -> None:
-    async with reset_db() as db:
-        await make_match(db, "G_001", state=GameState.REGISTERING, name="Test Match")
-        await db.commit()
 
 
 async def _seed_agent(
@@ -110,7 +104,7 @@ def _row_chunks(html: str) -> list[str]:
 async def test_lineup_renders_one_row_per_agent_and_no_legacy_cards(client, reset_db):
     """AC1: N agents → N rows, and none of the old card markup survives."""
     user = await _seed_user(reset_db)
-    await _seed_match(reset_db)
+    await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
     await _seed_agent(reset_db, user, "One", ConnectionProvider.CLAUDE)
     await _seed_agent(reset_db, user, "Two", ConnectionProvider.GEMINI)
 
@@ -128,7 +122,7 @@ async def test_lineup_renders_one_row_per_agent_and_no_legacy_cards(client, rese
 async def test_lineup_drops_strategy_preview_version_and_record(client, reset_db):
     """AC5: the three per-agent text sources that distinguished nothing are gone."""
     user = await _seed_user(reset_db)
-    await _seed_match(reset_db)
+    await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
     await _seed_agent(reset_db, user, "One", ConnectionProvider.CLAUDE)
 
     r = await client.get(JOIN_URL, cookies=_cookies(user.id), follow_redirects=False)
@@ -151,7 +145,7 @@ async def test_lineup_drops_strategy_preview_version_and_record(client, reset_db
 async def test_manual_row_is_first_even_with_agents(client, reset_db):
     """AC8/AC10: "Play manually" leads the page regardless of agent count."""
     user = await _seed_user(reset_db)
-    await _seed_match(reset_db)
+    await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
     await _seed_agent(reset_db, user, "One", ConnectionProvider.CLAUDE)
 
     r = await client.get(JOIN_URL, cookies=_cookies(user.id), follow_redirects=False)
@@ -167,7 +161,7 @@ async def test_pill_group_starts_hidden(client, reset_db):
     match the two ``<input type="hidden">`` mirrors that every row carries.
     """
     user = await _seed_user(reset_db)
-    await _seed_match(reset_db)
+    await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
     agent = await _seed_agent(reset_db, user, "One", ConnectionProvider.CLAUDE)
 
     r = await client.get(JOIN_URL, cookies=_cookies(user.id), follow_redirects=False)
@@ -180,7 +174,7 @@ async def test_pill_group_starts_hidden(client, reset_db):
 async def test_ready_ais_carry_no_state_word(client, reset_db):
     """A ready pill shows only its name — silence means ready."""
     user = await _seed_user(reset_db)
-    await _seed_match(reset_db)
+    await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
     await _seed_agent(reset_db, user, "One", ConnectionProvider.CLAUDE)
 
     r = await client.get(JOIN_URL, cookies=_cookies(user.id), follow_redirects=False)
@@ -200,7 +194,7 @@ async def test_each_row_holds_exactly_one_id_and_one_provider_mirror(client, res
     pair. This asserts the structure that guarantee rests on.
     """
     user = await _seed_user(reset_db)
-    await _seed_match(reset_db)
+    await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
     seeded = {
         (await _seed_agent(reset_db, user, "One", ConnectionProvider.CLAUDE)).id,
         (await _seed_agent(reset_db, user, "Two", ConnectionProvider.GEMINI)).id,
@@ -239,7 +233,7 @@ async def test_id_and_provider_mirrors_appear_in_the_same_row_order(client, rese
     straddles two rows would silently seat each agent on the other's AI.
     """
     user = await _seed_user(reset_db)
-    await _seed_match(reset_db)
+    await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
     await _seed_agent(reset_db, user, "One", ConnectionProvider.CLAUDE)
     await _seed_agent(reset_db, user, "Two", ConnectionProvider.GEMINI)
     await _seed_agent(reset_db, user, "Three", ConnectionProvider.OPENAI)
@@ -336,7 +330,7 @@ def test_blurb_max_is_pinned_at_32():
 
 async def test_blurb_renders_on_the_row_when_set(client, reset_db):
     user = await _seed_user(reset_db)
-    await _seed_match(reset_db)
+    await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
     await _seed_agent(reset_db, user, "One", ConnectionProvider.CLAUDE, blurb="Forgives once")
 
     r = await client.get(JOIN_URL, cookies=_cookies(user.id), follow_redirects=False)
@@ -349,7 +343,7 @@ async def test_blurb_renders_on_the_row_when_set(client, reset_db):
 async def test_blurb_absent_renders_no_empty_element(client, reset_db):
     """AC15: an agent with no blurb renders name only, with nothing to shift the row."""
     user = await _seed_user(reset_db)
-    await _seed_match(reset_db)
+    await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
     await _seed_agent(reset_db, user, "One", ConnectionProvider.CLAUDE)
 
     r = await client.get(JOIN_URL, cookies=_cookies(user.id), follow_redirects=False)

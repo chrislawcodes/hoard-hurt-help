@@ -20,17 +20,17 @@ that ?next is validated as an internal path (no open redirect).
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from urllib.parse import quote
 
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from app.models import GameState, Match, Player, User
+from app.models import GameState, Player, User
 from app.routes.web_support import safe_internal_next
 from app.models.agent import AgentStatus
-from tests.factories import make_agent, make_connection, make_user
+from tests.factories import make_agent, make_connection, make_user, seed_match
 from tests.conftest import signed_in_cookies as _cookies
 
 JOIN_URL = "/games/hoard-hurt-help/matches/G_001/join"
@@ -43,18 +43,6 @@ async def reset_db(reset_db: async_sessionmaker) -> async_sessionmaker:
     return reset_db
 
 
-async def _seed_match(reset_db, state: GameState = GameState.REGISTERING) -> None:
-    async with reset_db() as db:
-        db.add(
-            Match(
-                id="G_001",
-                name="Test Match",
-                state=state,
-                scheduled_start=datetime.now(timezone.utc) + timedelta(hours=1),
-                per_turn_deadline_seconds=60,
-            )
-        )
-        await db.commit()
 
 
 async def _user_with_handle(reset_db, *, i: int = 0) -> User:
@@ -101,14 +89,14 @@ def test_safe_internal_next_rejects_external(raw, expected) -> None:
 
 
 async def test_not_signed_in_redirects_to_login_with_next(client, reset_db):
-    await _seed_match(reset_db)
+    await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
     r = await client.get(JOIN_URL, follow_redirects=False)
     assert r.status_code == 303
     assert r.headers["location"] == f"/auth/google/login?next={JOIN_URL}"
 
 
 async def test_no_handle_redirects_to_handle_with_next(client, reset_db):
-    await _seed_match(reset_db)
+    await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
     async with reset_db() as db:
         user = await make_user(db, 0)
         user.handle = None
@@ -126,7 +114,7 @@ async def test_fresh_user_no_connection_lands_on_join_form_as_human(client, rese
     # Brand-new user: handle, but ZERO connections and ZERO agents. They are NOT
     # bounced to setup — the join form renders with "Play manually" leading,
     # and the AI path offers to create an agent.
-    await _seed_match(reset_db)
+    await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
     user = await _user_with_handle(reset_db)  # handle, no connection, no agent
     r = await client.get(JOIN_URL, cookies=_cookies(user.id), follow_redirects=False)
     assert r.status_code == 200
@@ -138,7 +126,7 @@ async def test_fresh_user_no_connection_lands_on_join_form_as_human(client, rese
 async def test_provider_but_no_agent_lands_on_join_form_as_human(client, reset_db):
     # A connected provider but no agent yet: still no bounce. The join form renders
     # with the human option; the AI path waits until they create an agent.
-    await _seed_match(reset_db)
+    await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
     user = await _user_with_handle(reset_db)
     async with reset_db() as db:
         u = (await db.execute(select(User).where(User.id == user.id))).scalar_one()
@@ -154,7 +142,7 @@ async def test_agent_without_any_connection_shows_form_not_connected(client, res
     # With no connection at all, the agent still SHOWS on the form and the overall
     # status reads "No AI connected" — the user can pick it and connect on the next
     # screen instead of being bounced away.
-    await _seed_match(reset_db)
+    await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
     user = await _user_with_handle(reset_db)
     async with reset_db() as db:
         u = (await db.execute(select(User).where(User.id == user.id))).scalar_one()
@@ -174,7 +162,7 @@ async def test_agent_without_any_connection_shows_form_not_connected(client, res
 async def test_agent_but_stale_connection_shows_form_not_running(client, reset_db):
     # Provider enabled on a connection but the connection is stale (never seen) =>
     # not live. The form still renders, showing the provider as "Not running".
-    await _seed_match(reset_db)
+    await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
     user = await _user_with_handle(reset_db)
     async with reset_db() as db:
         u = (await db.execute(select(User).where(User.id == user.id))).scalar_one()
@@ -195,7 +183,7 @@ async def test_create_agent_from_join_returns_and_shows_agent(client, reset_db):
     # A user with a (live) machine but no agent lands on the join form (human
     # option). The AI path's "create an agent" link carries ?next; creating the
     # agent forwards straight back, and now it shows as a pickable AI agent.
-    await _seed_match(reset_db)
+    await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
     user = await _user_with_handle(reset_db)
     async with reset_db() as db:
         u = (await db.execute(select(User).where(User.id == user.id))).scalar_one()
@@ -233,7 +221,7 @@ async def test_create_agent_from_join_returns_and_shows_agent(client, reset_db):
 
 
 async def test_all_set_renders_join_form_and_seats_nothing(client, reset_db):
-    await _seed_match(reset_db)
+    await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
     user = await _user_with_handle(reset_db)
     async with reset_db() as db:
         u = (await db.execute(select(User).where(User.id == user.id))).scalar_one()

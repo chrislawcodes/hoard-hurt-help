@@ -1,35 +1,13 @@
 """Routing tests for canonical match URLs and legacy redirects."""
 
-from datetime import datetime, timedelta, timezone
-
 import pytest
-from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from app.models import GameState, Match
-
-
-async def _seed_match(
-    reset_db: async_sessionmaker,
-    *,
-    match_id: str = "M_001",
-    state: GameState = GameState.REGISTERING,
-) -> Match:
-    async with reset_db() as db:
-        match = Match(
-            id=match_id,
-            name="Test Match",
-            state=state,
-            scheduled_start=datetime.now(timezone.utc) + timedelta(hours=1),
-            per_turn_deadline_seconds=60,
-        )
-        db.add(match)
-        await db.commit()
-        await db.refresh(match)
-        return match
+from app.models import GameState
+from tests.factories import seed_match
 
 
 async def test_lobby_catalog_uses_canonical_games_path(client, reset_db):
-    await _seed_match(reset_db)
+    await seed_match(reset_db, "M_001", state=GameState.REGISTERING, name="Test Match")
 
     canonical = await client.get("/games/hoard-hurt-help")
     assert canonical.status_code == 200
@@ -59,7 +37,7 @@ async def test_legacy_match_urls_redirect_to_nested_paths(
     legacy_path: str,
     expected_location: str,
 ):
-    await _seed_match(reset_db, state=GameState.ACTIVE)
+    await seed_match(reset_db, "M_001", state=GameState.ACTIVE, name="Test Match")
 
     r = await client.get(legacy_path, follow_redirects=False)
     assert r.status_code == 301

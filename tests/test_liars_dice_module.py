@@ -31,7 +31,7 @@ async def reset_db():
     await engine.dispose()
 
 
-async def _seed_match(
+async def _seed_liars_dice_module_match(
     db,
     *,
     match_id: str = "M_LD",
@@ -104,7 +104,7 @@ async def test_config_defaults_and_theme() -> None:
 async def test_validation_snapshot_and_validate_move(reset_db) -> None:
     module = LiarsDice()
     async with reset_db() as db:
-        match, players = await _seed_match(
+        match, players = await _seed_liars_dice_module_match(
             db,
             dice_by_seat={"A": [5, 5, 1], "B": [2, 2, 2], "C": [3, 3, 3]},
         )
@@ -198,7 +198,7 @@ async def test_validation_snapshot_and_validate_move(reset_db) -> None:
 async def test_record_submission_advances_and_challenge_pauses_turn(reset_db) -> None:
     module = LiarsDice()
     async with reset_db() as db:
-        match, players = await _seed_match(
+        match, players = await _seed_liars_dice_module_match(
             db,
             dice_by_seat={"A": [5, 4, 3], "B": [2, 2, 2], "C": [1, 1, 1]},
         )
@@ -256,7 +256,7 @@ async def test_record_submission_advances_and_challenge_pauses_turn(reset_db) ->
 async def test_award_round_resolves_showdown_and_is_idempotent(reset_db) -> None:
     module = LiarsDice()
     async with reset_db() as db:
-        match, players = await _seed_match(
+        match, players = await _seed_liars_dice_module_match(
             db,
             wild_ones=False,
             dice_by_seat={"A": [5, 5, 2], "B": [1, 3, 4], "C": [6, 6, 6]},
@@ -302,7 +302,7 @@ async def _player_dice_count(db, player_id: int) -> int:
 async def test_round_start_falls_back_to_default_config(reset_db) -> None:
     module = LiarsDice()
     async with reset_db() as db:
-        match, players = await _seed_match(db, dice_by_seat={})
+        match, players = await _seed_liars_dice_module_match(db, dice_by_seat={})
         state = (
             await db.execute(select(MatchState).where(MatchState.match_id == match.id))
         ).scalar_one()
@@ -324,7 +324,7 @@ async def test_round_start_falls_back_to_default_config(reset_db) -> None:
 async def test_private_and_public_state_surfaces(reset_db) -> None:
     module = LiarsDice()
     async with reset_db() as db:
-        match, players = await _seed_match(
+        match, players = await _seed_liars_dice_module_match(
             db,
             dice_by_seat={"A": [6, 6, 1], "B": [2, 2, 2], "C": [3, 3, 3]},
         )
@@ -347,7 +347,7 @@ async def test_private_and_public_state_surfaces(reset_db) -> None:
 async def test_final_placement_and_match_placement_key(reset_db) -> None:
     module = LiarsDice()
     async with reset_db() as db:
-        match, players = await _seed_match(db)
+        match, players = await _seed_liars_dice_module_match(db)
         state = (
             await db.execute(select(MatchState).where(MatchState.match_id == match.id))
         ).scalar_one()
@@ -361,7 +361,7 @@ async def test_final_placement_and_match_placement_key(reset_db) -> None:
 async def test_default_move_opening_and_ceiling(reset_db) -> None:
     module = LiarsDice()
     async with reset_db() as db:
-        match, players = await _seed_match(db, dice_by_seat={"A": [1], "B": [1], "C": [1]})
+        match, players = await _seed_liars_dice_module_match(db, dice_by_seat={"A": [1], "B": [1], "C": [1]})
         state = (
             await db.execute(select(MatchState).where(MatchState.match_id == match.id))
         ).scalar_one()
@@ -386,7 +386,7 @@ async def test_sc_hd_no_dice_faces_leak_to_spectator_or_mcp(reset_db) -> None:
 
     module = LiarsDice()
     async with reset_db() as db:
-        match, _players = await _seed_match(
+        match, _players = await _seed_liars_dice_module_match(
             db,
             wild_ones=False,
             dice_by_seat={"A": [5, 5, 2], "B": [1, 3, 4], "C": [6, 6, 6]},

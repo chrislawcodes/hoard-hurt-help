@@ -53,7 +53,7 @@ async def _seat_bot(db, match_id: str, seat_name: str, i: int) -> Player:
     return player
 
 
-async def _seed_match(
+async def _seed_liars_dice_driver_match(
     db,
     *,
     match_id: str,
@@ -103,7 +103,7 @@ async def _run_bots_match(*, match_id: str, wild_ones: bool) -> str:
     module = LiarsDice()
 
     async with factory() as db:
-        match, _players = await _seed_match(
+        match, _players = await _seed_liars_dice_driver_match(
             db,
             match_id=match_id,
             wild_ones=wild_ones,
@@ -164,7 +164,7 @@ async def test_hidden_info_stays_private_before_showdown_and_reveals_after(
         return payload
 
     async with factory() as db:
-        match, players = await _seed_match(
+        match, players = await _seed_liars_dice_driver_match(
             db,
             match_id="M_LD_HIDE",
             wild_ones=True,
@@ -241,7 +241,7 @@ async def test_bot_move_drives_actor_via_module_bot_move() -> None:
     module = LiarsDice()
 
     async with factory() as db:
-        match, players = await _seed_match(
+        match, players = await _seed_liars_dice_driver_match(
             db,
             match_id="M_LD_BOTMOVE",
             wild_ones=True,

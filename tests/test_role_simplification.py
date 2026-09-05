@@ -32,6 +32,7 @@ from tests.factories import (
     make_match,
     make_turn,
     seat_player,
+    seed_match,
 )
 
 REPO_ROOT: Path = Path(__file__).resolve().parents[1]
@@ -104,17 +105,6 @@ async def _named(reset_db, name: str) -> Match | None:
         return (
             await db.execute(select(Match).where(Match.name == name))
         ).scalar_one_or_none()
-
-
-async def _seed_match(reset_db, match_id: str, *, owner_id: int | None) -> None:
-    async with reset_db() as db:
-        await make_match(
-            db,
-            match_id,
-            state=GameState.REGISTERING,
-            created_by_user_id=owner_id,
-        )
-        await db.commit()
 
 
 # --------------------------------------------------------------------------
@@ -664,7 +654,7 @@ async def test_an_admin_sees_every_strategy_on_the_detail_page(client, reset_db)
 async def test_an_owner_can_open_and_use_the_bots_form(client, reset_db):
     """Row 31."""
     owner = await _user(reset_db, "owner")
-    await _seed_match(reset_db, "M_OWNED", owner_id=owner.id)
+    await seed_match(reset_db, "M_OWNED", state=GameState.REGISTERING, owner_id=owner.id)
 
     form = await client.get(
         f"/games/{GAME}/admin/matches/M_OWNED/bots", cookies=_cookies(owner.id)
@@ -702,7 +692,7 @@ async def test_a_non_owner_is_refused_on_someone_elses_match(
     into the NULL-owner one below."""
     owner = await _user(reset_db, "owner")
     stranger = await _user(reset_db, "stranger")
-    await _seed_match(reset_db, "M_OWNED", owner_id=owner.id)
+    await seed_match(reset_db, "M_OWNED", state=GameState.REGISTERING, owner_id=owner.id)
     async with reset_db() as db:
         match = (
             await db.execute(select(Match).where(Match.id == "M_OWNED"))
@@ -723,7 +713,7 @@ async def test_a_match_with_no_creator_is_admin_only(client, reset_db):
     """Row 33. An auto-scheduled match has no `created_by_user_id`. "Nobody owns
     it" must not read as "anybody owns it"."""
     player = await _user(reset_db, "player")
-    await _seed_match(reset_db, "M_ORPHAN", owner_id=None)
+    await seed_match(reset_db, "M_ORPHAN", state=GameState.REGISTERING, owner_id=None)
 
     for suffix in ("", "/bots"):
         r = await client.get(
@@ -736,7 +726,7 @@ async def test_a_match_with_no_creator_is_admin_only(client, reset_db):
 async def test_an_admin_can_open_a_match_with_no_creator(client, reset_db):
     """Row 34."""
     admin = await _user(reset_db, "boss", admin=True)
-    await _seed_match(reset_db, "M_ORPHAN", owner_id=None)
+    await seed_match(reset_db, "M_ORPHAN", state=GameState.REGISTERING, owner_id=None)
     r = await client.get(
         f"/games/{GAME}/admin/matches/M_ORPHAN", cookies=_cookies(admin.id)
     )
@@ -752,7 +742,7 @@ async def test_force_start_and_cancel_stay_admin_only_even_for_the_owner(
     player deletes their own pre-start match instead. Neither is "manage your own
     match", so owning it is not enough."""
     owner = await _user(reset_db, "owner")
-    await _seed_match(reset_db, "M_OWNED", owner_id=owner.id)
+    await seed_match(reset_db, "M_OWNED", state=GameState.REGISTERING, owner_id=owner.id)
     r = await client.post(
         f"/games/{GAME}/admin/matches/M_OWNED/{action}",
         cookies=_cookies(owner.id),
@@ -765,7 +755,7 @@ async def test_force_start_and_cancel_stay_admin_only_even_for_the_owner(
 async def test_the_owners_detail_page_hides_the_force_start_button(client, reset_db):
     """Row 36. A button that always 403s is worse than no button."""
     owner = await _user(reset_db, "owner")
-    await _seed_match(reset_db, "M_OWNED", owner_id=owner.id)
+    await seed_match(reset_db, "M_OWNED", state=GameState.REGISTERING, owner_id=owner.id)
     r = await client.get(
         f"/games/{GAME}/admin/matches/M_OWNED", cookies=_cookies(owner.id)
     )
@@ -780,7 +770,7 @@ async def test_the_owners_pages_show_no_platform_admin_navigation(
     """Row 37. Both pages hardcoded `is_admin: True` before, which would have
     shown a player the admin menu."""
     owner = await _user(reset_db, "owner")
-    await _seed_match(reset_db, "M_OWNED", owner_id=owner.id)
+    await seed_match(reset_db, "M_OWNED", state=GameState.REGISTERING, owner_id=owner.id)
     r = await client.get(
         f"/games/{GAME}/admin/matches/M_OWNED{suffix}", cookies=_cookies(owner.id)
     )
@@ -793,7 +783,7 @@ async def test_an_admin_may_act_on_a_match_they_did_not_create(client, reset_db)
     """Row 38."""
     owner = await _user(reset_db, "owner")
     admin = await _user(reset_db, "boss", admin=True)
-    await _seed_match(reset_db, "M_OWNED", owner_id=owner.id)
+    await seed_match(reset_db, "M_OWNED", state=GameState.REGISTERING, owner_id=owner.id)
 
     detail = await client.get(
         f"/games/{GAME}/admin/matches/M_OWNED", cookies=_cookies(admin.id)
@@ -930,7 +920,7 @@ async def test_deleting_someone_elses_match_is_still_refused(client, reset_db):
     """Row 45. Existing behaviour, pinned so the refactor cannot change it."""
     owner = await _user(reset_db, "owner")
     stranger = await _user(reset_db, "stranger")
-    await _seed_match(reset_db, "M_OWNED", owner_id=owner.id)
+    await seed_match(reset_db, "M_OWNED", state=GameState.REGISTERING, owner_id=owner.id)
     r = await client.post(
         "/matches/M_OWNED/delete",
         cookies=_cookies(stranger.id),
@@ -944,7 +934,7 @@ async def test_an_admin_may_delete_someone_elses_match(client, reset_db):
     """Row 46."""
     owner = await _user(reset_db, "owner")
     admin = await _user(reset_db, "boss", admin=True)
-    await _seed_match(reset_db, "M_OWNED", owner_id=owner.id)
+    await seed_match(reset_db, "M_OWNED", state=GameState.REGISTERING, owner_id=owner.id)
     r = await client.post(
         "/matches/M_OWNED/delete", cookies=_cookies(admin.id), follow_redirects=False
     )
@@ -957,7 +947,7 @@ async def test_the_player_start_route_still_requires_a_confirmed_seat(
     """Row 47. Owning a match is not the same as holding a seat in it. The
     player start route's eligibility rules are untouched by this change."""
     owner = await _user(reset_db, "owner")
-    await _seed_match(reset_db, "M_OWNED", owner_id=owner.id)
+    await seed_match(reset_db, "M_OWNED", state=GameState.REGISTERING, owner_id=owner.id)
     r = await client.post(
         f"/games/{GAME}/matches/M_OWNED/start",
         cookies=_cookies(owner.id),

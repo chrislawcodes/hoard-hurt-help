@@ -17,9 +17,9 @@ from sqlalchemy import select
 
 from app.engine.scheduler import _active_player_count
 from app.engine.seat_hold import SEAT_HOLD_SECONDS, sweep_held_seats
-from app.models import ConnectionProvider, GameState, Match, Player, User
+from app.models import ConnectionProvider, GameState, Player, User
 from app.models.agent import AgentStatus
-from tests.factories import make_agent, make_connection, make_user
+from tests.factories import make_agent, make_connection, make_user, seed_match
 from tests.conftest import signed_in_cookies as _cookies
 
 JOIN_URL = "/games/hoard-hurt-help/matches/G_001/join"
@@ -30,18 +30,6 @@ MCP_PROVIDER_MODELS = [
 ]
 
 
-async def _seed_match(reset_db, state: GameState = GameState.REGISTERING) -> None:
-    async with reset_db() as db:
-        db.add(
-            Match(
-                id="G_001",
-                name="Test Match",
-                state=state,
-                scheduled_start=datetime.now(timezone.utc) + timedelta(hours=1),
-                per_turn_deadline_seconds=60,
-            )
-        )
-        await db.commit()
 
 
 async def _user_agent(reset_db, *, live: bool):
@@ -72,7 +60,7 @@ async def _user_agent(reset_db, *, live: bool):
 async def test_join_no_agent_no_connection_lands_on_join_form_as_human(client, reset_db):
     # No agent, no connection: the join form still renders, leading with the human
     # "Play manually" option. The AI path links out to create an agent.
-    await _seed_match(reset_db)
+    await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
     user = await _user_with_handle(reset_db)
     r = await client.get(JOIN_URL, cookies=_cookies(user.id), follow_redirects=False)
     assert r.status_code == 200
@@ -93,7 +81,7 @@ async def _user_with_handle(reset_db):
 
 
 async def test_join_live_agent_confirms_and_goes_to_match(client, reset_db):
-    await _seed_match(reset_db)
+    await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
     user_id, agent_id = await _user_agent(reset_db, live=True)
     r = await client.post(
         JOIN_URL,
@@ -114,7 +102,7 @@ async def test_join_signed_in_but_not_looping_holds_not_confirms(client, reset_d
     """The fix: a connection SEEN recently (a fresh sign-in handshake bumps
     last_seen) but with NO play loop running (last_polled_at is NULL) must HOLD the
     seat, not confirm it. Signing in isn't the same as an AI actually playing."""
-    await _seed_match(reset_db)
+    await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
     async with reset_db() as db:
         user = await make_user(db, 0)
         connection, _ = await make_connection(db, user)
@@ -141,7 +129,7 @@ async def test_join_signed_in_but_not_looping_holds_not_confirms(client, reset_d
 
 
 async def test_join_offline_agent_holds_and_goes_to_countdown(client, reset_db):
-    await _seed_match(reset_db)
+    await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
     user_id, agent_id = await _user_agent(reset_db, live=False)
     r = await client.post(
         JOIN_URL,
@@ -204,7 +192,7 @@ async def test_seat_connect_shows_mcp_play_prompt_seen_not_polling(client, reset
     """A live-but-not-polling provider (SEEN_NOT_POLLING) gets the MCP play
     prompt wait page, not a raw HTTP self-setup key — the AI is online, it just
     needs to start the play loop."""
-    await _seed_match(reset_db)
+    await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
     uid, pid = await _held_seat_for_state(
         reset_db, model="claude-haiku-4-5", with_connection=True, seen_recently=True
     )
@@ -225,7 +213,7 @@ async def test_seat_connect_redirects_connected_not_live_provider_to_mcp_setup(
     """A provider that is set up but not seen live (CONNECTED_NOT_LIVE) is sent
     to /me/connections to reconnect — an inactive connection needs reconnect, not
     the 'start polling' wait page."""
-    await _seed_match(reset_db)
+    await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
     # with_connection but seen_recently=False → mcp_connected_at recent, no
     # last_seen_at → CONNECTED_NOT_LIVE.
     uid, pid = await _held_seat_for_state(
@@ -244,7 +232,7 @@ async def test_seat_connect_redirects_connected_not_live_provider_to_mcp_setup(
 async def test_seat_connect_redirects_never_configured_provider_to_mcp_setup(client, reset_db):
     """A never-set-up provider goes to the provider-specific MCP connect page,
     carrying next back to the held seat."""
-    await _seed_match(reset_db)
+    await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
     uid, pid = await _held_seat_for_state(reset_db, model="gemini-3.1-flash-lite", with_connection=False)
     r = await client.get(
         f"/games/hoard-hurt-help/matches/G_001/connect/{pid}",
@@ -262,7 +250,7 @@ async def test_join_never_configured_mcp_provider_redirects_to_mcp_setup(
 ):
     """Join itself sends a never-configured MCP provider to MCP setup, not the
     held-seat wake page."""
-    await _seed_match(reset_db)
+    await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
     async with reset_db() as db:
         user = await make_user(db, 0)
         # ACTIVE is explicit: make_agent defaults a connection-less agent to PAUSED,
@@ -297,7 +285,7 @@ async def test_join_live_machine_connection_confirms_claude_seat(
     """A live, polling machine connection (the always-on connector) serves a Claude
     agent: the seat confirms on join and goes straight to the match — no MCP setup
     detour, because the connector can already play it."""
-    await _seed_match(reset_db)
+    await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
     async with reset_db() as db:
         user = await make_user(db, 0)
         connection, _ = await make_connection(db, user, provider=ConnectionProvider.CLAUDE)
@@ -327,7 +315,7 @@ async def test_seat_connect_expired_mcp_connection_redirects_to_mcp_setup(
     client, reset_db
 ):
     """An MCP connection older than the 90-day OAuth window needs setup again."""
-    await _seed_match(reset_db)
+    await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
     async with reset_db() as db:
         user = await make_user(db, 0)
         connection, _ = await make_connection(db, user, provider=ConnectionProvider.GEMINI)
@@ -368,7 +356,7 @@ async def test_seat_connect_expired_mcp_connection_redirects_to_mcp_setup(
 
 
 async def test_held_seat_not_counted_as_active_player(reset_db):
-    await _seed_match(reset_db)
+    await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
     async with reset_db() as db:
         user = await make_user(db, 0)
         agent, _v = await make_agent(db, user, name="Atlas")
@@ -415,7 +403,7 @@ async def _held_player(reset_db, *, live: bool, deadline: datetime):
 
 
 async def test_sweep_confirms_seat_when_provider_live(reset_db):
-    await _seed_match(reset_db)
+    await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
     future = datetime.now(timezone.utc) + timedelta(seconds=60)
     player_id = await _held_player(reset_db, live=True, deadline=future)
     await sweep_held_seats(reset_db)
@@ -425,7 +413,7 @@ async def test_sweep_confirms_seat_when_provider_live(reset_db):
 
 
 async def test_sweep_releases_expired_unconnected_seat(reset_db):
-    await _seed_match(reset_db)
+    await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
     past = datetime.now(timezone.utc) - timedelta(seconds=1)
     player_id = await _held_player(reset_db, live=False, deadline=past)
     await sweep_held_seats(reset_db)
@@ -435,7 +423,7 @@ async def test_sweep_releases_expired_unconnected_seat(reset_db):
 
 
 async def test_sweep_keeps_unexpired_unconnected_seat(reset_db):
-    await _seed_match(reset_db)
+    await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
     future = datetime.now(timezone.utc) + timedelta(seconds=60)
     player_id = await _held_player(reset_db, live=False, deadline=future)
     await sweep_held_seats(reset_db)
@@ -450,7 +438,7 @@ async def test_sweep_keeps_unexpired_unconnected_seat(reset_db):
 
 
 async def test_status_waiting_when_not_live(client, reset_db):
-    await _seed_match(reset_db)
+    await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
     future = datetime.now(timezone.utc) + timedelta(seconds=60)
     async with reset_db() as db:
         user = await make_user(db, 0)
@@ -476,7 +464,7 @@ async def test_status_waiting_when_not_live(client, reset_db):
 
 
 async def test_status_hx_redirects_when_live(client, reset_db):
-    await _seed_match(reset_db)
+    await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
     future = datetime.now(timezone.utc) + timedelta(seconds=60)
     player_id = await _held_player(reset_db, live=True, deadline=future)
     async with reset_db() as db:
@@ -494,7 +482,7 @@ async def test_status_hx_redirects_when_live(client, reset_db):
 
 
 async def test_status_released_when_expired(client, reset_db):
-    await _seed_match(reset_db)
+    await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
     past = datetime.now(timezone.utc) - timedelta(seconds=1)
     player_id = await _held_player(reset_db, live=False, deadline=past)
     async with reset_db() as db:
@@ -547,7 +535,7 @@ async def _held_configured_offline_player(reset_db, *, seconds_waited: int) -> t
 async def test_status_escalates_to_reconnect_after_grace_window(client, reset_db):
     """A set-up provider that never comes online → the poll detects the stall and
     surfaces a reconnect CTA instead of waiting forever."""
-    await _seed_match(reset_db)
+    await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
     uid, pid = await _held_configured_offline_player(reset_db, seconds_waited=120)
     r = await client.get(
         f"/games/hoard-hurt-help/matches/G_001/connect/{pid}/status",
@@ -564,7 +552,7 @@ async def test_status_escalates_to_reconnect_after_grace_window(client, reset_db
 async def test_status_waits_within_grace_window_before_escalating(client, reset_db):
     """Inside the grace window, a configured provider still just shows 'Waiting' —
     we give the wake prompt a chance before crying 'reconnect'."""
-    await _seed_match(reset_db)
+    await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
     uid, pid = await _held_configured_offline_player(reset_db, seconds_waited=5)
     r = await client.get(
         f"/games/hoard-hurt-help/matches/G_001/connect/{pid}/status",
