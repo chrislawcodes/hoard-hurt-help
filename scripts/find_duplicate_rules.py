@@ -37,6 +37,8 @@ import collections
 import pathlib
 import re
 import sys
+import tomllib
+from typing import Any
 
 # Fields that express the "...unless" half of a rule. A caller that queries the
 # model but never mentions the guard either forgot it or delegates it.
@@ -139,22 +141,53 @@ def check_repeated_predicates(root: pathlib.Path) -> list[str]:
     return findings
 
 
+_DEF_LINE = re.compile(r"(?:async )?def (\w+)\(")
+
+
+def _function_definitions(root: pathlib.Path) -> dict[str, list[tuple[pathlib.Path, int]]]:
+    """Every module-level `def`/`async def` name, with each (file, line) it appears at.
+
+    `re.match` anchors at column 0, so an indented method never matches — this
+    only ever sees top-level functions.
+    """
+    defs: dict[str, list[tuple[pathlib.Path, int]]] = collections.defaultdict(list)
+    for path in _source_files(root):
+        src = path.read_text()
+        for i, line in enumerate(src.splitlines(), start=1):
+            match = _DEF_LINE.match(line)
+            if match:
+                defs[match.group(1)].append((path, i))
+    return defs
+
+
+def duplicate_function_names(root: pathlib.Path) -> dict[str, list[pathlib.Path]]:
+    """Module-level function names defined in two or more files under app/ and mcp_server/.
+
+    Skips dunders and `test_*` helpers. This is the full candidate list, at a lower
+    bar than `check_duplicate_function_names` below (which only reports three-plus
+    files): `one_home_verdicts.toml` needs every 2-file pair on record too, so a
+    later third definition doesn't silently promote a pair no one ever judged.
+    """
+    out: dict[str, list[pathlib.Path]] = {}
+    for name, entries in _function_definitions(root).items():
+        if name.startswith("__") or name.startswith("test_"):
+            continue
+        paths = sorted({path for path, _ in entries})
+        if len(paths) >= 2:
+            out[name] = paths
+    return out
+
+
 def check_duplicate_function_names(root: pathlib.Path) -> list[str]:
     """The same function name defined in three or more files.
 
     Caught `_load_user_agents`, defined three times with three behaviours — one
     of which carried a comment explaining how it differed from the other two.
     """
-    defs: dict[str, list[tuple[pathlib.Path, int]]] = collections.defaultdict(list)
-    for path in _source_files(root):
-        src = path.read_text()
-        for i, line in enumerate(src.splitlines(), start=1):
-            match = re.match(r"(?:async )?def (\w+)\(", line)
-            if match:
-                defs[match.group(1)].append((path, i))
-
+    entries_by_name = _function_definitions(root)
     findings: list[str] = []
-    for name, entries in sorted(defs.items()):
+    for name in sorted(duplicate_function_names(root)):
+        entries = entries_by_name[name]
         places = [f"{p.relative_to(root)}:{i}" for p, i in entries]
         # Threshold of THREE, not two. Two files sharing a name is usually fine and
         # often deliberate — the MCP tools re-expose the engine's play functions under
@@ -163,7 +196,7 @@ def check_duplicate_function_names(root: pathlib.Path) -> list[str]:
         # left a 90% false-positive rate. Three independent definitions is the point
         # where it stops being a pattern and starts being a smell: on 2026-08-17 this
         # threshold left exactly one hit, `_load_user_agents`, which was real.
-        if len(places) < 3 or name.startswith("__"):
+        if len(places) < 3:
             continue
         findings.append(f"{name}() defined in {len(places)} files")
         for place in places[:5]:
@@ -176,6 +209,39 @@ CHECKS = (
     ("Same predicate set written out in several files", check_repeated_predicates),
     ("Same function name defined in several files", check_duplicate_function_names),
 )
+
+# Where each check's key sits in its own header line, so a verdict recorded in
+# one_home_verdicts.toml can find the finding it was written about.
+_GUARD_KEY = re.compile(r"^(\S+): applied by")
+_PREDICATE_KEY = re.compile(r"^(\[.*?\]) in \d+ files")
+_FUNCTION_NAME_KEY = re.compile(r"^(\w+)\(\) defined in")
+
+
+def _load_verdicts(root: pathlib.Path) -> dict[str, Any]:
+    with (root / "one_home_verdicts.toml").open("rb") as f:
+        return tomllib.load(f)
+
+
+def _drop_hidden(
+    findings: list[str], header_pattern: re.Pattern[str], hidden_keys: set[str]
+) -> tuple[list[str], int]:
+    """Drop each header line whose captured key is in hidden_keys, plus the
+    indented detail lines that follow it."""
+    kept: list[str] = []
+    removed = 0
+    dropping = False
+    for line in findings:
+        if line.startswith("      "):
+            if not dropping:
+                kept.append(line)
+            continue
+        match = header_pattern.match(line)
+        dropping = bool(match) and match.group(1) in hidden_keys
+        if dropping:
+            removed += 1
+        else:
+            kept.append(line)
+    return kept, removed
 
 
 def main() -> int:
@@ -191,9 +257,27 @@ def main() -> int:
         print(f"error: {args.root} does not look like this repo (no app/)", file=sys.stderr)
         return 2
 
+    verdicts = _load_verdicts(args.root)
+    hidden_scanner_keys: dict[str, set[str]] = collections.defaultdict(set)
+    for entry in verdicts.get("scanner_hits", []):
+        hidden_scanner_keys[entry["check"]].add(entry["key"])
+    judged_function_names = {
+        entry["name"] for entry in verdicts.get("function_names", []) if entry["verdict"] != "unjudged"
+    }
+
     total = 0
+    hidden_total = 0
     for title, check in CHECKS:
         findings = check(args.root)
+        if check is check_guard_gaps:
+            findings, hidden = _drop_hidden(findings, _GUARD_KEY, hidden_scanner_keys["guard_gap"])
+        elif check is check_repeated_predicates:
+            findings, hidden = _drop_hidden(
+                findings, _PREDICATE_KEY, hidden_scanner_keys["repeated_predicate"]
+            )
+        else:
+            findings, hidden = _drop_hidden(findings, _FUNCTION_NAME_KEY, judged_function_names)
+        hidden_total += hidden
         headers = [f for f in findings if not f.startswith("      ")]
         total += len(headers)
         print(f"\n=== {title} — {len(headers)} candidate(s) ===")
@@ -204,6 +288,7 @@ def main() -> int:
         "the caller re-derives the rule or delegates it to one shared function. "
         "Delegation is the goal and looks the same from here."
     )
+    print(f"{hidden_total} hits hidden by one_home_verdicts.toml")
     # Always exit 0 — this reports, it does not gate. See the module docstring.
     return 0
 
