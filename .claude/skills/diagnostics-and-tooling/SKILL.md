@@ -179,8 +179,8 @@ infer it from response times.**
 ## Provenance and maintenance
 
 Written 2026-07-02 from the scripts' own docstrings, `STATUS.md` (#320 baseline
-tournament, #566), commit `77c679f` (#567), and
-`docs/workflow/feature-runs/mutual-help-decay/closeout.md`.
+tournament, #566), commit `77c679f` (#567), and the mutual-help-decay closeout
+(git history at `f68511c2a59db635f7e1510b7d0d249ced4996fa`, see feature-runs/README.md).
 
 Re-verify when suspicious:
 - The catalog is complete: `ls scripts/` (new tools belong in this file)

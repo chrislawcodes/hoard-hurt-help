@@ -1,9 +1,0 @@
-{
-  "paths": [
-    "app/engine"
-  ],
-  "allowed_dirty_paths": [
-    "app/engine",
-    "docs/workflow/feature-runs/dedup-engine-cseries"
-  ]
-}
