@@ -45,7 +45,7 @@ async def client():
         yield c
 
 
-async def _seed_game(
+async def _seed_two_phase_match(
     reset_db: async_sessionmaker,
     *,
     n_players: int = 2,
@@ -129,7 +129,7 @@ def _json_text(body: object) -> str:
 async def test_message_talk_phase_is_idempotent_and_act_phase_signals_window_closed(
     client, reset_db
 ):
-    game, players = await _seed_game(reset_db)
+    game, players = await _seed_two_phase_match(reset_db)
     turn = await _open_turn(reset_db, game.id, phase="talk")
     key = players[0]._test_key
 
@@ -200,7 +200,7 @@ async def test_message_talk_phase_is_idempotent_and_act_phase_signals_window_clo
 
 
 async def test_submit_talk_phase_rejects_then_act_phase_stores_thinking(client, reset_db):
-    game, players = await _seed_game(reset_db)
+    game, players = await _seed_two_phase_match(reset_db)
     turn = await _open_turn(reset_db, game.id, phase="talk")
     key = players[0]._test_key
 
@@ -252,7 +252,7 @@ async def test_submit_talk_phase_rejects_then_act_phase_stores_thinking(client, 
 
 
 async def test_turn_current_is_talk_then_act_with_talk_messages(client, reset_db):
-    game, players = await _seed_game(reset_db)
+    game, players = await _seed_two_phase_match(reset_db)
     key = players[0]._test_key
 
     talk_turn = await _open_turn(reset_db, game.id, phase="talk")
@@ -333,7 +333,7 @@ async def test_next_turn_stops_reserving_talk_turn_after_message(
     # Don't actually hold the request open — return the idle payload at once.
     monkeypatch.setattr("app.engine.agent_idle.LONG_POLL_HOLD_SECONDS", 0)
 
-    game, players = await _seed_game(reset_db)
+    game, players = await _seed_two_phase_match(reset_db)
     key = players[0]._test_key
     talk_turn = await _open_turn(reset_db, game.id, phase="talk")
 
@@ -380,7 +380,7 @@ async def test_next_turn_stops_reserving_talk_turn_after_message(
 
 
 async def test_agent_endpoints_do_not_leak_thinking(client, reset_db):
-    game, players = await _seed_game(reset_db)
+    game, players = await _seed_two_phase_match(reset_db)
     key = players[0]._test_key
 
     resolved_turn = await _open_turn(reset_db, game.id, phase="act")

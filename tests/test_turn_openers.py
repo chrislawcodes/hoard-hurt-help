@@ -18,7 +18,7 @@ from app.models import GameState, Match
 from tests.factories import make_match
 
 
-async def _seed_game(db, *, current_round: int) -> Match:
+async def _seed_c2_match(db, *, current_round: int) -> Match:
     game = await make_match(
         db,
         "G_C2",
@@ -34,7 +34,7 @@ async def _seed_game(db, *, current_round: int) -> Match:
 
 async def test_sequential_opener_does_not_touch_current_round(db) -> None:
     """C2-seq: blind INSERT, sets only current_turn, leaves current_round alone."""
-    game = await _seed_game(db, current_round=5)
+    game = await _seed_c2_match(db, current_round=5)
     turn = await SequentialDriver()._open_actor_turn(db, game, round_num=5, turn_num=3)
     assert turn.phase == "act"
     assert turn.round == 5 and turn.turn == 3
@@ -44,7 +44,7 @@ async def test_sequential_opener_does_not_touch_current_round(db) -> None:
 
 async def test_simultaneous_opener_writes_round_and_is_get_or_create(db) -> None:
     """C2-sim: writes BOTH pointers and reuses the row on a resume."""
-    game = await _seed_game(db, current_round=0)
+    game = await _seed_c2_match(db, current_round=0)
     first = await _open_turn(db, game, round_num=2, turn_num=1)
     assert game.current_round == 2 and game.current_turn == 1
     assert first.phase == "talk"
@@ -57,7 +57,7 @@ async def test_talk_deadline_is_capped_below_the_match_window(db) -> None:
     """Talk gets the shorter TALK_DEADLINE_SECONDS even when the match allows more."""
     from app.engine.scheduler_turn_loop import TALK_DEADLINE_SECONDS
 
-    game = await _seed_game(db, current_round=0)
+    game = await _seed_c2_match(db, current_round=0)
     game.per_turn_deadline_seconds = 75  # act window; talk should still be capped
     await db.commit()
     turn = await _open_turn(db, game, round_num=1, turn_num=1)
@@ -71,7 +71,7 @@ async def test_act_phase_resets_to_the_full_match_window(db) -> None:
     from app.engine.scheduler_turn_loop import _begin_act_phase
     from app.engine.turn_clock import now_utc
 
-    game = await _seed_game(db, current_round=0)
+    game = await _seed_c2_match(db, current_round=0)
     game.per_turn_deadline_seconds = 75
     await db.commit()
     turn = await _open_turn(db, game, round_num=1, turn_num=1)

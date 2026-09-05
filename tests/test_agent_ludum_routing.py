@@ -11,20 +11,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.models import GameState, Match, Player
 from app.models.agent import AgentKind
-from tests.factories import make_agent, make_match, make_user
-
-
-async def _seed_game(
-    reset_db: async_sessionmaker,
-    match_id: str = "G_001",
-    name: str = "Test Match",
-    state: GameState = GameState.REGISTERING,
-) -> Match:
-    async with reset_db() as db:
-        g = await make_match(db, match_id, state=state, name=name)
-        await db.commit()
-        await db.refresh(g)
-        return g
+from tests.factories import make_agent, make_user, seed_match
 
 
 async def _seed_leaderboard_match(
@@ -116,7 +103,7 @@ async def test_root_serves_agent_ludum_marketing(client, reset_db):
 
 async def test_lobby_served_at_game_path(client, reset_db):
     """The HHH lobby (upcoming games etc.) now lives at /games/hoard-hurt-help."""
-    await _seed_game(reset_db)
+    await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
     r = await client.get("/games/hoard-hurt-help")
     assert r.status_code == 200
     assert "Test Match" in r.text  # the upcoming-games listing renders here
@@ -167,7 +154,7 @@ async def test_games_catalog_omits_explanatory_box(client, reset_db):
 
 async def test_game_viewer_unchanged(client, reset_db):
     """The per-match viewer now uses /games/{game}/matches/{match_id}."""
-    await _seed_game(reset_db, match_id="G_view", state=GameState.ACTIVE)
+    await seed_match(reset_db, "G_view", state=GameState.ACTIVE, name="Test Match")
     r = await client.get("/games/hoard-hurt-help/matches/G_view")
     assert r.status_code == 200
 
@@ -177,7 +164,7 @@ async def test_active_game_viewer_wires_live_sse(client, reset_db):
     plain-JS EventSource needs, and must NOT carry the old htmx sse-extension
     attributes — in htmx 1.9.x those silently never fired, so live updates were
     dead and the page only changed on a manual reload."""
-    await _seed_game(reset_db, match_id="G_live", state=GameState.ACTIVE)
+    await seed_match(reset_db, "G_live", state=GameState.ACTIVE, name="Test Match")
     r = await client.get("/games/hoard-hurt-help/matches/G_live")
     assert r.status_code == 200
     # The working wiring the EventSource reads off the live region.
@@ -198,7 +185,7 @@ async def test_active_game_viewer_wires_live_sse(client, reset_db):
 async def test_finished_game_viewer_has_no_live_stream(client, reset_db):
     """A non-active game opens no stream: the live-update attributes are absent
     so the page never tries to connect to a stream that will deliver nothing."""
-    await _seed_game(reset_db, match_id="G_done", state=GameState.COMPLETED)
+    await seed_match(reset_db, "G_done", state=GameState.COMPLETED, name="Test Match")
     r = await client.get("/games/hoard-hurt-help/matches/G_done")
     assert r.status_code == 200
     assert "data-stream-url=" not in r.text

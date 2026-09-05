@@ -149,26 +149,6 @@ async def _make_connection(
     return connection
 
 
-async def _make_match(
-    db: AsyncSession,
-    match_id: str,
-    *,
-    state: GameState,
-) -> Match:
-    """Seed a match that "already happened" (started an hour before the file's
-    frozen NOW), unlike `tests.factories.make_match`'s default of a not-yet-
-    started REGISTERING match — this file's fixtures are all mid-game/finished."""
-    started = NOW - timedelta(hours=1)
-    return await make_match(
-        db,
-        match_id,
-        state=state,
-        scheduled_start=started,
-        started_at=started if state != GameState.SCHEDULED else None,
-        completed_at=NOW if state == GameState.COMPLETED else None,
-    )
-
-
 # ---------------------------------------------------------------------------
 # Fix 1: Matches section
 # ---------------------------------------------------------------------------
@@ -182,9 +162,21 @@ async def test_load_agent_matches_returns_active_upcoming_done_ordering(
         conn = await _make_connection(db, user)
         agent, version = await make_agent(db, user, connection=conn, name="Alpha")
 
-        active_match = await _make_match(db, "M_active", state=GameState.ACTIVE)
-        upcoming_match = await _make_match(db, "M_upcoming", state=GameState.SCHEDULED)
-        done_match = await _make_match(db, "M_done", state=GameState.COMPLETED)
+        started = NOW - timedelta(hours=1)
+        active_match = await make_match(
+            db, "M_active", state=GameState.ACTIVE, scheduled_start=started, started_at=started
+        )
+        upcoming_match = await make_match(
+            db, "M_upcoming", state=GameState.SCHEDULED, scheduled_start=started
+        )
+        done_match = await make_match(
+            db,
+            "M_done",
+            state=GameState.COMPLETED,
+            scheduled_start=started,
+            started_at=started,
+            completed_at=NOW,
+        )
 
         await seat_prebuilt_player(db, match=active_match, user=user, agent=agent, version=version, seat_name="A")
         await seat_prebuilt_player(db, match=upcoming_match, user=user, agent=agent, version=version, seat_name="A")
@@ -214,8 +206,16 @@ async def test_load_agent_matches_caps_done_at_10(
         conn = await _make_connection(db, user)
         agent, version = await make_agent(db, user, connection=conn, name="Alpha")
 
+        started = NOW - timedelta(hours=1)
         for i in range(15):
-            m = await _make_match(db, f"M_done_{i}", state=GameState.COMPLETED)
+            m = await make_match(
+                db,
+                f"M_done_{i}",
+                state=GameState.COMPLETED,
+                scheduled_start=started,
+                started_at=started,
+                completed_at=NOW,
+            )
             await seat_prebuilt_player(db, match=m, user=user, agent=agent, version=version, seat_name="A")
         await db.commit()
 
@@ -234,7 +234,10 @@ async def test_agent_detail_shows_matches_section(
         user = await make_user(db, i=2, handle="agent2")
         conn = await _make_connection(db, user)
         agent, version = await make_agent(db, user, connection=conn, name="Alpha")
-        active_match = await _make_match(db, "M_show", state=GameState.ACTIVE)
+        started = NOW - timedelta(hours=1)
+        active_match = await make_match(
+            db, "M_show", state=GameState.ACTIVE, scheduled_start=started, started_at=started
+        )
         await seat_prebuilt_player(db, match=active_match, user=user, agent=agent, version=version, seat_name="A")
         await db.commit()
 
@@ -256,7 +259,9 @@ async def test_agent_detail_matches_shows_leave_for_pre_game(
         user = await make_user(db, i=3, handle="agent3")
         conn = await _make_connection(db, user)
         agent, version = await make_agent(db, user, connection=conn, name="Alpha")
-        pre_match = await _make_match(db, "M_pre", state=GameState.SCHEDULED)
+        pre_match = await make_match(
+            db, "M_pre", state=GameState.SCHEDULED, scheduled_start=NOW - timedelta(hours=1)
+        )
         await seat_prebuilt_player(db, match=pre_match, user=user, agent=agent, version=version, seat_name="A")
         await db.commit()
 
@@ -404,7 +409,10 @@ async def test_agent_detail_hides_ready_to_play_when_at_capacity(
         user = await make_user(db, i=6, handle="agent6")
         conn = await _make_connection(db, user, last_seen_at=recently, max_concurrent_games=1)
         agent, version = await make_agent(db, user, connection=conn, name="Alpha")
-        m = await _make_match(db, "M_cap", state=GameState.ACTIVE)
+        started = NOW - timedelta(hours=1)
+        m = await make_match(
+            db, "M_cap", state=GameState.ACTIVE, scheduled_start=started, started_at=started
+        )
         await seat_prebuilt_player(db, match=m, user=user, agent=agent, version=version, seat_name="A")
         await db.commit()
 
@@ -482,7 +490,10 @@ async def test_agent_detail_no_reconnect_card_when_live(
         user = await make_user(db, i=12, handle="agentC")
         conn = await _make_connection(db, user, last_seen_at=recently)
         agent, version = await make_agent(db, user, connection=conn, name="Alpha")
-        m = await _make_match(db, "M_live2", state=GameState.ACTIVE)
+        started = NOW - timedelta(hours=1)
+        m = await make_match(
+            db, "M_live2", state=GameState.ACTIVE, scheduled_start=started, started_at=started
+        )
         await seat_prebuilt_player(db, match=m, user=user, agent=agent, version=version, seat_name="A")
         await db.commit()
 
@@ -570,7 +581,9 @@ async def test_onboarding_state_connected_pregame(
         user = await make_user(db, i=15, handle="ob2")
         conn = await _make_connection(db, user, first_connected_at=NOW)
         agent, version = await make_agent(db, user, connection=conn, name="Alpha")
-        match = await _make_match(db, "M_pregame", state=GameState.SCHEDULED)
+        match = await make_match(
+            db, "M_pregame", state=GameState.SCHEDULED, scheduled_start=NOW - timedelta(hours=1)
+        )
         await seat_prebuilt_player(db, match=match, user=user, agent=agent, version=version, seat_name="A")
         await db.commit()
 
@@ -595,7 +608,14 @@ async def test_onboarding_state_in_game_no_move(
         user = await make_user(db, i=16, handle="ob3")
         conn = await _make_connection(db, user, first_connected_at=NOW)
         agent, version = await make_agent(db, user, connection=conn, name="Alpha")
-        match = await _make_match(db, "M_active_nomove", state=GameState.ACTIVE)
+        started = NOW - timedelta(hours=1)
+        match = await make_match(
+            db,
+            "M_active_nomove",
+            state=GameState.ACTIVE,
+            scheduled_start=started,
+            started_at=started,
+        )
         player = await seat_prebuilt_player(
             db, match=match, user=user, agent=agent, version=version, seat_name="A"
         )
@@ -623,7 +643,10 @@ async def test_onboarding_state_playing_first_real_move(
         user = await make_user(db, i=17, handle="ob4")
         conn = await _make_connection(db, user, first_connected_at=NOW)
         agent, version = await make_agent(db, user, connection=conn, name="Alpha")
-        match = await _make_match(db, "M_playing", state=GameState.ACTIVE)
+        started = NOW - timedelta(hours=1)
+        match = await make_match(
+            db, "M_playing", state=GameState.ACTIVE, scheduled_start=started, started_at=started
+        )
         player = await seat_prebuilt_player(
             db, match=match, user=user, agent=agent, version=version, seat_name="A"
         )
@@ -653,7 +676,10 @@ async def test_onboarding_state_playing_even_when_cold(
         # No first_connected_at — this is a legacy agent that pre-dates first_connected_at
         conn = await _make_connection(db, user)
         agent, version = await make_agent(db, user, connection=conn, name="Alpha")
-        match = await _make_match(db, "M_cold_play", state=GameState.ACTIVE)
+        started = NOW - timedelta(hours=1)
+        match = await make_match(
+            db, "M_cold_play", state=GameState.ACTIVE, scheduled_start=started, started_at=started
+        )
         player = await seat_prebuilt_player(
             db, match=match, user=user, agent=agent, version=version, seat_name="A"
         )
@@ -709,7 +735,10 @@ async def test_status_fragment_hides_playing_banner(
             db, user, last_seen_at=recently, first_connected_at=recently
         )
         agent, version = await make_agent(db, user, connection=conn, name="Alpha")
-        match = await _make_match(db, "M_frag_play", state=GameState.ACTIVE)
+        started = NOW - timedelta(hours=1)
+        match = await make_match(
+            db, "M_frag_play", state=GameState.ACTIVE, scheduled_start=started, started_at=started
+        )
         player = await seat_prebuilt_player(
             db, match=match, user=user, agent=agent, version=version, seat_name="A"
         )
@@ -740,7 +769,10 @@ async def test_status_fragment_shows_at_capacity_card(
         )
         agent1, version1 = await make_agent(db, user, connection=conn, name="Cap1")
         agent2, _ = await make_agent(db, user, connection=conn, name="Cap2")
-        match = await _make_match(db, "M_cap2", state=GameState.ACTIVE)
+        started = NOW - timedelta(hours=1)
+        match = await make_match(
+            db, "M_cap2", state=GameState.ACTIVE, scheduled_start=started, started_at=started
+        )
         await seat_prebuilt_player(
             db, match=match, user=user, agent=agent1, version=version1, seat_name="A"
         )

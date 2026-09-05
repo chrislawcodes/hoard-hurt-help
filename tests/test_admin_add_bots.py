@@ -8,9 +8,9 @@ from sqlalchemy import select
 from app.config import settings
 from app.engine.bots.seating import BOTS_USER_SUB
 from app.main import app
-from app.models import Base, Agent, AgentKind, Match, GameState, Player, User
+from app.models import Base, Agent, AgentKind, GameState, Player, User
 from app.models.user import UserRole
-from tests.factories import make_agent, make_match
+from tests.factories import make_agent, seed_match
 from tests.conftest import signed_in_cookies as _cookies
 
 
@@ -60,22 +60,6 @@ async def _seed_user(reset_db, email: str) -> User:
         return u
 
 
-async def _seed_game(
-    reset_db,
-    *,
-    state: GameState = GameState.REGISTERING,
-    max_players: int = 20,
-    match_id: str = "G_001",
-) -> Match:
-    async with reset_db() as db:
-        g = await make_match(
-            db, match_id, state=state, name="Friday Test", max_players=max_players
-        )
-        await db.commit()
-        await db.refresh(g)
-        return g
-
-
 def _roster(*pairs: tuple[str, str]) -> dict[str, list[str]]:
     """Build the parallel-array form body (httpx encodes dict-of-lists as
     repeated fields, preserving order)."""
@@ -87,7 +71,7 @@ def _roster(*pairs: tuple[str, str]) -> dict[str, list[str]]:
 
 async def test_form_renders_with_personalities(client, reset_db):
     admin = await _seed_user(reset_db, "admin@test.com")
-    await _seed_game(reset_db)
+    await seed_match(reset_db, "G_001", state=GameState.REGISTERING, max_players=20, name="Friday Test")
     r = await client.get("/games/hoard-hurt-help/admin/matches/G_001/bots", cookies=_cookies(admin.id))
     assert r.status_code == 200
     assert "Add Bots" in r.text
@@ -97,7 +81,7 @@ async def test_form_renders_with_personalities(client, reset_db):
 
 async def test_non_admin_blocked(client, reset_db):
     user = await _seed_user(reset_db, "regular@test.com")
-    await _seed_game(reset_db)
+    await seed_match(reset_db, "G_001", state=GameState.REGISTERING, max_players=20, name="Friday Test")
     r = await client.get(
         "/games/hoard-hurt-help/admin/matches/G_001/bots", cookies=_cookies(user.id), follow_redirects=False
     )
@@ -113,7 +97,7 @@ async def test_non_admin_blocked(client, reset_db):
 
 async def test_seats_bots_as_players(client, reset_db):
     admin = await _seed_user(reset_db, "admin@test.com")
-    await _seed_game(reset_db)
+    await seed_match(reset_db, "G_001", state=GameState.REGISTERING, max_players=20, name="Friday Test")
     r = await client.post(
         "/games/hoard-hurt-help/admin/matches/G_001/bots",
         data=_roster(
@@ -164,7 +148,7 @@ async def test_seats_bots_as_players(client, reset_db):
 
 async def test_rejects_over_cap(client, reset_db):
     admin = await _seed_user(reset_db, "admin@test.com")
-    await _seed_game(reset_db, max_players=3)
+    await seed_match(reset_db, "G_001", state=GameState.REGISTERING, max_players=3, name="Friday Test")
     # One human already seated → only 2 free seats.
     async with reset_db() as db:
         u = User(google_sub="human", email="human@test.com")
@@ -191,7 +175,7 @@ async def test_rejects_over_cap(client, reset_db):
 
 async def test_rejects_duplicate_name(client, reset_db):
     admin = await _seed_user(reset_db, "admin@test.com")
-    await _seed_game(reset_db)
+    await seed_match(reset_db, "G_001", state=GameState.REGISTERING, max_players=20, name="Friday Test")
     async with reset_db() as db:
         u = User(google_sub="human", email="human@test.com")
         db.add(u)
@@ -212,7 +196,7 @@ async def test_rejects_duplicate_name(client, reset_db):
 
 async def test_rejects_invalid_name(client, reset_db):
     admin = await _seed_user(reset_db, "admin@test.com")
-    await _seed_game(reset_db)
+    await seed_match(reset_db, "G_001", state=GameState.REGISTERING, max_players=20, name="Friday Test")
     r = await client.post(
         "/games/hoard-hurt-help/admin/matches/G_001/bots",
         data=_roster(("Bad_Name", "grudger")),
@@ -225,7 +209,7 @@ async def test_rejects_invalid_name(client, reset_db):
 
 async def test_rejects_empty_roster(client, reset_db):
     admin = await _seed_user(reset_db, "admin@test.com")
-    await _seed_game(reset_db)
+    await seed_match(reset_db, "G_001", state=GameState.REGISTERING, max_players=20, name="Friday Test")
     r = await client.post(
         "/games/hoard-hurt-help/admin/matches/G_001/bots",
         data={},
@@ -238,7 +222,7 @@ async def test_rejects_empty_roster(client, reset_db):
 
 async def test_cannot_add_after_start(client, reset_db):
     admin = await _seed_user(reset_db, "admin@test.com")
-    await _seed_game(reset_db, state=GameState.ACTIVE)
+    await seed_match(reset_db, "G_001", state=GameState.ACTIVE, max_players=20, name="Friday Test")
     # The form explains it's closed.
     form = await client.get("/games/hoard-hurt-help/admin/matches/G_001/bots", cookies=_cookies(admin.id))
     assert "before a match starts" in form.text
@@ -259,7 +243,7 @@ async def test_cannot_add_after_start(client, reset_db):
 
 async def test_detail_labels_bots_and_shows_banner(client, reset_db):
     admin = await _seed_user(reset_db, "admin@test.com")
-    await _seed_game(reset_db)
+    await seed_match(reset_db, "G_001", state=GameState.REGISTERING, max_players=20, name="Friday Test")
     await client.post(
         "/games/hoard-hurt-help/admin/matches/G_001/bots",
         data=_roster(("Zeus", "grudger")),

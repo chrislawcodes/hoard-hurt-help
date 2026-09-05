@@ -21,7 +21,7 @@ from app.models import Agent, AgentKind, Connection, ConnectionSetup, Match, Gam
 from app.models.connection import ConnectionProvider
 from app.models.match import MatchKind
 from app.models.user import UserRole
-from tests.factories import make_agent, make_connection, make_match, make_user, seat_player
+from tests.factories import make_agent, make_connection, make_user, seat_player, seed_match
 from tests.conftest import signed_in_cookies as _signed_in_cookies
 
 
@@ -42,14 +42,6 @@ async def _seed_user(reset_db: async_sessionmaker) -> User:
         await db.commit()
         await db.refresh(u)
         return u
-
-
-async def _seed_game(reset_db: async_sessionmaker, state=GameState.REGISTERING) -> Match:
-    async with reset_db() as db:
-        g = await make_match(db, "G_001", state=state, name="Test Match")
-        await db.commit()
-        await db.refresh(g)
-        return g
 
 
 async def _seed_practice_arena(reset_db: async_sessionmaker) -> Match:
@@ -185,7 +177,7 @@ async def test_homepage_renders_with_live_and_finished_games(client, reset_db):
     # counts, agent counts, and winners in three bulk queries instead of an N+1
     # loop; this confirms the live + finished-with-winner views still build.
     await _seed_completed_showcase(reset_db)  # G_DONE, COMPLETED, winner = AI_0
-    await _seed_game(reset_db, state=GameState.ACTIVE)  # a live game in the mix
+    await seed_match(reset_db, "G_001", state=GameState.ACTIVE, name="Test Match")  # a live game in the mix
     r = await client.get("/")
     assert r.status_code == 200
     assert 'id="rc-data"' in r.text
@@ -231,7 +223,7 @@ async def test_lobby_query_count_flat_as_finished_games_grow(client, reset_db):
     # The lobby used to run a query per game for EVERY finished and cancelled
     # match. Now it reads them in one grouped query (via cache). Proof: the number
     # of DB SELECTs for the lobby must not grow as finished games pile up.
-    await _seed_game(reset_db, state=GameState.ACTIVE)  # keeps showcase-replay off
+    await seed_match(reset_db, "G_001", state=GameState.ACTIVE, name="Test Match")  # keeps showcase-replay off
     await _seed_extra_completed(reset_db, 0)
     with _count_selects() as first:
         r = await client.get("/games/hoard-hurt-help")
@@ -429,7 +421,7 @@ async def test_lobby_cancels_overdue_unfilled_game(client, reset_db):
 async def test_lobby_polls_upcoming_every_minute(client, reset_db):
     # The lobby wires a 60s poller at the upcoming fragment endpoint so an open
     # page self-updates without a manual reload.
-    await _seed_game(reset_db)
+    await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
     r = await client.get("/games/hoard-hurt-help")
     assert r.status_code == 200
     assert 'hx-get="/games/hoard-hurt-help/upcoming"' in r.text
@@ -473,7 +465,7 @@ async def test_upcoming_fragment_reconciles_and_lists(client, reset_db):
 
 
 async def test_join_requires_sign_in(client, reset_db):
-    await _seed_game(reset_db)
+    await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
     r = await client.get("/games/hoard-hurt-help/matches/G_001/join", follow_redirects=False)
     assert r.status_code == 303
     assert "/auth/google/login" in r.headers["location"]
@@ -605,7 +597,7 @@ async def test_practice_arena_starts_when_player_joins(client, reset_db, monkeyp
 
 async def test_my_games_lists_user_games(client, reset_db):
     user = await _seed_user(reset_db)
-    await _seed_game(reset_db)
+    await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
     agent, _returned_key, _connection_id = await _seed_agent(reset_db, user)
     await client.post(
         "/games/hoard-hurt-help/matches/G_001/join",
@@ -674,7 +666,7 @@ async def test_db_error_during_reconciliation_still_renders_lobby(
 ) -> None:
     """A SQLAlchemyError during cancel_overdue_unfilled_games is caught, logged,
     and the lobby still renders with whatever state the DB already holds."""
-    await _seed_game(reset_db)
+    await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
 
     async def _raise_db_error(db: object) -> int:
         raise SQLAlchemyError("simulated DB error in reconciliation")
@@ -694,7 +686,7 @@ async def test_programming_error_during_reconciliation_propagates(
 ) -> None:
     """A programming bug inside cancel_overdue_unfilled_games must propagate,
     not be silently ignored. The narrowed except only covers SQLAlchemyError."""
-    await _seed_game(reset_db)
+    await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
 
     async def _raise_attr_error(db: object) -> int:
         raise AttributeError("simulated programming bug: bad attribute access")
@@ -713,7 +705,7 @@ async def test_db_error_during_upcoming_reconciliation_still_renders(
 ) -> None:
     """The polled /upcoming fragment catches SQLAlchemyError from reconciliation
     and renders current state rather than returning a 500."""
-    await _seed_game(reset_db)
+    await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
 
     async def _raise_db_error(db: object) -> int:
         raise SQLAlchemyError("simulated DB error in upcoming reconciliation")
@@ -733,7 +725,7 @@ async def test_programming_error_during_upcoming_reconciliation_propagates(
 ) -> None:
     """A programming bug in reconciliation propagates from the /upcoming fragment
     just as it does from the full lobby page."""
-    await _seed_game(reset_db)
+    await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
 
     async def _raise_key_error(db: object) -> int:
         raise KeyError("simulated programming bug: missing key")
@@ -781,7 +773,7 @@ async def test_upcoming_fragment_renders_raw_datetime(client, reset_db):
     Before this fix, _upcoming_views passed pre-formatted ISO strings to the template.
     Now it passes raw datetime objects; this test confirms the Jinja filter handles them.
     """
-    await _seed_game(reset_db)
+    await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
     r = await client.get("/games/hoard-hurt-help/upcoming")
     assert r.status_code == 200
     assert "Test Match" in r.text

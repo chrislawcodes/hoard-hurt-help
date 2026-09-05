@@ -117,20 +117,6 @@ async def _make_connection_setup(
     return setup, plain_key
 
 
-async def _make_match(db: AsyncSession, match_id: str, *, state: GameState) -> Match:
-    """Seed a match that "already happened" (started an hour before the file's
-    frozen NOW), unlike `tests.factories.make_match`'s default of a not-yet-
-    started REGISTERING match — this file's fixtures are all mid-game/finished."""
-    started = NOW - timedelta(hours=1)
-    return await make_match(
-        db,
-        match_id,
-        state=state,
-        scheduled_start=started,
-        started_at=started if state != GameState.SCHEDULED else None,
-    )
-
-
 async def _make_turn(
     db: AsyncSession,
     *,
@@ -809,7 +795,10 @@ async def test_delete_stops_runner_but_leaves_agents_active(
             name="Alpha",
             model="claude-sonnet-5",
         )
-        match = await _make_match(db, "M_detach", state=GameState.ACTIVE)
+        started = NOW - timedelta(hours=1)
+        match = await make_match(
+            db, "M_detach", state=GameState.ACTIVE, scheduled_start=started, started_at=started
+        )
         player = await seat_prebuilt_player(
             db,
             match=match,
@@ -1227,8 +1216,13 @@ async def test_connection_health_across_multiple_agents_tracks_the_active_game(
             name="Cold",
             model="claude-haiku-4-5",
         )
-        warm_match = await _make_match(db, "M_live", state=GameState.ACTIVE)
-        cold_match = await _make_match(db, "M_stalled", state=GameState.ACTIVE)
+        started = NOW - timedelta(hours=1)
+        warm_match = await make_match(
+            db, "M_live", state=GameState.ACTIVE, scheduled_start=started, started_at=started
+        )
+        cold_match = await make_match(
+            db, "M_stalled", state=GameState.ACTIVE, scheduled_start=started, started_at=started
+        )
         warm_player = await seat_prebuilt_player(
             db,
             match=warm_match,

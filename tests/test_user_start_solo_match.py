@@ -22,25 +22,6 @@ from tests.factories import make_match, make_user, seat_player
 from tests.conftest import signed_in_cookies as _cookies
 
 
-async def _make_match(
-    db,
-    match_id: str,
-    *,
-    state: GameState = GameState.REGISTERING,
-    kind: MatchKind = MatchKind.MANUAL,
-    max_players: int = 10,
-) -> Match:
-    # name=match_id (no "Match " prefix) — tests assert on the bare id.
-    return await make_match(
-        db,
-        match_id,
-        state=state,
-        name=match_id,
-        max_players=max_players,
-        match_kind=kind.value,
-    )
-
-
 async def _confirmed_player_count(db, match_id: str) -> int:
     return (
         await db.scalar(
@@ -72,7 +53,7 @@ async def _bot_count(db, match_id: str) -> int:
 async def test_sole_owner_one_seat_fills_table_to_max(reset_db):
     async with reset_db() as db:
         user = await make_user(db, 1)
-        match = await _make_match(db, "M_SOLO1")  # max_players = 10
+        match = await make_match(db, "M_SOLO1", state=GameState.REGISTERING, name="M_SOLO1")
         await seat_player(db, match.id, "My Agent", user=user)
         await db.commit()
 
@@ -84,7 +65,7 @@ async def test_sole_owner_one_seat_fills_table_to_max(reset_db):
 async def test_sole_owner_with_three_seats_still_fills_to_max(reset_db):
     async with reset_db() as db:
         user = await make_user(db, 1)
-        match = await _make_match(db, "M_SOLO3")  # max_players = 10
+        match = await make_match(db, "M_SOLO3", state=GameState.REGISTERING, name="M_SOLO3")
         for n in range(3):
             await seat_player(db, match.id, f"Agent {n}", user=user)
         await db.commit()
@@ -97,7 +78,7 @@ async def test_sole_owner_with_three_seats_still_fills_to_max(reset_db):
 async def test_seat_plus_existing_bots_fills_remaining_to_max(reset_db):
     async with reset_db() as db:
         user = await make_user(db, 1)
-        match = await _make_match(db, "M_BOTS")  # max_players = 10
+        match = await make_match(db, "M_BOTS", state=GameState.REGISTERING, name="M_BOTS")
         await seat_player(db, match.id, "My Agent", user=user)
         await db.commit()
         await fill_match_with_bots(db, match, 3)  # tops the table up to 3
@@ -111,7 +92,7 @@ async def test_another_user_with_a_seat_blocks_start(reset_db):
     async with reset_db() as db:
         owner = await make_user(db, 1)
         other = await make_user(db, 2)
-        match = await _make_match(db, "M_TWO")
+        match = await make_match(db, "M_TWO", state=GameState.REGISTERING, name="M_TWO")
         await seat_player(db, match.id, "Mine", user=owner)
         await seat_player(db, match.id, "Theirs", user=other)
         await db.commit()
@@ -124,7 +105,7 @@ async def test_viewer_without_a_seat_cannot_start(reset_db):
     async with reset_db() as db:
         owner = await make_user(db, 1)
         bystander = await make_user(db, 2)
-        match = await _make_match(db, "M_BY")
+        match = await make_match(db, "M_BY", state=GameState.REGISTERING, name="M_BY")
         await seat_player(db, match.id, "Mine", user=owner)
         await db.commit()
 
@@ -135,7 +116,7 @@ async def test_viewer_without_a_seat_cannot_start(reset_db):
 async def test_active_match_cannot_be_started(reset_db):
     async with reset_db() as db:
         user = await make_user(db, 1)
-        match = await _make_match(db, "M_ACT", state=GameState.ACTIVE)
+        match = await make_match(db, "M_ACT", state=GameState.ACTIVE, name="M_ACT")
         await seat_player(db, match.id, "Mine", user=user)
         await db.commit()
 
@@ -147,7 +128,13 @@ async def test_auto_match_is_user_startable_when_solo(reset_db):
     # Match kind must not matter — only "am I the only one here".
     async with reset_db() as db:
         user = await make_user(db, 1)
-        match = await _make_match(db, "M_AUTO", kind=MatchKind.AUTO_SCHEDULED)
+        match = await make_match(
+            db,
+            "M_AUTO",
+            state=GameState.REGISTERING,
+            name="M_AUTO",
+            match_kind=MatchKind.AUTO_SCHEDULED.value,
+        )
         await seat_player(db, match.id, "Mine", user=user)
         await db.commit()
 
@@ -159,7 +146,7 @@ async def test_auto_match_is_user_startable_when_solo(reset_db):
 async def test_only_a_held_seat_cannot_start(reset_db):
     async with reset_db() as db:
         user = await make_user(db, 1)
-        match = await _make_match(db, "M_HELD")
+        match = await make_match(db, "M_HELD", state=GameState.REGISTERING, name="M_HELD")
         player = await seat_player(db, match.id, "Pending", user=user)
         player.seat_reserved_until = datetime.now(timezone.utc) + timedelta(minutes=10)
         await db.commit()
@@ -178,7 +165,7 @@ async def test_start_route_fills_bots_and_activates(client, reset_db, monkeypatc
 
     async with reset_db() as db:
         user = await make_user(db, 1)
-        match = await _make_match(db, "M_GO")
+        match = await make_match(db, "M_GO", state=GameState.REGISTERING, name="M_GO")
         await seat_player(db, match.id, "My Agent", user=user)
         await db.commit()
         user_id = user.id
@@ -207,7 +194,13 @@ async def test_human_can_start_auto_match_end_to_end(client, reset_db, monkeypat
 
     async with reset_db() as db:
         user = await make_user(db, 1)
-        await _make_match(db, "M_AUTOH", kind=MatchKind.AUTO_SCHEDULED)
+        await make_match(
+            db,
+            "M_AUTOH",
+            state=GameState.REGISTERING,
+            name="M_AUTOH",
+            match_kind=MatchKind.AUTO_SCHEDULED.value,
+        )
         await db.commit()
         user_id = user.id
 
@@ -235,7 +228,7 @@ async def test_start_route_rejects_a_stranger(client, reset_db):
     async with reset_db() as db:
         owner = await make_user(db, 1)
         stranger = await make_user(db, 2)
-        match = await _make_match(db, "M_NO")
+        match = await make_match(db, "M_NO", state=GameState.REGISTERING, name="M_NO")
         await seat_player(db, match.id, "Mine", user=owner)
         await db.commit()
         stranger_id = stranger.id
@@ -256,7 +249,7 @@ async def test_start_route_rejects_when_another_user_is_in(client, reset_db):
     async with reset_db() as db:
         owner = await make_user(db, 1)
         other = await make_user(db, 2)
-        match = await _make_match(db, "M_SHARED")
+        match = await make_match(db, "M_SHARED", state=GameState.REGISTERING, name="M_SHARED")
         await seat_player(db, match.id, "Mine", user=owner)
         await seat_player(db, match.id, "Theirs", user=other)
         await db.commit()
@@ -276,7 +269,7 @@ async def test_start_route_rejects_when_another_user_is_in(client, reset_db):
 async def test_viewer_page_shows_start_button_for_sole_owner(client, reset_db):
     async with reset_db() as db:
         user = await make_user(db, 1)
-        match = await _make_match(db, "M_BTN")
+        match = await make_match(db, "M_BTN", state=GameState.REGISTERING, name="M_BTN")
         await seat_player(db, match.id, "My Agent", user=user)
         await db.commit()
         user_id = user.id
@@ -298,7 +291,7 @@ async def test_viewer_page_hides_start_button_from_stranger(client, reset_db):
     async with reset_db() as db:
         owner = await make_user(db, 1)
         stranger = await make_user(db, 2)
-        match = await _make_match(db, "M_BTN2")
+        match = await make_match(db, "M_BTN2", state=GameState.REGISTERING, name="M_BTN2")
         await seat_player(db, match.id, "Mine", user=owner)
         await db.commit()
         stranger_id = stranger.id

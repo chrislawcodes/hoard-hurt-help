@@ -467,8 +467,8 @@ files = [
     "tests/test_readiness_adoption.py",
     "tests/test_user_start_solo_match.py",
 ]
-verdict = "unjudged"
-note = ""
+verdict = "merged"
+note = "8 copies (test_agent_detail_fixes, test_agent_versions, test_connection_management, test_coverage_health_and_join_gate, test_human_join, test_human_plus_agent_join, test_readiness_adoption, test_user_start_solo_match) already held an open db session, so they were deleted and call tests.factories.make_match directly; 1 renamed to _make_mutual_help_match (test_mutual_help_modes.py) because it needs the mutual_help_mode field make_match doesn't support and seats players a different way"
 
 [[test_helpers]]
 name = "_make_turn"
@@ -535,8 +535,8 @@ files = [
     "tests/test_lobby_join_and_stacking.py",
     "tests/test_turn_openers.py",
 ]
-verdict = "unjudged"
-note = ""
+verdict = "merged"
+note = "6 copies (test_admin_add_bots, test_agent_ludum_routing, test_bot_form_validation, test_bot_soft_delete, test_lobby, test_lobby_join_and_stacking) merged into tests.factories.seed_match; 3 renamed because each does more than seed_match can represent: _seed_game_with_players (test_agent_api.py — seats players, takes scheduled_start, returns a tuple), _seed_two_phase_match (test_agent_two_phase.py — a fixed two-phase match plus seated players), _seed_c2_match (test_turn_openers.py — takes an already-open db session)"
 
 [[test_helpers]]
 name = "_seed_match"

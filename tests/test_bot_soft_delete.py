@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from app.engine.bot_presets import bot_presets
 from app.models import Base, Agent, AgentKind, AgentStatus, Connection, Match, GameState, Player, User
 from app.models.agent_version import AgentVersion
-from tests.factories import make_agent, make_connection, make_match, make_user
+from tests.factories import make_agent, make_connection, make_user, seed_match
 from tests.conftest import signed_in_cookies as _signed_in_cookies
 
 
@@ -34,16 +34,6 @@ async def _seed_user(reset_db: async_sessionmaker) -> User:
         return u
 
 
-async def _seed_game(
-    reset_db: async_sessionmaker, state=GameState.REGISTERING, match_id: str = "G_001"
-) -> Match:
-    async with reset_db() as db:
-        g = await make_match(db, match_id, state=state, name="Test Match")
-        await db.commit()
-        await db.refresh(g)
-        return g
-
-
 async def _seed_agent(
     reset_db: async_sessionmaker, user: User, name: str = "Atlas"
 ) -> tuple[Agent, str, Connection]:
@@ -59,7 +49,7 @@ async def _seed_agent(
 
 async def _give_history(reset_db: async_sessionmaker, user: User, agent_id: int) -> None:
     """Seat the agent as a player in a game so it has game history."""
-    await _seed_game(reset_db)
+    await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
     async with reset_db() as db:
         db.add(
             Player(
@@ -206,7 +196,7 @@ async def test_archived_bot_cannot_join_new_game(client, reset_db):
     await client.post(
         f"/me/agents/{agent.id}/delete", cookies=_signed_in_cookies(user.id)
     )
-    await _seed_game(reset_db, state=GameState.REGISTERING, match_id="G_002")
+    await seed_match(reset_db, "G_002", state=GameState.REGISTERING, name="Test Match")
 
     r = await client.post(
         "/games/hoard-hurt-help/matches/G_002/join",
