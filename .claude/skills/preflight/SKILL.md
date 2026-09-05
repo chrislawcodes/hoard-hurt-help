@@ -78,6 +78,22 @@ mypy app/ mcp_server/
 pytest -q -m "not integration"   # fast lane (~13s); CI still runs the full suite
 ```
 
+## Step 2b — One-home guard (advisory)
+
+Run from the repo root:
+
+```bash
+python3 .claude/skills/one-home/find_similar.py app mcp_server --changed
+python3 scripts/find_duplicate_rules.py
+```
+
+Hits already judged are hidden by `one_home_verdicts.toml`, so anything
+printed is new. Add a row to the Step 3 report table:
+`one-home guard | N new hits (or none)`.
+
+This is advisory only — it never blocks a push. A new hit means either give
+the rule one home in this PR, or add a verdict entry with a note.
+
 ## Step 3 — Report the verdict
 
 Report a table like this, then a one-line verdict:
@@ -88,6 +104,7 @@ Report a table like this, then a one-line verdict:
 | python3 -m ruff check . | PASS |
 | mypy app/ mcp_server/ | PASS |
 | pytest -q -m "not integration" | FAIL — 2 failed |
+| one-home guard | N new hits (or none) |
 
 Verdict: NOT ready to push (fast lane).
 ```

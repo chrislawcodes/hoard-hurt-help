@@ -52,6 +52,10 @@ That file is the source of truth for prod incidents. Index only:
 
 ## Refactors adjudicated "do not re-attempt"
 
+This table has a machine-readable twin in `one_home_verdicts.toml`
+(`[[adjudicated]]`); `tests/test_one_home_ratchet.py` keeps them equal, so
+add a row in both.
+
 | Candidate | Why rejected | Evidence |
 |-----------|--------------|----------|
 | C2: unify the two turn-row openers | One is get-or-create (resume-safe), the other a blind INSERT — behaviorally different on purpose (the G_0012 lesson). | dedup run `docs/workflow/feature-runs/dedup-engine-cseries/`, PR #559 |
