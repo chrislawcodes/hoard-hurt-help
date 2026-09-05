@@ -16,7 +16,7 @@ from app.read_models.admin_reports import load_turn_timing_report
 from app.routes import admin_web
 from app.routes import match_manage_web
 from app.routes import web_support
-from tests.factories import make_agent
+from tests.factories import make_agent, seed_email_user_with_role
 from tests.conftest import signed_in_cookies as _cookies
 
 
@@ -38,24 +38,6 @@ async def reset_db(monkeypatch):
 
     yield test_factory
     await test_engine.dispose()
-
-
-async def _seed_user(reset_db, email: str) -> User:
-    async with reset_db() as db:
-        u = User(
-            google_sub=f"sub-{email}",
-            email=email,
-            name=email,
-            role=(
-                UserRole.ADMIN
-                if email.lower() in settings.platform_admin_emails_set
-                else UserRole.USER
-            ),
-        )
-        db.add(u)
-        await db.commit()
-        await db.refresh(u)
-        return u
 
 
 async def _seed_turn_timing_match(
@@ -210,20 +192,20 @@ async def _seed_turn_timing_match(
 
 
 async def test_non_admin_blocked(client, reset_db):
-    user = await _seed_user(reset_db, "regular@test.com")
+    user = await seed_email_user_with_role(reset_db, "regular@test.com")
     r = await client.get("/admin/matches", cookies=_cookies(user.id), follow_redirects=False)
     assert r.status_code == 403
 
 
 async def test_admin_can_see_dashboard(client, reset_db):
-    admin = await _seed_user(reset_db, "admin@test.com")
+    admin = await seed_email_user_with_role(reset_db, "admin@test.com")
     r = await client.get("/admin/matches", cookies=_cookies(admin.id))
     assert r.status_code == 200
     assert "Match Admin" in r.text
 
 
 async def test_old_admin_root_is_gone(client, reset_db):
-    admin = await _seed_user(reset_db, "admin@test.com")
+    admin = await seed_email_user_with_role(reset_db, "admin@test.com")
     r = await client.get("/admin", cookies=_cookies(admin.id), follow_redirects=False)
     assert r.status_code == 404
 
@@ -232,7 +214,7 @@ async def test_create_game_button_links_to_a_real_route(client, reset_db):
     # The "+ Create game" button used to point at /matches/new, which has
     # no route, so admins got a 404. It must link to the game-scoped create
     # form, and that target must actually load.
-    admin = await _seed_user(reset_db, "admin@test.com")
+    admin = await seed_email_user_with_role(reset_db, "admin@test.com")
     r = await client.get("/admin/matches", cookies=_cookies(admin.id))
     assert r.status_code == 200
     assert 'href="/admin/matches/new"' not in r.text
@@ -247,7 +229,7 @@ async def test_create_game_button_links_to_a_real_route(client, reset_db):
 async def test_dashboard_prompts_link_is_game_scoped(client, reset_db):
     # The "Strategy prompts" link had the same bug as the create button: it
     # pointed at /admin/prompts, which has no route. It must be game-scoped.
-    admin = await _seed_user(reset_db, "admin@test.com")
+    admin = await seed_email_user_with_role(reset_db, "admin@test.com")
     r = await client.get("/admin/matches", cookies=_cookies(admin.id))
     assert r.status_code == 200
     assert 'href="/admin/prompts"' not in r.text
@@ -259,7 +241,7 @@ async def test_dashboard_prompts_link_is_game_scoped(client, reset_db):
 
 
 async def test_admin_menu_groups_platform_admin_links(client, reset_db):
-    admin = await _seed_user(reset_db, "admin@test.com")
+    admin = await seed_email_user_with_role(reset_db, "admin@test.com")
     r = await client.get("/admin/matches", cookies=_cookies(admin.id))
     assert r.status_code == 200
     assert 'role="menuitem">Platform admin</a>' not in r.text
@@ -268,7 +250,7 @@ async def test_admin_menu_groups_platform_admin_links(client, reset_db):
 
 
 async def test_turn_timing_report_counts_and_buckets(client, reset_db):
-    admin = await _seed_user(reset_db, "admin@test.com")
+    admin = await seed_email_user_with_role(reset_db, "admin@test.com")
     await _seed_turn_timing_match(reset_db)
     async with reset_db() as db:
         report = await load_turn_timing_report(db)
@@ -300,7 +282,7 @@ async def test_turn_timing_report_counts_and_buckets(client, reset_db):
 
 
 async def test_turn_timing_report_date_filter_limits_matches(client, reset_db):
-    admin = await _seed_user(reset_db, "admin@test.com")
+    admin = await seed_email_user_with_role(reset_db, "admin@test.com")
     included_at = datetime(2026, 6, 12, 6, 30, tzinfo=timezone.utc)
     excluded_at = datetime(2026, 6, 12, 8, 30, tzinfo=timezone.utc)
     await _seed_turn_timing_match(
@@ -347,7 +329,7 @@ async def test_reports_filter_form_shows_its_own_labels_not_engagements(
     that /admin/reports keeps its own text after the dedup, and that
     /admin/engagement's copy (set the same way, one {% set %} block over)
     can't leak onto this page."""
-    admin = await _seed_user(reset_db, "admin@test.com")
+    admin = await seed_email_user_with_role(reset_db, "admin@test.com")
     r = await client.get("/admin/reports", cookies=_cookies(admin.id))
     assert r.status_code == 200
     assert "Start date" in r.text
@@ -366,7 +348,7 @@ async def test_reports_filter_form_shows_its_own_labels_not_engagements(
 
 
 async def test_admin_api_records_creator(client, reset_db):
-    admin = await _seed_user(reset_db, "admin@test.com")
+    admin = await seed_email_user_with_role(reset_db, "admin@test.com")
     when = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
     r = await client.post(
         "/api/admin/matches",
@@ -390,7 +372,7 @@ async def test_admin_api_records_creator(client, reset_db):
 
 
 async def test_platform_admin_api_records_creator(client, reset_db):
-    admin = await _seed_user(reset_db, "admin@test.com")
+    admin = await seed_email_user_with_role(reset_db, "admin@test.com")
     when = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
     r = await client.post(
         "/api/admin/matches",
@@ -411,7 +393,7 @@ async def test_platform_admin_api_records_creator(client, reset_db):
 
 
 async def test_admin_api_rejects_player_count_over_max(client, reset_db):
-    admin = await _seed_user(reset_db, "admin@test.com")
+    admin = await seed_email_user_with_role(reset_db, "admin@test.com")
     when = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
     r = await client.post(
         "/api/admin/matches",
@@ -432,7 +414,7 @@ async def test_admin_api_rejects_player_count_over_max(client, reset_db):
 async def test_api_rejects_unknown_game_type(client, reset_db):
     # An unknown game type must be rejected at creation (4xx), so a match with a
     # game the scheduler can't run never gets persisted as a future zombie.
-    admin = await _seed_user(reset_db, "admin@test.com")
+    admin = await seed_email_user_with_role(reset_db, "admin@test.com")
     when = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
     r = await client.post(
         "/api/admin/matches",
@@ -458,7 +440,7 @@ async def test_web_form_rejects_unknown_game_type(client, reset_db):
     about a game that does not exist, and the behaviour the player create path
     already had.
     """
-    admin = await _seed_user(reset_db, "admin@test.com")
+    admin = await seed_email_user_with_role(reset_db, "admin@test.com")
     future = (datetime.now(timezone.utc) + timedelta(minutes=10)).strftime(
         "%Y-%m-%dT%H:%M:00.000Z"
     )
@@ -480,7 +462,7 @@ async def test_web_form_rejects_unknown_game_type(client, reset_db):
 
 async def test_create_game_via_web_form(client, reset_db):
     """The browser posts a UTC ISO string (from datetime-local JS conversion)."""
-    admin = await _seed_user(reset_db, "admin@test.com")
+    admin = await seed_email_user_with_role(reset_db, "admin@test.com")
     future = (datetime.now(timezone.utc) + timedelta(minutes=10)).strftime(
         "%Y-%m-%dT%H:%M:00.000Z"
     )
@@ -505,7 +487,7 @@ async def test_create_game_via_web_form(client, reset_db):
 
 
 async def test_web_form_rejects_player_count_over_max(client, reset_db):
-    admin = await _seed_user(reset_db, "admin@test.com")
+    admin = await seed_email_user_with_role(reset_db, "admin@test.com")
     future = (datetime.now(timezone.utc) + timedelta(minutes=10)).strftime(
         "%Y-%m-%dT%H:%M:00.000Z"
     )
@@ -526,7 +508,7 @@ async def test_web_form_rejects_player_count_over_max(client, reset_db):
 
 
 async def test_web_form_rejects_past_time(client, reset_db):
-    admin = await _seed_user(reset_db, "admin@test.com")
+    admin = await seed_email_user_with_role(reset_db, "admin@test.com")
     past = (datetime.now(timezone.utc) - timedelta(minutes=10)).strftime(
         "%Y-%m-%dT%H:%M:00.000Z"
     )
@@ -549,7 +531,7 @@ async def test_web_form_rejects_past_time(client, reset_db):
 async def test_platform_admin_api_creates_liars_dice_match_and_persists_config(
     client, reset_db
 ):
-    admin = await _seed_user(reset_db, "admin@test.com")
+    admin = await seed_email_user_with_role(reset_db, "admin@test.com")
     when = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
     r = await client.post(
         "/api/admin/matches",
@@ -579,7 +561,7 @@ async def test_platform_admin_api_creates_liars_dice_match_and_persists_config(
 async def test_web_form_creates_liars_dice_match_and_persists_config(
     client, reset_db
 ):
-    admin = await _seed_user(reset_db, "admin@test.com")
+    admin = await seed_email_user_with_role(reset_db, "admin@test.com")
     future = (datetime.now(timezone.utc) + timedelta(minutes=10)).strftime(
         "%Y-%m-%dT%H:%M:00.000Z"
     )
@@ -634,7 +616,7 @@ async def test_export_accepts_a_platform_admins_connection_key(client, reset_db)
     results. The export is the only source carrying `was_defaulted` and
     `thinking`, so without this every pooled number comes from whatever a person
     remembered to download."""
-    admin = await _seed_user(reset_db, "admin@test.com")
+    admin = await seed_email_user_with_role(reset_db, "admin@test.com")
     async with reset_db() as db:
         db.add(
             Match(
@@ -657,8 +639,8 @@ async def test_export_accepts_a_platform_admins_connection_key(client, reset_db)
 async def test_export_refuses_a_non_admins_connection_key(client, reset_db):
     """The role check is the whole gate and is unchanged. Widening HOW you prove
     who you are must not widen WHO may read an unredacted export."""
-    await _seed_user(reset_db, "admin@test.com")
-    player = await _seed_user(reset_db, "player@test.com")
+    await seed_email_user_with_role(reset_db, "admin@test.com")
+    player = await seed_email_user_with_role(reset_db, "player@test.com")
     key = await _seed_key_connection(reset_db, player.id)
 
     r = await client.get(
@@ -671,7 +653,7 @@ async def test_export_refuses_a_non_admins_connection_key(client, reset_db):
 async def test_a_key_cannot_cancel_a_match(client, reset_db):
     """Read-only is what makes the wider door acceptable. Cancel, create and
     delete stay session-only so a leaked key cannot destroy a match."""
-    admin = await _seed_user(reset_db, "admin@test.com")
+    admin = await seed_email_user_with_role(reset_db, "admin@test.com")
     async with reset_db() as db:
         db.add(
             Match(
@@ -694,7 +676,7 @@ async def test_a_key_cannot_cancel_a_match(client, reset_db):
 
 
 async def test_admin_cancel_pre_start(client, reset_db):
-    admin = await _seed_user(reset_db, "admin@test.com")
+    admin = await seed_email_user_with_role(reset_db, "admin@test.com")
     async with reset_db() as db:
         g = Match(
             id="G_001",
@@ -729,7 +711,7 @@ async def test_admin_cannot_cancel_a_running_match_by_default(client, reset_db):
     """The default stays closed. Stopping a live match must be asked for by
     name, so an existing caller cannot start killing running matches because a
     parameter was added."""
-    admin = await _seed_user(reset_db, "admin@test.com")
+    admin = await seed_email_user_with_role(reset_db, "admin@test.com")
     match_id = await _seed_active_match(reset_db)
 
     r = await client.post(
@@ -746,7 +728,7 @@ async def test_admin_can_cancel_a_running_match_with_allow_active(client, reset_
     """The whole point of the change: before this there was no way to stop a
     match once it started, and a bad run had to be waited out or destroyed with
     a delete that threw away every turn."""
-    admin = await _seed_user(reset_db, "admin@test.com")
+    admin = await seed_email_user_with_role(reset_db, "admin@test.com")
     match_id = await _seed_active_match(reset_db)
 
     r = await client.post(
@@ -764,7 +746,7 @@ async def test_a_finished_match_stays_uncancellable_even_with_allow_active(
 ):
     """allow_active lifts one block, not all of them. There is nothing to stop
     on a match that already ended, and cancelling one would rewrite a result."""
-    admin = await _seed_user(reset_db, "admin@test.com")
+    admin = await seed_email_user_with_role(reset_db, "admin@test.com")
     async with reset_db() as db:
         db.add(
             Match(
@@ -786,8 +768,8 @@ async def test_a_finished_match_stays_uncancellable_even_with_allow_active(
 
 async def test_a_non_admin_cannot_cancel_a_running_match(client, reset_db):
     """The parameter must not become a way around the admin gate."""
-    await _seed_user(reset_db, "admin@test.com")
-    player = await _seed_user(reset_db, "player@test.com")
+    await seed_email_user_with_role(reset_db, "admin@test.com")
+    player = await seed_email_user_with_role(reset_db, "player@test.com")
     match_id = await _seed_active_match(reset_db, "G_ACT2")
 
     r = await client.post(
@@ -808,7 +790,7 @@ async def test_admin_delete_completed_match_with_winner(client, reset_db):
     clearing the winner pointer throws. SQLite reproduces it now that the test
     engine enables PRAGMA foreign_keys.
     """
-    admin = await _seed_user(reset_db, "admin@test.com")
+    admin = await seed_email_user_with_role(reset_db, "admin@test.com")
     async with reset_db() as db:
         u = User(google_sub="u1", email="p1@t.com")
         db.add(u)
@@ -872,7 +854,7 @@ async def test_admin_delete_completed_match_with_winner(client, reset_db):
 
 
 async def test_export_csv_shape(client, reset_db):
-    admin = await _seed_user(reset_db, "admin@test.com")
+    admin = await seed_email_user_with_role(reset_db, "admin@test.com")
     async with reset_db() as db:
         u = User(google_sub="u1", email="p1@t.com")
         db.add(u)
@@ -932,7 +914,7 @@ async def test_export_csv_shape(client, reset_db):
 
 
 async def test_export_json_includes_strategy_prompts(client, reset_db):
-    admin = await _seed_user(reset_db, "admin@test.com")
+    admin = await seed_email_user_with_role(reset_db, "admin@test.com")
     async with reset_db() as db:
         u = User(google_sub="u1", email="p1@t.com")
         db.add(u)
@@ -980,7 +962,7 @@ async def test_plain_user_cannot_access_platform_admin(client, reset_db, monkeyp
     """
     monkeypatch.setattr(settings, "platform_admin_emails", "platformonly@test.com")
     monkeypatch.setattr(settings, "admin_emails", "")
-    plain = await _seed_user(reset_db, "plain@test.com")
+    plain = await seed_email_user_with_role(reset_db, "plain@test.com")
     assert plain.role == UserRole.USER
     r = await client.get("/admin/matches", cookies=_cookies(plain.id), follow_redirects=False)
     assert r.status_code == 403
@@ -995,7 +977,7 @@ async def test_platform_admin_can_access_the_game_dashboard(client, reset_db, mo
     """
     monkeypatch.setattr(settings, "platform_admin_emails", "platformonly@test.com")
     monkeypatch.setattr(settings, "admin_emails", "")
-    platformonly = await _seed_user(reset_db, "platformonly@test.com")
+    platformonly = await seed_email_user_with_role(reset_db, "platformonly@test.com")
     assert platformonly.role == UserRole.ADMIN
     r = await client.get(
         "/games/hoard-hurt-help/admin/", cookies=_cookies(platformonly.id), follow_redirects=False
@@ -1006,7 +988,7 @@ async def test_platform_admin_can_access_the_game_dashboard(client, reset_db, mo
 async def test_plain_user_cannot_access_any_game_dashboard(client, reset_db, monkeypatch):
     """A plain user is locked out of every game's dashboard, not just one."""
     monkeypatch.setattr(settings, "admin_emails", "")
-    plain = await _seed_user(reset_db, "plain@test.com")
+    plain = await seed_email_user_with_role(reset_db, "plain@test.com")
     for game in ("hoard-hurt-help", "other-game"):
         r = await client.get(
             f"/games/{game}/admin/", cookies=_cookies(plain.id), follow_redirects=False
@@ -1135,7 +1117,7 @@ async def test_platform_admin_dashboard_handles_missing_start_time(monkeypatch):
 
 async def test_admin_api_accessible(client, reset_db):
     """A platform admin can create a match via the admin API."""
-    admin = await _seed_user(reset_db, "admin@test.com")
+    admin = await seed_email_user_with_role(reset_db, "admin@test.com")
     when = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
     r = await client.post(
         "/api/admin/matches",
@@ -1162,7 +1144,7 @@ async def test_delete_active_match_succeeds(client, reset_db):
     from sqlalchemy import select as sa_select
     from tests.factories import make_user, seat_player
 
-    admin = await _seed_user(reset_db, "admin@test.com")
+    admin = await seed_email_user_with_role(reset_db, "admin@test.com")
 
     async with reset_db() as db:
         await make_user(db, i=99)
@@ -1370,7 +1352,7 @@ async def _match_named(reset_db, name):
 async def test_create_form_offers_the_mode_control_only_for_hoard_hurt_help(
     client, reset_db
 ):
-    admin = await _seed_user(reset_db, "admin@test.com")
+    admin = await seed_email_user_with_role(reset_db, "admin@test.com")
     hhh = await client.get(
         "/games/hoard-hurt-help/matches/new", cookies=_cookies(admin.id)
     )
@@ -1384,14 +1366,14 @@ async def test_create_form_offers_the_mode_control_only_for_hoard_hurt_help(
 
 
 async def test_web_form_can_create_a_flat_match(client, reset_db):
-    admin = await _seed_user(reset_db, "admin@test.com")
+    admin = await seed_email_user_with_role(reset_db, "admin@test.com")
     r = await _create_via_form(client, admin, "Flat Bonus", mutual_help_mode="flat_8")
     assert r.status_code == 303, r.text
     assert (await _match_named(reset_db, "Flat Bonus")).mutual_help_mode == "flat_8"
 
 
 async def test_web_form_decay_is_the_default(client, reset_db):
-    admin = await _seed_user(reset_db, "admin@test.com")
+    admin = await seed_email_user_with_role(reset_db, "admin@test.com")
     r = await _create_via_form(client, admin, "Decaying", mutual_help_mode="decay")
     assert r.status_code == 303, r.text
     assert (await _match_named(reset_db, "Decaying")).mutual_help_mode == "decay"
@@ -1403,7 +1385,7 @@ async def test_web_form_without_the_field_uses_the_platform_default(client, rese
     An unchecked checkbox and a game whose form omits the control both arrive as
     "absent" — that has to mean "the platform default", not any one named mode.
     """
-    admin = await _seed_user(reset_db, "admin@test.com")
+    admin = await seed_email_user_with_role(reset_db, "admin@test.com")
     r = await _create_via_form(client, admin, "No Field")
     assert r.status_code == 303, r.text
     assert (
@@ -1412,7 +1394,7 @@ async def test_web_form_without_the_field_uses_the_platform_default(client, rese
 
 
 async def test_admin_api_can_create_a_flat_match(client, reset_db):
-    admin = await _seed_user(reset_db, "admin@test.com")
+    admin = await seed_email_user_with_role(reset_db, "admin@test.com")
     when = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
     r = await client.post(
         "/api/admin/matches",
@@ -1428,7 +1410,7 @@ async def test_admin_api_can_create_a_flat_match(client, reset_db):
 
 
 async def test_admin_api_omitting_the_mode_uses_the_platform_default(client, reset_db):
-    admin = await _seed_user(reset_db, "admin@test.com")
+    admin = await seed_email_user_with_role(reset_db, "admin@test.com")
     when = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
     r = await client.post(
         "/api/admin/matches",
@@ -1447,7 +1429,7 @@ async def test_web_form_rejects_an_unknown_mutual_help_mode(client, reset_db):
     Silently falling back to "decay" would mislabel which rule the match was
     played under — a result that looks fine and means something else.
     """
-    admin = await _seed_user(reset_db, "admin@test.com")
+    admin = await seed_email_user_with_role(reset_db, "admin@test.com")
     r = await _create_via_form(client, admin, "Typo Mode", mutual_help_mode="flat_5")
     assert r.status_code == 400
     assert "Unknown mutual-help mode" in r.text

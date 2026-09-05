@@ -15,13 +15,17 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 import app.db as app_db
 
-from app.config import settings
 from app.engine.bot_presets import bot_presets
-from app.models import Agent, AgentKind, Connection, ConnectionSetup, Match, GameState, Player, User
-from app.models.connection import ConnectionProvider
+from app.models import Agent, AgentKind, ConnectionSetup, Match, GameState, Player, User
 from app.models.match import MatchKind
-from app.models.user import UserRole
-from tests.factories import make_agent, make_connection, make_user, seat_player, seed_match
+from tests.factories import (
+    make_agent,
+    make_user,
+    seat_player,
+    seed_connected_agent,
+    seed_match,
+    seed_user_with_role,
+)
 from tests.conftest import signed_in_cookies as _signed_in_cookies
 
 
@@ -29,19 +33,6 @@ from tests.conftest import signed_in_cookies as _signed_in_cookies
 async def reset_db(reset_db: async_sessionmaker) -> async_sessionmaker:
     """Autouse override of tests/conftest.py's reset_db: every test here touches the DB."""
     return reset_db
-
-
-async def _seed_user(reset_db: async_sessionmaker) -> User:
-    async with reset_db() as db:
-        u = await make_user(db)
-        u.role = (
-            UserRole.ADMIN
-            if u.email.lower() in settings.platform_admin_emails_set
-            else UserRole.USER
-        )
-        await db.commit()
-        await db.refresh(u)
-        return u
 
 
 async def _seed_practice_arena(reset_db: async_sessionmaker) -> Match:
@@ -60,37 +51,6 @@ async def _seed_practice_arena(reset_db: async_sessionmaker) -> Match:
         await db.commit()
         await db.refresh(g)
         return g
-
-
-async def _seed_agent(
-    reset_db: async_sessionmaker,
-    user: User,
-    key: str | None = None,
-    name: str = "Atlas",
-    provider: ConnectionProvider = ConnectionProvider.CLAUDE,
-) -> tuple[Agent, str, int]:
-    async with reset_db() as db:
-        u = (await db.execute(select(User).where(User.id == user.id))).scalar_one()
-        connection, k = await make_connection(db, u, key=key, provider=provider)
-        agent, _ = await make_agent(db, u, connection=connection, name=name)
-        now = datetime.now(timezone.utc)
-        existing_mcp = await db.scalar(
-            select(Connection.id)
-            .where(
-                Connection.user_id == u.id,
-                Connection.provider == connection.provider,
-                Connection.mcp_connected_at.is_not(None),
-                Connection.deleted_at.is_(None),
-            )
-            .limit(1)
-        )
-        if existing_mcp is None:
-            connection.mcp_connected_at = now
-        connection.first_connected_at = now
-        connection.last_seen_at = now
-        connection.last_polled_at = now  # AI is running the play loop → seats confirm
-        await db.commit()
-        return agent, k, connection.id
 
 
 async def _seed_completed_showcase(reset_db: async_sessionmaker) -> None:
@@ -472,7 +432,7 @@ async def test_join_requires_sign_in(client, reset_db):
 
 
 async def test_create_agent_setup_shows_key_once(client, reset_db):
-    user = await _seed_user(reset_db)
+    user = await seed_user_with_role(reset_db)
     # The connections page mints one pending machine setup and shows its key inline.
     r = await client.get(
         "/me/connections",
@@ -497,7 +457,7 @@ async def test_create_agent_setup_shows_key_once(client, reset_db):
 
 
 async def test_preset_bots_auto_provision_and_show_separately(client, reset_db):
-    user = await _seed_user(reset_db)
+    user = await seed_user_with_role(reset_db)
     cookies = _signed_in_cookies(user.id)
     presets = bot_presets()
     async with reset_db() as db:
@@ -543,12 +503,12 @@ async def test_preset_bots_auto_provision_and_show_separately(client, reset_db):
 
 
 async def test_practice_arena_join_copy_mentions_join_start(client, reset_db):
-    user = await _seed_user(reset_db)
+    user = await seed_user_with_role(reset_db)
     cookies = _signed_in_cookies(user.id)
     await _seed_practice_arena(reset_db)
     # The join page is now a smart hub: it only renders the join form when the
     # user has a live, seatable agent. Give them one so we reach the copy below.
-    await _seed_agent(reset_db, user)
+    await seed_connected_agent(reset_db, user)
 
     r = await client.get("/games/hoard-hurt-help/matches/G_PA/join", cookies=cookies)
     assert r.status_code == 200
@@ -575,10 +535,10 @@ async def test_practice_arena_match_page_copy_mentions_join_start(client, reset_
 
 
 async def test_practice_arena_starts_when_player_joins(client, reset_db, monkeypatch):
-    user = await _seed_user(reset_db)
+    user = await seed_user_with_role(reset_db)
     cookies = _signed_in_cookies(user.id)
     await _seed_practice_arena(reset_db)
-    agent, _key, _connection_id = await _seed_agent(reset_db, user)
+    agent, _key, _connection_id = await seed_connected_agent(reset_db, user)
     monkeypatch.setattr("app.engine.scheduler.registry.start", lambda match_id: None)
 
     r = await client.post(
@@ -596,9 +556,9 @@ async def test_practice_arena_starts_when_player_joins(client, reset_db, monkeyp
 
 
 async def test_my_games_lists_user_games(client, reset_db):
-    user = await _seed_user(reset_db)
+    user = await seed_user_with_role(reset_db)
     await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
-    agent, _returned_key, _connection_id = await _seed_agent(reset_db, user)
+    agent, _returned_key, _connection_id = await seed_connected_agent(reset_db, user)
     await client.post(
         "/games/hoard-hurt-help/matches/G_001/join",
         data={"chosen_provider": "claude", "agent_id": agent.id, "display_name": "AI_qa"},

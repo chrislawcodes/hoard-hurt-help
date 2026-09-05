@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from app.config import provider_for_model
+from sqlalchemy import select
+
+from app.config import provider_for_model, settings
 from app.engine.tokens import (
     bot_key_hint,
     bot_key_lookup,
@@ -18,7 +20,7 @@ from app.models.connection_provider import ConnectionProvider as ConnectionProvi
 from app.models.match import Match, GameState
 from app.models.player import Player
 from app.models.turn import Turn, TurnSubmission
-from app.models.user import User
+from app.models.user import User, UserRole
 
 
 async def make_user(db, i: int = 0, *, handle: str | None = None) -> User:
@@ -38,6 +40,67 @@ async def make_user(db, i: int = 0, *, handle: str | None = None) -> User:
     db.add(user)
     await db.flush()
     return user
+
+
+async def seed_user(reset_db, i: int = 0, *, role: UserRole | None = None) -> User:
+    """Open a session, create + commit a make_user() row, and return it.
+
+    The reset_db-opening counterpart to make_user. Pass `role` for a test that
+    needs a specific, caller-chosen account (e.g. UserRole.ADMIN); omitted,
+    the row keeps make_user's default USER role.
+    """
+    async with reset_db() as db:
+        user = await make_user(db, i)
+        if role is not None:
+            user.role = role
+        await db.commit()
+        await db.refresh(user)
+        return user
+
+
+async def seed_user_with_role(reset_db, i: int = 0) -> User:
+    """Open a session, create a make_user() row, and set its role from
+    settings.platform_admin_emails_set — mirrors the app's own admin gate.
+
+    For tests that check admin-vs-regular behavior against the real
+    allowlist rule rather than a role the caller picks directly (that's
+    seed_user's `role` argument).
+    """
+    async with reset_db() as db:
+        user = await make_user(db, i)
+        user.role = (
+            UserRole.ADMIN
+            if user.email.lower() in settings.platform_admin_emails_set
+            else UserRole.USER
+        )
+        await db.commit()
+        await db.refresh(user)
+        return user
+
+
+async def seed_email_user_with_role(reset_db, email: str) -> User:
+    """Open a session, create + commit a User keyed by `email`, and return it.
+
+    Unlike seed_user (which derives the email from an index), this takes the
+    email directly and sets `name` to match it — for tests that assert on a
+    specific admin/regular email. Role is derived from
+    settings.platform_admin_emails_set, the same rule as seed_user_with_role.
+    """
+    async with reset_db() as db:
+        user = User(
+            google_sub=f"sub-{email}",
+            email=email,
+            name=email,
+            role=(
+                UserRole.ADMIN
+                if email.lower() in settings.platform_admin_emails_set
+                else UserRole.USER
+            ),
+        )
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+        return user
 
 
 async def make_connection(
@@ -149,6 +212,44 @@ async def make_agent(
         agent.current_version_id = version.id
         await db.flush()
     return agent, version
+
+
+async def seed_connected_agent(
+    reset_db,
+    user: User,
+    key: str | None = None,
+    name: str = "Atlas",
+    provider: ConnectionProvider = ConnectionProvider.CLAUDE,
+) -> tuple[Agent, str, int]:
+    """Open a session and seed an agent whose connection looks live.
+
+    Sets mcp_connected_at (unless another connection already holds one for
+    this user+provider), first_connected_at, last_seen_at, and
+    last_polled_at — the shape lobby/join-lineup sorting tests need to see
+    the agent as ready to play. Returns (agent, plaintext key, connection id).
+    """
+    async with reset_db() as db:
+        u = (await db.execute(select(User).where(User.id == user.id))).scalar_one()
+        connection, k = await make_connection(db, u, key=key, provider=provider)
+        agent, _ = await make_agent(db, u, connection=connection, name=name)
+        now = datetime.now(timezone.utc)
+        existing_mcp = await db.scalar(
+            select(Connection.id)
+            .where(
+                Connection.user_id == u.id,
+                Connection.provider == connection.provider,
+                Connection.mcp_connected_at.is_not(None),
+                Connection.deleted_at.is_(None),
+            )
+            .limit(1)
+        )
+        if existing_mcp is None:
+            connection.mcp_connected_at = now
+        connection.first_connected_at = now
+        connection.last_seen_at = now
+        connection.last_polled_at = now
+        await db.commit()
+        return agent, k, connection.id
 
 
 async def make_version(

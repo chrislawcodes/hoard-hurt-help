@@ -497,8 +497,26 @@ files = [
     "tests/test_lobby.py",
     "tests/test_lobby_join_and_stacking.py",
 ]
-verdict = "unjudged"
-note = ""
+verdict = "merged"
+note = "2 copies (test_lobby.py, test_lobby_join_and_stacking.py) were byte-identical and merged into tests.factories.seed_connected_agent; 3 renamed because each does something that helper can't represent: _seed_lineup_agent (test_join_lineup.py — takes a blurb, no key param, returns just the Agent), _seed_agent_with_connection (test_bot_soft_delete.py — simpler connection bookkeeping, returns the Connection object itself), _seed_user_and_agent_ids (test_agent_set_model.py — seeds both a user and an agent in one call, returns bare ids)"
+
+[[test_helpers]]
+name = "_seed_agent_with_connection"
+files = ["tests/test_bot_soft_delete.py"]
+verdict = "rename"
+note = "renamed from _seed_agent; only sets first_connected_at/last_seen_at (no mcp_connected_at/last_polled_at/existing-connection dedup) and returns the Connection object itself rather than its id, so it doesn't fit tests.factories.seed_connected_agent"
+
+[[test_helpers]]
+name = "_seed_lineup_agent"
+files = ["tests/test_join_lineup.py"]
+verdict = "rename"
+note = "renamed from _seed_agent; takes an optional blurb and returns just the Agent (no key/connection-id tuple), so it doesn't fit tests.factories.seed_connected_agent"
+
+[[test_helpers]]
+name = "_seed_user_and_agent_ids"
+files = ["tests/test_agent_set_model.py"]
+verdict = "rename"
+note = "renamed from _seed_agent; seeds both a user and an agent in one call and returns their bare ids rather than model objects"
 
 [[test_helpers]]
 name = "_seed_completed_match"
@@ -594,8 +612,14 @@ files = [
     "tests/test_lobby_join_and_stacking.py",
     "tests/test_matches_user.py",
 ]
-verdict = "unjudged"
-note = ""
+verdict = "merged"
+note = "2 copies (test_join_lineup.py, test_bot_soft_delete.py) were thin make_user wrappers and merged into tests.factories.seed_user; test_matches_user.py's copy (a caller-chosen role, no allowlist lookup) now calls seed_user directly with its `role` argument; 2 copies (test_lobby.py, test_lobby_join_and_stacking.py) that also derive role from settings.platform_admin_emails_set were byte-identical and merged into tests.factories.seed_user_with_role; 2 copies (test_admin.py, test_admin_add_bots.py) that build the row from a caller-given email instead of an index were byte-identical and merged into tests.factories.seed_email_user_with_role; test_bot_agents.py's copy renamed to _seed_user_with_handle because it takes an already-open db session and needs a `None` handle to stay `None` (make_user always falls back to a derived one)"
+
+[[test_helpers]]
+name = "_seed_user_with_handle"
+files = ["tests/test_bot_agents.py"]
+verdict = "rename"
+note = "renamed from _seed_user; takes an open db session and, unlike make_user, leaves a `None` handle as `None` instead of deriving a fallback — this file's leaderboard test asserts owner_handle is None for a bot owner"
 
 [[test_helpers]]
 name = "make_connection"
