@@ -11,7 +11,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 
-from app.engine.connection_health import ConnectionHealth, compute_connection_health
+from app.engine.connection_health_badge import ConnectionHealth, compute_connection_health
 from app.engine.connection_activity import (
     bot_channel,
     mark_first_move,

@@ -12,12 +12,8 @@ from sqlalchemy import select
 
 from app.config import settings
 from app.deps import DbSession, get_current_user, require_user_with_handle
-from app.engine.connection_health import (
-    ProviderReadiness,
-    play_verdict,
-    provider_readiness,
-    providers_busy_for_user,
-)
+from app.engine.join_gate_capacity import providers_busy_for_user
+from app.engine.provider_readiness import ProviderReadiness, play_verdict, provider_readiness
 from app.engine.agent_playability import seat_block
 from app.engine.model_provider_match import provider_for_model
 from app.engine.model_verification import model_status_for

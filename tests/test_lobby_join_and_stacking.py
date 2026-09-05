@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import settings
 from app.engine.bots import pack_profile_choices
-from app.engine.connection_health import providers_busy_for_user
+from app.engine.join_gate_capacity import providers_busy_for_user
 from app.engine.tokens import bot_key_lookup
 from app.routes.web_join import _build_ai_options
 from app.models import Agent, AgentKind, Connection, Match, GameState, Player, User

@@ -21,11 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.aware_datetime import ensure_aware
 from app.db import SessionLocal
-from app.engine.connection_health import (
-    ProviderReadiness,
-    provider_readiness,
-    user_play_readiness,
-)
+from app.engine.provider_readiness import ProviderReadiness, provider_readiness, user_play_readiness
 from app.models.connection import ConnectionProvider
 from app.models.player import Player
 

@@ -15,7 +15,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from app.config import settings
 from app.db import make_engine
 from app.engine.agent_onboarding import AgentOnboardingState, compute_agent_onboarding_state
-from app.engine.connection_health import ConnectionHealth
+from app.engine.connection_health_badge import ConnectionHealth
 from app.models import Base
 from app.models.connection import Connection, ConnectionProvider, ConnectionStatus
 from app.models.match import GameState, Match
@@ -23,11 +23,9 @@ from app.models.player import Player
 from app.models.turn import TurnSubmission
 from app.models.user import User
 from app.routes.agents_lifecycle import router as agents_lifecycle_router
-from app.routes.agents_setup import (
-    _is_ready_to_play,
-    _load_agent_matches,
-    router as agents_setup_router,
-)
+from app.routes.agents_setup import router as agents_setup_router
+from app.routes.agents_detail import _load_agent_matches
+from app.routes.agents_health_presenter import _is_ready_to_play
 from app.routes.agents_status import router as agents_status_router
 from app.routes.connections_credentials import router as connections_credentials_router
 from app.routes.connections_lifecycle import router as connections_lifecycle_router
@@ -290,7 +288,7 @@ async def test_agent_detail_shows_no_matches_empty_state(
 
 
 def test_is_ready_to_play_true_when_live() -> None:
-    from app.engine.connection_health import ConnectionHealthStatus
+    from app.engine.connection_health_badge import ConnectionHealthStatus
 
     health = ConnectionHealthStatus(
         state=ConnectionHealth.LIVE,
@@ -307,7 +305,7 @@ def test_is_ready_to_play_true_when_live() -> None:
 
 
 def test_is_ready_to_play_true_when_ready() -> None:
-    from app.engine.connection_health import ConnectionHealthStatus
+    from app.engine.connection_health_badge import ConnectionHealthStatus
 
     health = ConnectionHealthStatus(
         state=ConnectionHealth.READY,
@@ -324,7 +322,7 @@ def test_is_ready_to_play_true_when_ready() -> None:
 
 
 def test_is_ready_to_play_false_when_disconnected() -> None:
-    from app.engine.connection_health import ConnectionHealthStatus
+    from app.engine.connection_health_badge import ConnectionHealthStatus
 
     health = ConnectionHealthStatus(
         state=ConnectionHealth.DISCONNECTED,
@@ -358,7 +356,7 @@ def test_is_ready_to_play_false_when_paused() -> None:
 
 
 def test_is_ready_to_play_false_when_join_blocked() -> None:
-    from app.engine.connection_health import ConnectionHealthStatus
+    from app.engine.connection_health_badge import ConnectionHealthStatus
 
     health = ConnectionHealthStatus(
         state=ConnectionHealth.READY,

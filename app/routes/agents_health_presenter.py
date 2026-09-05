@@ -14,13 +14,8 @@ from dataclasses import dataclass, field
 from sqlalchemy import func, select
 
 from app.deps import DbSession
-from app.engine.connection_health import (
-    ConnectionHealth,
-    ConnectionHealthStatus,
-    PlayVerdict,
-    ProviderReadiness,
-    play_verdict,
-)
+from app.engine.connection_health_badge import ConnectionHealth, ConnectionHealthStatus
+from app.engine.provider_readiness import PlayVerdict, ProviderReadiness, play_verdict
 from app.models.agent import Agent, AgentStatus
 from app.models.agent_version import AgentVersion
 from app.models.match import GameState

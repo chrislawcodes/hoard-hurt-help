@@ -12,7 +12,7 @@ from sqlalchemy import select
 
 from app.aware_datetime import ensure_aware
 from app.deps import DbSession, require_user
-from app.engine.connection_health import ProviderReadiness
+from app.engine.provider_readiness import ProviderReadiness
 from app.engine.seat_hold import SEAT_HOLD_SECONDS, confirm_seat_if_live
 from app.models.match import Match
 from app.models.player import Player

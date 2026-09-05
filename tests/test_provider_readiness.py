@@ -18,7 +18,7 @@ from sqlalchemy.engine.interfaces import ExecutionContext
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from app.db import make_engine
-from app.engine.connection_health import ProviderReadiness, provider_readiness
+from app.engine.provider_readiness import ProviderReadiness, provider_readiness
 from app.models import Base
 from app.models.connection import ConnectionProvider, ConnectionStatus
 from tests.factories import make_connection, make_user

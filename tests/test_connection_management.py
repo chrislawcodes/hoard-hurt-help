@@ -16,7 +16,7 @@ from itsdangerous import TimestampSigner
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.db import make_engine
-from app.engine.connection_health import ConnectionHealth, compute_connection_health
+from app.engine.connection_health_badge import ConnectionHealth, compute_connection_health
 from app.engine.pending_connection_gc import gc_pending_connections
 from app.engine.tokens import bot_key_lookup, generate_connection_key
 from app.models import Base
@@ -579,7 +579,7 @@ async def test_connections_list_groups_mcp_and_machine_with_calm_status(
 
 def test_calm_connection_status_is_type_aware_and_low_alarm() -> None:
     """Idle reads calmly and differently per kind; only a real stall is red."""
-    from app.engine.connection_health import ConnectionHealth, calm_connection_status
+    from app.engine.connection_health_badge import ConnectionHealth, calm_connection_status
 
     mcp_idle = calm_connection_status(ConnectionHealth.DISCONNECTED, is_mcp=True)
     assert mcp_idle.label == "Idle"

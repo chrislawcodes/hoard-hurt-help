@@ -10,7 +10,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from app.engine.connection_health import LIVE_WINDOW_SECONDS
+from app.engine.connection_health_badge import LIVE_WINDOW_SECONDS
 from app.models.agent import AgentKind
 from app.models.connection import Connection
 from app.routes.nav_context import (

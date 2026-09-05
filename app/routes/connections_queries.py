@@ -19,13 +19,13 @@ from sqlalchemy import select
 from app.deps import DbSession
 from app.game_types import DEFAULT_GAME_TYPE
 from app.engine.agent_idle import GameTiming, game_timing_for_user
-from app.engine.connection_health import (
-    LIVE_WINDOW_SECONDS,
+from app.engine.connection_health_badge import (
     ConnectionHealth,
+    LIVE_WINDOW_SECONDS,
     calm_connection_status,
     compute_connection_health,
-    provider_uses_mcp_connection,
 )
+from app.engine.provider_readiness import provider_uses_mcp_connection
 from app.models.agent import Agent, AgentStatus
 from app.models.agent_version import AgentVersion
 from app.models.connection import Connection, ConnectionProvider, ConnectionStatus

@@ -9,7 +9,7 @@ from fastapi.responses import HTMLResponse
 from starlette.responses import Response
 
 from app.deps import DbSession, require_user_with_handle
-from app.engine.connection_health import user_play_readiness
+from app.engine.provider_readiness import user_play_readiness
 from app.models.agent import Agent
 from app.models.agent_version import AgentVersion
 from app.models.user import User

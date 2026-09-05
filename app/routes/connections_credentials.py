@@ -12,7 +12,7 @@ from app.engine.tokens import bot_key_hint, bot_key_lookup, generate_connection_
 from app.models.connection import Connection
 from app.models.user import User
 
-from app.routes.connections_setup import _load_owned_connection
+from app.routes.connections_queries import _load_owned_connection
 
 router = APIRouter()
 

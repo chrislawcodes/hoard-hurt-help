@@ -18,13 +18,13 @@ from app.deps import DbSession, require_user_with_handle
 from app.engine.agent_onboarding import compute_agent_onboarding_state
 from app.engine.model_provider_match import provider_for_model
 from app.engine.model_verification import model_status_for
-from app.engine.connection_health import (
-    ConnectionHealth,
+from app.engine.connection_health_badge import ConnectionHealth
+from app.engine.join_gate_capacity import (
     active_matches_for_user,
     is_join_blocked,
     live_user_capacity,
-    user_play_readiness,
 )
+from app.engine.provider_readiness import user_play_readiness
 from app.models.agent import Agent
 from app.models.agent_version import AgentVersion
 from app.models.match import GameState, Match
