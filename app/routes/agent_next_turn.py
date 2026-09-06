@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.deps import DbSession, require_connection
-from app.engine.agent_play import get_next_turn, get_next_turns
+from app.engine.agent_play_next_turn import get_next_turn, get_next_turns
 from app.engine.machine_connection_dedup import dedupe_machine_connections
 from app.models.connection import Connection, ConnectionProvider
 from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow

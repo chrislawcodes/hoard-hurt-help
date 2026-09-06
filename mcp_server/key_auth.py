@@ -50,7 +50,6 @@ from app.engine.tokens import (
 from app.engine.tokens import (
     bot_key_lookup,
     connection_key_log_hint,
-    looks_like_connection_key,
 )
 from app.models.connection import Connection
 
@@ -66,8 +65,6 @@ CONNECTION_KEY_PREFIX = _CONNECTION_KEY_PREFIX
 # Claim carrying the connection this key authenticated as. Namespaced so it can
 # never collide with a Google/OIDC claim on the OAuth path.
 CONNECTION_ID_CLAIM = "hhh_connection_id"
-
-__all__ = [*globals().get("__all__", []), "looks_like_connection_key"]
 
 
 async def verify_connection_key(

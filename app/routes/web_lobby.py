@@ -20,8 +20,7 @@ patches to take effect.
 
 ``router`` aggregates every sibling router plus the lobby routes, so
 ``app.routes.web`` still mounts just ``web_lobby.router`` and the full URL
-surface is preserved unchanged. It also re-exports the moved public symbols so
-other modules and tests can keep importing them from ``app.routes.web_lobby``.
+surface is preserved unchanged.
 """
 
 from __future__ import annotations
@@ -43,7 +42,7 @@ from app.games.base import GameError
 from app.games.hoard_hurt_help.rules import help_legend
 from app.models.match import Match, GameState
 from app.ops_events import log_ops_event
-from app.read_models.matches import count_players_by_match
+from app.read_models.matches import _upcoming_views, count_players_by_match
 from app.read_models.lobby_cache import load_lobby_recent_views_cached
 from app.read_models.lobby_onboarding import user_has_warm_agent_without_match
 from app.routes import (
@@ -63,27 +62,8 @@ from app.routes.web_support import (
     _is_any_admin,
     _redirect_to_match,
     _batch_top_standings,
-    _upcoming_views,
     require_can_view_game,
 )
-
-# Re-export the moved public symbols so existing imports from this module keep
-# working without change.
-from app.routes.web_front_page import home
-from app.routes.web_games_catalog import (
-    _game_tagline,
-    agent_instructions_page,
-    games_catalog,
-    operator_join_page,
-)
-from app.routes.web_leaderboard import _leaderboard_url, leaderboard_page
-from app.routes.web_legacy_redirects import (
-    legacy_play_redirect,
-    legacy_play_upcoming_redirect,
-)
-from app.routes.web_account_notice import account_disabled
-from app.routes.web_contact import contact
-from app.routes.web_legal import privacy, terms
 from app.templating import templates
 
 logger = logging.getLogger(__name__)
@@ -327,21 +307,4 @@ __all__ = [
     # Lobby board + fragment (defined here).
     "game_lobby",
     "game_upcoming",
-    # Names tests monkeypatch on this module; kept importable from here.
-    "cancel_overdue_unfilled_games",
-    "_upcoming_views",
-    # Re-exported public symbols from the split sibling modules.
-    "home",
-    "games_catalog",
-    "operator_join_page",
-    "agent_instructions_page",
-    "_game_tagline",
-    "leaderboard_page",
-    "_leaderboard_url",
-    "legacy_play_redirect",
-    "legacy_play_upcoming_redirect",
-    "account_disabled",
-    "contact",
-    "privacy",
-    "terms",
 ]

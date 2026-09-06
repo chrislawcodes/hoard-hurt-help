@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import db as app_db
 from app.engine import scheduler
 from app.engine.resolver import finalize_talk_phase
+from app.engine.scheduler_turn_loop import _all_messaged
 from app.models import Base, Match, GameState, Player, Turn, TurnMessage, User
 from tests.factories import make_agent
 
@@ -190,7 +191,7 @@ async def test_all_messaged_requires_non_defaulted_messages_for_active_players(d
     await _add_message(db, turn, a)
     await _add_message(db, turn, b, was_defaulted=True)
 
-    assert await scheduler._all_messaged(db, turn) is False
+    assert await _all_messaged(db, turn) is False
 
     msg_b = (
         await db.execute(
@@ -203,7 +204,7 @@ async def test_all_messaged_requires_non_defaulted_messages_for_active_players(d
     msg_b.submitted_at = datetime.now(timezone.utc)
     await db.commit()
 
-    assert await scheduler._all_messaged(db, turn) is True
+    assert await _all_messaged(db, turn) is True
 
 
 async def test_two_phase_loop_fresh_turn_defaults_talk_then_resolves_act(

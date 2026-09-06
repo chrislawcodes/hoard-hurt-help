@@ -7,7 +7,7 @@ SequentialDriver, so changes to sequential play cannot reach PD's loop.
 
 from __future__ import annotations
 
-from app.engine.scheduler import SimultaneousDriver, _select_driver
+from app.engine.scheduler_turn_loop import SimultaneousDriver, _select_driver
 from app.engine.turn_drivers import SequentialDriver
 from app.games.base import BaseGameModule, GameConfig
 from app.games.hoard_hurt_help.game import HoardHurtHelp

@@ -14,11 +14,16 @@ in `scheduler_turn_loop.py`):
 A SchedulerRegistry tracks the running task per game so we can start
 new ones and resume after process restarts.
 
-The turn-loop entry points (`_run_game`, `_run_game_guarded`) and helpers
-(`_open_turn`, drivers, ...) are re-exported from `scheduler_turn_loop` so the
-rest of the engine and the test suite can keep referencing them at
-`app.engine.scheduler`. The dependency is one-directional: this module imports
-the turn loop, never the reverse at module load.
+The turn-loop entry points (`_run_game`, `_run_game_guarded`, `_wait_for_turn`,
+`_wait_for_messages`) are imported from `scheduler_turn_loop`, and
+`publish` / `auto_submit_bot_phase` / `record_background_incident` from their
+own real homes, so this module's own code can call them — and so
+`scheduler_turn_loop.py` has a stable module to read its test-patchable
+collaborators off of at call time (see that module's docstring), not as a
+second public import path. A direct caller that doesn't need that patch
+surface should import each from its real home instead. The dependency is
+one-directional: this module imports the turn loop, never the reverse at
+module load.
 """
 
 from __future__ import annotations
@@ -39,14 +44,8 @@ from app.engine.bots.service import auto_submit_bot_phase
 from app.engine.match_cancellation import mark_cancelled
 from app.engine.player_counts import active_player_count
 from app.engine.scheduler_turn_loop import (
-    SimultaneousDriver,
-    _all_messaged,
-    _all_submitted,
-    _begin_act_phase,
-    _open_turn,
     _run_game,
     _run_game_guarded,
-    _select_driver,
     _wait_for_messages,
     _wait_for_turn,
 )
@@ -61,28 +60,26 @@ from app.models.player import Player
 from app.ops_events import log_ops_event
 from app.request_logging import record_background_incident
 
-# Re-exported turn-loop symbols (defined in scheduler_turn_loop) — kept in
-# __all__ so tooling sees them as part of this module's public surface and
-# linters don't flag the imports as unused.
+# _run_game, _wait_for_messages, _wait_for_turn, auto_submit_bot_phase, publish,
+# and record_background_incident are not defined here, but stay in __all__ on
+# purpose: scheduler_turn_loop.py (and, for `publish`, overdue_sweeper.py) read
+# them off this module by attribute at call time, so a test patching
+# `scheduler.publish` etc. reaches production code that runs after this file
+# loads — see scheduler_turn_loop.py's docstring. Keeping them in __all__ also
+# tells ruff they're used. A caller that doesn't need that patch surface should
+# import each from its real home instead.
 __all__ = [
     "MIN_PLAYERS_TO_START",
     "SchedulerRegistry",
-    "SimultaneousDriver",
-    "_all_messaged",
-    "_all_submitted",
-    "_begin_act_phase",
-    "_open_turn",
+    "cancel_overdue_unfilled_games",
+    "registry",
+    "start_game",
     "_run_game",
-    "_run_game_guarded",
-    "_select_driver",
     "_wait_for_messages",
     "_wait_for_turn",
     "auto_submit_bot_phase",
-    "cancel_overdue_unfilled_games",
     "publish",
     "record_background_incident",
-    "registry",
-    "start_game",
 ]
 
 logger = logging.getLogger(__name__)

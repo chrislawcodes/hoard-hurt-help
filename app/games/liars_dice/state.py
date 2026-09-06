@@ -6,8 +6,7 @@ state-shaping logic lives here so `game.py` can stay focused on the
 `GameModule` contract.
 
 This module never imports `game.py` (it sits below it): it depends only on the
-pure engine (`Bid`, `_next_alive_seat`) and the ORM models, keeping imports
-acyclic.
+pure engine (`Bid`) and the ORM models, keeping imports acyclic.
 """
 
 from __future__ import annotations
@@ -17,7 +16,7 @@ from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import select
 
-from app.games.liars_dice.engine import Bid, _next_alive_seat
+from app.games.liars_dice.engine import Bid
 from app.models.game_state import MatchState, PlayerState
 from app.models.match import Match
 from app.models.player import Player
@@ -35,7 +34,6 @@ __all__ = [
     "_load_config",
     "_load_match",
     "_load_state",
-    "_next_alive_seat",
     "_player_state_map",
     "_players",
     "_public_dice_counts",

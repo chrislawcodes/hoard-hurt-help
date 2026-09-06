@@ -30,9 +30,9 @@ import app.db as app_db
 from app.games import is_admin_only
 from app.models.match import GameState, Match
 from app.ops_events import log_ops_event
-from app.read_models.matches import count_players_by_match
+from app.read_models.matches import _agent_counts, count_players_by_match
 from app.games.hoard_hurt_help.viewer import _build_rc_data, sample_replay_data
-from app.routes.web_support import _agent_counts, _is_showcase
+from app.routes.web_support import _is_showcase
 from app.routes.web_viewer import _game_view_context
 from app.swr_cache import SwrCache
 

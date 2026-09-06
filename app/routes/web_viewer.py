@@ -16,11 +16,8 @@ from app.deps import DbSession, require_user
 from app.models.agent import Agent, AgentKind
 from app.models.player import Player
 from app.models.user import User
-from app.routes.web_support import (
-    GameScopedMatch,
-    GameScopedMatchToViewer,
-    _redirect_to_match,
-)
+from app.routes.web_match_loaders import GameScopedMatch, GameScopedMatchToViewer
+from app.routes.web_support import _redirect_to_match
 from app.routes.web_viewer_context import (
     _game_view_context,
     _load_viewer_prompt_version,

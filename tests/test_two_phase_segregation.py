@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.engine.resolver import finalize_talk_phase
 from app.games.hoard_hurt_help.scoring import resolve_turn
-from app.engine.scheduler import _begin_act_phase
+from app.engine.scheduler_turn_loop import _begin_act_phase
 from app.engine.tokens import generate_turn_token
 from app.main import app
 from app.models import Base, Match, GameState, Player, Turn, TurnMessage, TurnSubmission

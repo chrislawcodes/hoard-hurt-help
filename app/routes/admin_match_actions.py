@@ -31,7 +31,6 @@ from app.read_models.match_export import (
     build_csv_export,
     build_json_export,
 )
-from app.routes.web_match_loaders import load_match_or_404
 from app.schemas.admin import CreateGameRequest, GameRecord
 
 __all__ = [
@@ -40,7 +39,6 @@ __all__ = [
     "create_game_record",
     "export_match_csv",
     "export_match_json",
-    "load_match_or_404",
 ]
 
 def build_game_record(match: Match) -> GameRecord:

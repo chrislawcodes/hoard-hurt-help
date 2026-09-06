@@ -5,10 +5,11 @@ never import any of them (no ``web_viewer``/``web_join``/``web_play`` imports), 
 it would create an import cycle. Routes depend on this; this depends on nothing
 in routes.
 
-The match-loading dependencies and game-slug redirect machinery now live in
+The match-loading dependencies and game-slug redirect machinery live in
 ``web_match_loaders``, and the read-model-shaped queries in
-``app.read_models.matches``; both are re-exported here so existing importers and
-monkeypatch paths keep working unchanged.
+``app.read_models.matches``; this module imports two of the former
+(``_load_match_or_404``, ``_match_url``) for its own internal use only — import
+the rest directly from their real homes.
 """
 
 from collections.abc import Callable, Sequence
@@ -26,64 +27,17 @@ from app.models.match import Match, GameState
 from app.models.player import Player
 from app.models.user import User, UserRole
 from app.read_models.matches import (
-    _agent_count,
-    _agent_counts,
-    _upcoming_views,
     count_players,
     count_players_by_match,
     rank_standings_by_match,
 )
-from app.routes.web_match_loaders import (
-    GameScopedMatch,
-    GameScopedMatchOr404,
-    GameScopedMatchPost,
-    GameScopedMatchToViewer,
-    GameSlugRedirect,
-    _corrected_game_path,
-    _load_match_or_404,
-    _make_game_scoped_match_loader,
-    _make_game_scoped_match_or_404_loader,
-    _match_url,
-    game_slug_redirect_response,
-    load_game_match_or_404,
-    load_game_scoped_match,
-    load_game_scoped_match_or_404,
-    load_game_scoped_match_post,
-    load_game_scoped_match_to_viewer,
-    load_match_or_404,
-    raise_for_game_slug_mismatch,
-)
+from app.routes.web_match_loaders import _load_match_or_404, _match_url
 
 __all__ = [
-    # Defined here.
     "SEAT_NAME_MAX",
     "unique_seat_name",
     "safe_internal_next",
     "require_can_view_game",
-    # Re-exported read models (queries moved to app.read_models.matches).
-    "_agent_count",
-    "_agent_counts",
-    "_upcoming_views",
-    # Re-exported match loaders + slug-redirect machinery (moved to
-    # app.routes.web_match_loaders).
-    "GameScopedMatch",
-    "GameScopedMatchOr404",
-    "GameScopedMatchPost",
-    "GameScopedMatchToViewer",
-    "GameSlugRedirect",
-    "_corrected_game_path",
-    "_load_match_or_404",
-    "_make_game_scoped_match_loader",
-    "_make_game_scoped_match_or_404_loader",
-    "_match_url",
-    "game_slug_redirect_response",
-    "load_game_match_or_404",
-    "load_game_scoped_match",
-    "load_game_scoped_match_or_404",
-    "load_game_scoped_match_post",
-    "load_game_scoped_match_to_viewer",
-    "load_match_or_404",
-    "raise_for_game_slug_mismatch",
 ]
 
 _GENERAL_NAMES: tuple[str, ...] = (

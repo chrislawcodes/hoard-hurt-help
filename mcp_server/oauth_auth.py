@@ -32,9 +32,10 @@ from app.db import SessionLocal
 from app.identity.first_touch import CHANNEL_MCP
 from app.routes.auth import sync_google_user
 from app.models.user import User
+from app.engine.tokens import looks_like_connection_key
 from app.schemas.auth import GoogleUserInfo
 
-from mcp_server.key_auth import looks_like_connection_key, verify_connection_key
+from mcp_server.key_auth import verify_connection_key
 
 logger = logging.getLogger(__name__)
 
