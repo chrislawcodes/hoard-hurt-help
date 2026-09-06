@@ -9,9 +9,8 @@ from __future__ import annotations
 
 import json
 
-from httpx import ASGITransport, AsyncClient
+from httpx import AsyncClient
 
-from app.main import app
 from app.oauth_dcr_compat import _normalize_registration_body
 
 
@@ -66,25 +65,23 @@ def test_non_dict_json_is_left_alone() -> None:
     assert _normalize_registration_body(body) is body
 
 
-async def test_registration_without_refresh_token_succeeds() -> None:
+async def test_registration_without_refresh_token_succeeds(client: AsyncClient) -> None:
     """End to end: a client that registers only the auth-code flow is accepted.
 
     Without the shim the MCP SDK answers 400 invalid_client_metadata
     ("grant_types must be authorization_code and refresh_token"). With it, the
     request is accepted and the stored client records both grant types.
     """
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        resp = await client.post(
-            "/register",
-            json={
-                "client_name": "antigravity-like-client",
-                "redirect_uris": ["http://localhost:8765/callback"],
-                "grant_types": ["authorization_code"],
-                "response_types": ["code"],
-                "token_endpoint_auth_method": "none",
-            },
-        )
+    resp = await client.post(
+        "/register",
+        json={
+            "client_name": "antigravity-like-client",
+            "redirect_uris": ["http://localhost:8765/callback"],
+            "grant_types": ["authorization_code"],
+            "response_types": ["code"],
+            "token_endpoint_auth_method": "none",
+        },
+    )
 
     assert resp.status_code == 201, resp.text
     data = resp.json()

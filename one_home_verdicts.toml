@@ -530,14 +530,10 @@ verdict = "leave"
 note = "client(app) is bound to a bespoke, router-scoped FastAPI test app, not app.main.app — renamed scoped_client"
 
 [[test_clients]]
-file = "tests/test_bot_name_validation.py"
-count = 1
-verdict = "unjudged"
-
-[[test_clients]]
 file = "tests/test_canonical_host.py"
 count = 1
-verdict = "unjudged"
+verdict = "leave"
+note = "TestClient(app) is a sync starlette.testclient bound to a bespoke Starlette app built inline per test (just CanonicalHostMiddleware over two routes), not app.main.app and not even httpx.AsyncClient — no relation to the shared async client fixture"
 
 [[test_clients]]
 file = "tests/test_connection_auth.py"
@@ -552,34 +548,22 @@ verdict = "leave"
 note = "client(app) is bound to a bespoke, router-scoped FastAPI test app, not app.main.app — renamed scoped_client"
 
 [[test_clients]]
-file = "tests/test_cross_device.py"
-count = 2
-verdict = "unjudged"
-
-[[test_clients]]
 file = "tests/test_dev_login.py"
 count = 1
-verdict = "unjudged"
+verdict = "leave"
+note = "_client(app) is bound to a fresh app returned by create_app() with settings monkeypatched per test (dev_login_enabled/cookie_secure), not the shared app.main.app instance the client fixture uses — the whole point of the test is comparing app builds under different settings"
 
 [[test_clients]]
 file = "tests/test_hidden_state_isolation.py"
 count = 1
-verdict = "unjudged"
+verdict = "leave"
+note = "AsyncClient wraps a bespoke test_app = FastAPI() with only agent_next_turn_router mounted, not app.main.app"
 
 [[test_clients]]
 file = "tests/test_liars_dice_driver.py"
 count = 1
-verdict = "unjudged"
-
-[[test_clients]]
-file = "tests/test_mcp.py"
-count = 1
-verdict = "unjudged"
-
-[[test_clients]]
-file = "tests/test_oauth_dcr_compat.py"
-count = 1
-verdict = "unjudged"
+verdict = "leave"
+note = "AsyncClient wraps a bespoke test_app = FastAPI() with only agent_next_turn_router mounted, not app.main.app"
 
 [[test_clients]]
 file = "tests/test_readiness_adoption.py"
@@ -592,11 +576,6 @@ file = "tests/test_request_logging.py"
 count = 1
 verdict = "leave"
 note = "the local client() fixture duplicated conftest's and was deleted; the remaining AsyncClient( construction is a bespoke inline client bound to a one-off trace_app built inside a single test to exercise request-logging middleware in isolation, not the shared client fixture"
-
-[[test_clients]]
-file = "tests/test_runner_setup.py"
-count = 3
-verdict = "unjudged"
 
 [[test_clients]]
 file = "tests/test_version_pinning.py"
@@ -748,7 +727,7 @@ kind = "test"
 
 [[oversized]]
 file = "tests/test_mcp.py"
-lines = 658
+lines = 655
 kind = "test"
 
 [[oversized]]

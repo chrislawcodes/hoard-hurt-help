@@ -6,10 +6,9 @@ from collections.abc import AsyncIterator
 from types import SimpleNamespace
 
 import pytest
-from httpx import ASGITransport, AsyncClient
+from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
-from app.main import app
 from app.models.base import Base
 from fastmcp.server.dependencies import AccessToken
 
@@ -204,7 +203,7 @@ async def test_the_act_tool_does_not_ask_for_a_message() -> None:
     assert "message" in talk_line, "talk lost its message argument"
 
 
-async def test_mcp_discovery_requires_bearer_token() -> None:
+async def test_mcp_discovery_requires_bearer_token(client: AsyncClient) -> None:
     """The MCP endpoint advertises OAuth discovery instead of a secret header.
 
     The server runs stateless (no in-memory session map, so a redeploy can't
@@ -214,40 +213,38 @@ async def test_mcp_discovery_requires_bearer_token() -> None:
     unauthenticated POST returns 401 with the Bearer challenge and the
     resource-metadata discovery URL.
     """
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        # No server-push stream in stateless mode.
-        assert (await client.get("/mcp")).status_code == 405
+    # No server-push stream in stateless mode.
+    assert (await client.get("/mcp")).status_code == 405
 
-        # The OAuth challenge rides the POST initialize path real clients use.
-        init = await client.post(
-            "/mcp",
-            headers={"Accept": "application/json, text/event-stream"},
-            json={
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "initialize",
-                "params": {
-                    "protocolVersion": "2025-03-26",
-                    "capabilities": {},
-                    "clientInfo": {"name": "gemini-cli-mcp-client", "version": "1"},
-                },
+    # The OAuth challenge rides the POST initialize path real clients use.
+    init = await client.post(
+        "/mcp",
+        headers={"Accept": "application/json, text/event-stream"},
+        json={
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2025-03-26",
+                "capabilities": {},
+                "clientInfo": {"name": "gemini-cli-mcp-client", "version": "1"},
             },
-        )
-        assert init.status_code == 401
-        challenge = init.headers["www-authenticate"]
-        assert "Bearer" in challenge
-        assert "/.well-known/oauth-protected-resource/mcp" in challenge
+        },
+    )
+    assert init.status_code == 401
+    challenge = init.headers["www-authenticate"]
+    assert "Bearer" in challenge
+    assert "/.well-known/oauth-protected-resource/mcp" in challenge
 
-        prm = await client.get("/.well-known/oauth-protected-resource/mcp")
-        assert prm.status_code == 200
-        assert prm.json()["authorization_servers"]
+    prm = await client.get("/.well-known/oauth-protected-resource/mcp")
+    assert prm.status_code == 200
+    assert prm.json()["authorization_servers"]
 
-        as_metadata = await client.get("/.well-known/oauth-authorization-server")
-        assert as_metadata.status_code == 200
-        assert as_metadata.json()["authorization_endpoint"].endswith("/authorize")
-        assert as_metadata.json()["token_endpoint"].endswith("/token")
-        assert as_metadata.json()["registration_endpoint"].endswith("/register")
+    as_metadata = await client.get("/.well-known/oauth-authorization-server")
+    assert as_metadata.status_code == 200
+    assert as_metadata.json()["authorization_endpoint"].endswith("/authorize")
+    assert as_metadata.json()["token_endpoint"].endswith("/token")
+    assert as_metadata.json()["registration_endpoint"].endswith("/register")
 
 
 async def test_get_next_turn_uses_google_identity_and_mcp_connection(

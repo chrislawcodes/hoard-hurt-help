@@ -4,16 +4,15 @@ Two browser sessions with the same Google identity see the same games.
 """
 
 
-from httpx import ASGITransport, AsyncClient
+from httpx import AsyncClient
 
-from app.main import app
 from app.models import Match, GameState, Player, User
 from tests.factories import make_agent
 from datetime import datetime, timedelta, timezone
 from tests.conftest import signed_in_cookies as _cookies
 
 
-async def test_two_sessions_same_user_see_same_games(reset_db):
+async def test_two_sessions_same_user_see_same_games(client: AsyncClient, reset_db):
     """Sign-in on device A and device B (same Google sub) both see /me/matches content."""
     async with reset_db() as db:
         u = User(google_sub="shared-sub", email="alice@test.com", name="Alice")
@@ -39,16 +38,14 @@ async def test_two_sessions_same_user_see_same_games(reset_db):
         await db.commit()
         user_id = u.id
 
-    transport = ASGITransport(app=app)
+    # Two separate device sessions share only the session cookie, never client
+    # state — each request carries its own cookies to prove that.
+    a = await client.get("/me/matches", cookies=_cookies(user_id))
+    assert a.status_code == 200
+    assert "Cross-device" in a.text
+    assert "AI_alice" in a.text
 
-    async with AsyncClient(transport=transport, base_url="http://test") as device_a:
-        a = await device_a.get("/me/matches", cookies=_cookies(user_id))
-        assert a.status_code == 200
-        assert "Cross-device" in a.text
-        assert "AI_alice" in a.text
-
-    async with AsyncClient(transport=transport, base_url="http://test") as device_b:
-        b = await device_b.get("/me/matches", cookies=_cookies(user_id))
-        assert b.status_code == 200
-        assert "Cross-device" in b.text
-        assert "AI_alice" in b.text
+    b = await client.get("/me/matches", cookies=_cookies(user_id))
+    assert b.status_code == 200
+    assert "Cross-device" in b.text
+    assert "AI_alice" in b.text
