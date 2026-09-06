@@ -205,6 +205,31 @@ def admin_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "admin_emails", "admin@test.com")
 
 
+@pytest.fixture
+async def quiet_scheduler(
+    monkeypatch: pytest.MonkeyPatch, reset_db: async_sessionmaker
+) -> None:
+    """Silence the scheduler's background turn loop for a test.
+
+    Production code reads `publish`, `SessionLocal`, `_wait_for_messages`, and
+    `_wait_for_turn` off the `app.engine.scheduler` module by name at call
+    time, so rebinding those module attributes (not injecting a dependency)
+    is what actually reaches the turn loop.
+    """
+    from app.engine import scheduler
+
+    async def _noop_publish(channel: str, event_type: str, payload: dict) -> None:
+        return None
+
+    async def _return_immediately(db, turn) -> None:
+        return None
+
+    monkeypatch.setattr(scheduler, "publish", _noop_publish)
+    monkeypatch.setattr(scheduler, "_wait_for_messages", _return_immediately)
+    monkeypatch.setattr(scheduler, "_wait_for_turn", _return_immediately)
+    monkeypatch.setattr(scheduler, "SessionLocal", reset_db)
+
+
 _SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
 
 

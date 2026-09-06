@@ -15,32 +15,20 @@ from app.models import Match, GameState, Player, Turn, TurnMessage, User
 from tests.factories import make_agent
 
 
-# Autouse override of tests/conftest.py's reset_db: also points
-# app.engine.scheduler's own SessionLocal binding at the test database, since
-# scheduler imported SessionLocal by name — the app.db string-path patch alone
-# doesn't reach it, and the turn loop opens sessions through
-# scheduler.SessionLocal directly.
+# Autouse delegate to tests/conftest.py's quiet_scheduler: this file's turn-loop
+# tests need all three of quiet_scheduler's stubs (SessionLocal pointed at the
+# test database, since scheduler imported SessionLocal by name and the app.db
+# string-path patch alone doesn't reach it; the talk/act waits returned
+# immediately so a turn resolves without a real deadline).
 @pytest.fixture(autouse=True)
-async def reset_db_with_scheduler_patch(
-    reset_db: async_sessionmaker, monkeypatch: pytest.MonkeyPatch
-) -> async_sessionmaker:
-    monkeypatch.setattr(scheduler, "SessionLocal", reset_db)
-    return reset_db
+async def _quiet_scheduler(quiet_scheduler: None) -> None:
+    return quiet_scheduler
 
 
 @pytest.fixture
-async def db(reset_db_with_scheduler_patch: async_sessionmaker) -> AsyncIterator[AsyncSession]:
-    async with reset_db_with_scheduler_patch() as session:
+async def db(reset_db: async_sessionmaker) -> AsyncIterator[AsyncSession]:
+    async with reset_db() as session:
         yield session
-
-
-@pytest.fixture(autouse=True)
-def stub_waits(monkeypatch):
-    async def _no_wait(db, turn):
-        return None
-
-    monkeypatch.setattr(scheduler, "_wait_for_messages", _no_wait)
-    monkeypatch.setattr(scheduler, "_wait_for_turn", _no_wait)
 
 
 @pytest.fixture

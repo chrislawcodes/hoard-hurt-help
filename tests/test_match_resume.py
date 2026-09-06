@@ -34,7 +34,10 @@ SEATS = ["Alpha", "Bravo", "Charlie"]
 
 @pytest.fixture(autouse=True)
 async def reset_db_file_backed(
-    reset_db: async_sessionmaker, monkeypatch: pytest.MonkeyPatch, tmp_path
+    quiet_scheduler: None,
+    reset_db: async_sessionmaker,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
 ) -> AsyncIterator[async_sessionmaker]:
     """A FILE-backed database with the scheduler pointed at it.
 
@@ -44,9 +47,10 @@ async def reset_db_file_backed(
     ("no such table: matches") looks nothing like the cause. Same shape as
     tests/test_bots_scheduler.py, which runs games for the same reason.
 
-    Requests (and ignores) tests/conftest.py's own reset_db purely so this
-    file's tests keep the `reset_db` name in their fixture closure and stay
-    tagged `integration`.
+    Requests `quiet_scheduler` first (its publish no-op is exactly what these
+    tests need, and every turn's deadline is 0 here so its wait stubs change
+    nothing) so it runs before this fixture points `scheduler.SessionLocal` at
+    the file-backed factory instead — the override that has to win.
     """
     import app.db as app_db
     from sqlalchemy.ext.asyncio import async_sessionmaker as _factory
@@ -65,17 +69,6 @@ async def reset_db_file_backed(
     monkeypatch.setattr(scheduler, "SessionLocal", factory)
     yield factory
     await engine.dispose()
-
-
-@pytest.fixture(autouse=True)
-def _quiet_publish(monkeypatch):
-    """Swallow the loop's broadcast events; nothing here is listening."""
-    from app.engine import scheduler
-
-    async def noop(channel: str, event_type: str, payload: dict) -> None:
-        return None
-
-    monkeypatch.setattr(scheduler, "publish", noop)
 
 
 async def _seed(reset_db_file_backed, email: str, *, admin: bool) -> User:
