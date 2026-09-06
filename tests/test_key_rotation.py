@@ -9,12 +9,10 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastmcp.server.auth.auth import AccessToken
-from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 from sqlalchemy.orm import joinedload
 
 from app.engine.tokens import bot_key_hint, bot_key_lookup, generate_connection_key
-from app.main import app
 from app.models import Base, Match, GameState, Player
 from app.models.connection import Connection
 from tests.factories import make_agent, make_connection, make_user
@@ -43,13 +41,6 @@ async def reset_db(monkeypatch):
     monkeypatch.setattr("app.engine.agent_idle.LONG_POLL_HOLD_SECONDS", 0)
     yield test_factory
     await test_engine.dispose()
-
-
-@pytest.fixture
-async def client():
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as c:
-        yield c
 
 
 async def _bot_in_active_game(reset_db, key: str) -> int:

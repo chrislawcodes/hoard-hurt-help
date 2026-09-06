@@ -80,21 +80,21 @@ async def app(
 
 
 @pytest.fixture
-async def client(app: FastAPI) -> AsyncIterator[AsyncClient]:
+async def scoped_client(app: FastAPI) -> AsyncIterator[AsyncClient]:
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         yield c
 
 
 async def test_create_connection_reuses_existing_pending_setup(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    scoped_client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     async with session_factory() as db:
         user = await make_user(db, i=0, handle="agent0")
         await db.commit()
 
-    client.cookies.update(_signed_in_cookies(user.id))
-    first = await client.get("/me/connections")
+    scoped_client.cookies.update(_signed_in_cookies(user.id))
+    first = await scoped_client.get("/me/connections")
     assert first.status_code == 200
     assert "agentludum_connector.py" in first.text
     assert "--install" in first.text
@@ -103,10 +103,10 @@ async def test_create_connection_reuses_existing_pending_setup(
     first_key = first_match.group(1)
 
     # Auto-saving the optional name reuses the one open setup and keeps the key.
-    await client.post("/me/connections/name", data={"nickname": "My Claude"})
-    await client.post("/me/connections/name", data={"nickname": "My Claude 2"})
+    await scoped_client.post("/me/connections/name", data={"nickname": "My Claude"})
+    await scoped_client.post("/me/connections/name", data={"nickname": "My Claude 2"})
 
-    second = await client.get("/me/connections")
+    second = await scoped_client.get("/me/connections")
     assert second.status_code == 200
     second_match = re.search(r"--key (sk_conn_[a-f0-9]+) --url", second.text)
     assert second_match is not None
@@ -129,14 +129,14 @@ async def test_create_connection_reuses_existing_pending_setup(
 
 
 async def test_new_agent_creates_and_goes_to_lobby(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    scoped_client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     async with session_factory() as db:
         user = await make_user(db, i=1, handle="agent1")
         connection, _ = await make_connection(db, user, provider=ConnectionProvider.CLAUDE)
         await db.commit()
 
-    resp = await client.post(
+    resp = await scoped_client.post(
         "/me/agents/new",
         cookies=_signed_in_cookies(user.id),
         data={
@@ -152,7 +152,7 @@ async def test_new_agent_creates_and_goes_to_lobby(
 
 
 async def test_version_edit_updates_draft_then_forks_after_rated_match(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    scoped_client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     async with session_factory() as db:
         user = await make_user(db, i=2, handle="agent2")
@@ -164,7 +164,7 @@ async def test_version_edit_updates_draft_then_forks_after_rated_match(
         await db.commit()
 
     cookies = _signed_in_cookies(user.id)
-    draft_resp = await client.post(
+    draft_resp = await scoped_client.post(
         f"/me/agents/{agent.id}/set-strategy",
         cookies=cookies,
         data={"strategy_text": "Draft updated"},
@@ -204,7 +204,7 @@ async def test_version_edit_updates_draft_then_forks_after_rated_match(
         )
         await db.commit()
 
-    fork_resp = await client.post(
+    fork_resp = await scoped_client.post(
         f"/me/agents/{agent.id}/set-strategy",
         cookies=cookies,
         data={"strategy_text": "Forked strategy"},
@@ -283,7 +283,7 @@ async def test_seat_name_uniqueness_allows_two_users_with_same_agent_name(
 
 
 async def test_agent_detail_shows_connection_capacity_when_at_limit(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    scoped_client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     """At-capacity card shows when the agent is connected-idle but join_blocked.
 
@@ -333,7 +333,7 @@ async def test_agent_detail_shows_connection_capacity_when_at_limit(
         await db.commit()
 
     # agent2 is idle (connected_no_game) but the connection is at capacity
-    resp = await client.get(
+    resp = await scoped_client.get(
         f"/me/agents/{agent2.id}",
         cookies=_signed_in_cookies(user.id),
     )
@@ -343,7 +343,7 @@ async def test_agent_detail_shows_connection_capacity_when_at_limit(
 
 
 async def test_agent_in_active_practice_match_is_locked_against_delete_and_edit(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    scoped_client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     """An agent seated in ANY active match — including a practice-arena game — must
     not be deletable or editable mid-match (CP2 review findings 1 & 2)."""
@@ -377,9 +377,9 @@ async def test_agent_in_active_practice_match_is_locked_against_delete_and_edit(
         agent_id = agent.id
 
     cookies = _signed_in_cookies(user.id)
-    delete_resp = await client.post(f"/me/agents/{agent_id}/delete", cookies=cookies)
+    delete_resp = await scoped_client.post(f"/me/agents/{agent_id}/delete", cookies=cookies)
     assert delete_resp.status_code == 409
-    edit_resp = await client.post(
+    edit_resp = await scoped_client.post(
         f"/me/agents/{agent_id}/set-strategy",
         data={"strategy_text": "A different plan."},
         cookies=cookies,

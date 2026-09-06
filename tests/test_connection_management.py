@@ -82,7 +82,7 @@ async def app(
 
 
 @pytest.fixture
-async def client(app: FastAPI) -> AsyncIterator[AsyncClient]:
+async def scoped_client(app: FastAPI) -> AsyncIterator[AsyncClient]:
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         yield c
@@ -139,13 +139,13 @@ async def _seed_hoard_turn(
 
 
 async def test_create_machine_connection_shows_setup_page_before_connect(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    scoped_client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     async with session_factory() as db:
         user = await make_user(db)
         await db.commit()
 
-    resp = await client.get(
+    resp = await scoped_client.get(
         "/me/connections",
         cookies=_signed_in_cookies(user.id),
     )
@@ -177,7 +177,7 @@ async def test_create_machine_connection_shows_setup_page_before_connect(
     assert key_match is not None
     key = key_match.group(1)
 
-    auth = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
+    auth = await scoped_client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
     assert auth.status_code == 200
 
     async with session_factory() as db:
@@ -200,14 +200,14 @@ async def test_create_machine_connection_shows_setup_page_before_connect(
 
 
 async def test_save_machine_name_rejects_overlong_nickname(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    scoped_client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     """nickname is VARCHAR(60); a longer value must 400, not 500 in prod."""
     async with session_factory() as db:
         user = await make_user(db)
         await db.commit()
 
-    resp = await client.post(
+    resp = await scoped_client.post(
         "/me/connections/name",
         cookies=_signed_in_cookies(user.id),
         data={"nickname": "n" * 61},
@@ -223,13 +223,13 @@ async def test_save_machine_name_rejects_overlong_nickname(
 
 
 async def test_connections_list_shows_inline_setup_and_no_provider_picker(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    scoped_client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     async with session_factory() as db:
         user = await make_user(db)
         await db.commit()
 
-    resp = await client.get("/me/connections", cookies=_signed_in_cookies(user.id))
+    resp = await scoped_client.get("/me/connections", cookies=_signed_in_cookies(user.id))
     assert resp.status_code == 200
     # One unified setup prompt, inline, using the single connector download. The
     # connector is now the secondary "always-on" option below the MCP flow.
@@ -251,7 +251,7 @@ async def _set_live(db: AsyncSession, connection: Connection) -> None:
 
 
 async def test_connections_list_new_state_shows_connect_command_and_listening(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    scoped_client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     """NEW user (no connections): each client leads with a header-less, paste-in
     setup prompt (the agent wires up its own MCP server) and the pulsing
@@ -260,8 +260,8 @@ async def test_connections_list_new_state_shows_connect_command_and_listening(
         user = await make_user(db)
         await db.commit()
 
-    client.cookies.update(_signed_in_cookies(user.id))
-    resp = await client.get("/me/connections")
+    scoped_client.cookies.update(_signed_in_cookies(user.id))
+    resp = await scoped_client.get("/me/connections")
     assert resp.status_code == 200
     text = resp.text
 
@@ -334,7 +334,7 @@ async def test_connections_list_new_state_shows_connect_command_and_listening(
 
 
 async def test_connections_list_returning_state_shows_play_prompt(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    scoped_client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     """RETURNING user (connected before, nothing live now): lead with the MCP connection
     play-prompt (the recurring action); the full add-server setup is collapsed."""
@@ -344,8 +344,8 @@ async def test_connections_list_returning_state_shows_play_prompt(
         await make_connection(db, user, nickname="My Mac")
         await db.commit()
 
-    client.cookies.update(_signed_in_cookies(user.id))
-    resp = await client.get("/me/connections")
+    scoped_client.cookies.update(_signed_in_cookies(user.id))
+    resp = await scoped_client.get("/me/connections")
     assert resp.status_code == 200
     text = resp.text
 
@@ -369,7 +369,7 @@ async def test_connections_list_returning_state_shows_play_prompt(
 
 
 async def test_connections_list_connected_with_agent_leads_with_play_prompt(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    scoped_client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     """CONNECTED (a connection live now) + has an agent, but the AI has not made a
     game call yet (api_call_count == 0): lead with the play-prompt code block and
@@ -383,8 +383,8 @@ async def test_connections_list_connected_with_agent_leads_with_play_prompt(
         )
         await db.commit()
 
-    client.cookies.update(_signed_in_cookies(user.id))
-    resp = await client.get("/me/connections")
+    scoped_client.cookies.update(_signed_in_cookies(user.id))
+    resp = await scoped_client.get("/me/connections")
     assert resp.status_code == 200
     text = resp.text
 
@@ -408,7 +408,7 @@ async def test_connections_list_connected_with_agent_leads_with_play_prompt(
 
 
 async def test_connections_list_playing_state_shows_success(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    scoped_client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     """PLAYING (a live connection that has made a real game call, api_call_count >
     0): show the 'Your AI is playing' success box so the user knows the play-prompt
@@ -423,8 +423,8 @@ async def test_connections_list_playing_state_shows_success(
         )
         await db.commit()
 
-    client.cookies.update(_signed_in_cookies(user.id))
-    resp = await client.get("/me/connections")
+    scoped_client.cookies.update(_signed_in_cookies(user.id))
+    resp = await scoped_client.get("/me/connections")
     assert resp.status_code == 200
     text = resp.text
 
@@ -445,7 +445,7 @@ async def test_connections_list_playing_state_shows_success(
 
 
 async def test_connections_list_live_state_without_agent_nudges_create(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    scoped_client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     """ALREADY PLAYING but no agent yet: lead with the Create-an-agent nudge."""
     async with session_factory() as db:
@@ -454,8 +454,8 @@ async def test_connections_list_live_state_without_agent_nudges_create(
         await _set_live(db, connection)
         await db.commit()
 
-    client.cookies.update(_signed_in_cookies(user.id))
-    resp = await client.get("/me/connections")
+    scoped_client.cookies.update(_signed_in_cookies(user.id))
+    resp = await scoped_client.get("/me/connections")
     assert resp.status_code == 200
     text = resp.text
 
@@ -469,13 +469,13 @@ async def test_connections_list_live_state_without_agent_nudges_create(
 
 
 async def test_live_status_fragment_not_live_shows_listening(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    scoped_client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     async with session_factory() as db:
         user = await make_user(db)
         await db.commit()
 
-    resp = await client.get(
+    resp = await scoped_client.get(
         "/me/connections/live-status", cookies=_signed_in_cookies(user.id)
     )
     assert resp.status_code == 200
@@ -485,7 +485,7 @@ async def test_live_status_fragment_not_live_shows_listening(
 
 
 async def test_live_status_fragment_live_shows_post_connect_block(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    scoped_client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     async with session_factory() as db:
         user = await make_user(db)
@@ -493,7 +493,7 @@ async def test_live_status_fragment_live_shows_post_connect_block(
         await _set_live(db, connection)
         await db.commit()
 
-    resp = await client.get(
+    resp = await scoped_client.get(
         "/me/connections/live-status", cookies=_signed_in_cookies(user.id)
     )
     assert resp.status_code == 200
@@ -508,7 +508,7 @@ async def test_live_status_fragment_live_shows_post_connect_block(
 
 
 async def test_connections_list_renders_existing_connection(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    scoped_client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     async with session_factory() as db:
         user = await make_user(db)
@@ -517,7 +517,7 @@ async def test_connections_list_renders_existing_connection(
         connection.last_seen_at = datetime.now(timezone.utc) - timedelta(days=2)
         await db.commit()
 
-    resp = await client.get("/me/connections", cookies=_signed_in_cookies(user.id))
+    resp = await scoped_client.get("/me/connections", cookies=_signed_in_cookies(user.id))
     assert resp.status_code == 200
     assert "Your connections" in resp.text
     # No mcp_connected_at → reads as the always-on machine kind, named by nickname.
@@ -532,7 +532,7 @@ async def test_connections_list_renders_existing_connection(
 
 
 async def test_connections_list_groups_mcp_and_machine_with_calm_status(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    scoped_client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     """The inventory groups by kind: one MCP card listing the AIs signed in (calm
     'Idle', not red), and a machine card listing the AIs available on it."""
@@ -549,7 +549,7 @@ async def test_connections_list_groups_mcp_and_machine_with_calm_status(
         machine.last_seen_at = datetime.now(timezone.utc) - timedelta(days=2)
         await db.commit()
 
-    resp = await client.get("/me/connections", cookies=_signed_in_cookies(user.id))
+    resp = await scoped_client.get("/me/connections", cookies=_signed_in_cookies(user.id))
     assert resp.status_code == 200
     text = resp.text
     # MCP group: the AI signed in + calm idle wording (no red "Disconnected").
@@ -595,7 +595,7 @@ def test_calm_connection_status_is_type_aware_and_low_alarm() -> None:
 
 
 async def test_naming_machine_autosaves_into_one_setup_and_keeps_a_stable_key(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    scoped_client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     async with session_factory() as db:
         user = await make_user(db)
@@ -603,24 +603,24 @@ async def test_naming_machine_autosaves_into_one_setup_and_keeps_a_stable_key(
 
     # Set the auth cookie on the client jar (like a browser) so the server's
     # session updates — which carry the one-time key — persist across requests.
-    client.cookies.update(_signed_in_cookies(user.id))
-    page = await client.get("/me/connections")
+    scoped_client.cookies.update(_signed_in_cookies(user.id))
+    page = await scoped_client.get("/me/connections")
     first_match = re.search(r"--key (sk_conn_[a-f0-9]+) --url", page.text)
     assert first_match is not None
     first_key = first_match.group(1)
 
     # The name field auto-saves via the dedicated endpoint (no button, no reload)
     # and returns a tiny "Saved" tick.
-    saved = await client.post("/me/connections/name", data={"nickname": "My Machine"})
+    saved = await scoped_client.post("/me/connections/name", data={"nickname": "My Machine"})
     assert saved.status_code == 200
     assert "Saved" in saved.text
 
-    renamed = await client.post(
+    renamed = await scoped_client.post(
         "/me/connections/name", data={"nickname": "My Machine (renamed)"}
     )
     assert renamed.status_code == 200
 
-    page2 = await client.get("/me/connections")
+    page2 = await scoped_client.get("/me/connections")
     second_match = re.search(r"--key (sk_conn_[a-f0-9]+) --url", page2.text)
     assert second_match is not None
     # Auto-saving the name reuses the one open setup and never rotates the key the
@@ -642,7 +642,7 @@ async def test_naming_machine_autosaves_into_one_setup_and_keeps_a_stable_key(
 
     # Clearing the name blanks it (so the hostname default can take over) and the
     # tick goes away.
-    cleared = await client.post("/me/connections/name", data={"nickname": "  "})
+    cleared = await scoped_client.post("/me/connections/name", data={"nickname": "  "})
     assert cleared.status_code == 200
     assert cleared.text.strip() == ""
     async with session_factory() as db:
@@ -653,7 +653,7 @@ async def test_naming_machine_autosaves_into_one_setup_and_keeps_a_stable_key(
 
 
 async def test_first_authenticated_call_creates_real_connection_from_setup(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    scoped_client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     async with session_factory() as db:
         user = await make_user(db)
@@ -665,12 +665,12 @@ async def test_first_authenticated_call_creates_real_connection_from_setup(
         )
         await db.commit()
 
-    resp = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": plain_key})
+    resp = await scoped_client.get("/api/agent/next-turn", headers={"X-Connection-Key": plain_key})
     assert resp.status_code == 200
     # No game seated yet, so the call succeeds with the idle "no_game" status.
     assert resp.json()["status"] == "no_game"
 
-    banner = await client.get(
+    banner = await scoped_client.get(
         f"/me/connections/setup/{setup.id}/status",
         cookies=_signed_in_cookies(user.id),
     )
@@ -708,13 +708,13 @@ async def test_first_authenticated_call_creates_real_connection_from_setup(
             (ConnectionProvider.CLAUDE, True)
         }
 
-    delete_resp = await client.post(
+    delete_resp = await scoped_client.post(
         f"/me/connections/{connection_id}/delete",
         cookies=_signed_in_cookies(user.id),
     )
     assert delete_resp.status_code == 303
 
-    stop_resp = await client.get(
+    stop_resp = await scoped_client.get(
         "/api/agent/next-turn",
         headers={"X-Connection-Key": plain_key},
     )
@@ -735,14 +735,14 @@ async def test_first_authenticated_call_creates_real_connection_from_setup(
 
 
 async def test_rotate_overlap_keeps_old_key_until_new_key_used(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    scoped_client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     async with session_factory() as db:
         user = await make_user(db)
         connection, old_key = await make_connection(db, user)
         await db.commit()
 
-    rotated = await client.post(
+    rotated = await scoped_client.post(
         f"/me/connections/{connection.id}/rotate",
         cookies=_signed_in_cookies(user.id),
         follow_redirects=True,
@@ -758,12 +758,12 @@ async def test_rotate_overlap_keeps_old_key_until_new_key_used(
         ).scalar_one()
         assert stored.prev_key_lookup == bot_key_lookup(old_key)
 
-    old_ok = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": old_key})
+    old_ok = await scoped_client.get("/api/agent/next-turn", headers={"X-Connection-Key": old_key})
     assert old_ok.status_code == 200
     # No game seated, so both keys succeed with the idle "no_game" status.
     assert old_ok.json()["status"] == "no_game"
 
-    new_ok = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": new_key})
+    new_ok = await scoped_client.get("/api/agent/next-turn", headers={"X-Connection-Key": new_key})
     assert new_ok.status_code == 200
     assert new_ok.json()["status"] == "no_game"
 
@@ -773,12 +773,12 @@ async def test_rotate_overlap_keeps_old_key_until_new_key_used(
         ).scalar_one()
         assert stored.prev_key_lookup is None
 
-    old_dead = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": old_key})
+    old_dead = await scoped_client.get("/api/agent/next-turn", headers={"X-Connection-Key": old_key})
     assert old_dead.status_code == 401
 
 
 async def test_delete_stops_runner_but_leaves_agents_active(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    scoped_client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     """Coverage-aware delete: the machine's runner is stopped, but agents stay
     ACTIVE — they are no longer pinned to a connection, so they keep playing on
@@ -810,20 +810,20 @@ async def test_delete_stops_runner_but_leaves_agents_active(
         await _seed_hoard_turn(db, match=match, player=player, turn_no=1)
         await db.commit()
 
-    delete_resp = await client.post(
+    delete_resp = await scoped_client.post(
         f"/me/connections/{connection.id}/delete",
         cookies=_signed_in_cookies(user.id),
     )
     assert delete_resp.status_code == 303
 
-    stop_resp = await client.get(
+    stop_resp = await scoped_client.get(
         "/api/agent/next-turn",
         headers={"X-Connection-Key": old_key},
     )
     assert stop_resp.status_code == 410
     assert stop_resp.json()["detail"]["error"]["code"] == "CONNECTION_DELETED"
 
-    detail_resp = await client.get(
+    detail_resp = await scoped_client.get(
         f"/me/connections/{connection.id}",
         cookies=_signed_in_cookies(user.id),
     )
@@ -846,7 +846,7 @@ async def test_delete_stops_runner_but_leaves_agents_active(
 
 
 async def test_toggle_provider_enables_and_strand_guard(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    scoped_client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
 
@@ -859,7 +859,7 @@ async def test_toggle_provider_enables_and_strand_guard(
         conn_id = connection.id
 
     # Enable openai (was off) — succeeds, detected stays informational.
-    r = await client.post(
+    r = await scoped_client.post(
         f"/me/connections/{conn_id}/providers/openai?enabled=true",
         cookies=_signed_in_cookies(user.id),
     )
@@ -877,7 +877,7 @@ async def test_toggle_provider_enables_and_strand_guard(
 
     # Disabling claude would strand the Solo agent (no other live connection) →
     # without confirm, it redirects to the warning and does NOT disable.
-    r = await client.post(
+    r = await scoped_client.post(
         f"/me/connections/{conn_id}/providers/claude?enabled=false",
         cookies=_signed_in_cookies(user.id),
     )
@@ -895,7 +895,7 @@ async def test_toggle_provider_enables_and_strand_guard(
         assert claude_row.enabled is True  # still enabled — strand guard held
 
     # With confirm=true it goes through.
-    r = await client.post(
+    r = await scoped_client.post(
         f"/me/connections/{conn_id}/providers/claude?enabled=false&confirm=true",
         cookies=_signed_in_cookies(user.id),
     )
@@ -913,7 +913,7 @@ async def test_toggle_provider_enables_and_strand_guard(
 
 
 async def test_detail_renders_provider_toggles_and_install_hint(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    scoped_client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     """The detail page shows providers as switches and, when a provider is on
     but its CLI was not detected, prompts the operator to install it."""
@@ -924,7 +924,7 @@ async def test_detail_renders_provider_toggles_and_install_hint(
         await db.commit()
         conn_id = connection.id
 
-    r = await client.get(
+    r = await scoped_client.get(
         f"/me/connections/{conn_id}", cookies=_signed_in_cookies(user.id)
     )
     assert r.status_code == 200
@@ -937,7 +937,7 @@ async def test_detail_renders_provider_toggles_and_install_hint(
 
 
 async def test_mcp_connection_detail_shows_read_only_provider_not_machine_toggles(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    scoped_client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     """An MCP connection plays one provider via the AI client you signed
     in with — so its detail page shows that provider read-only, NOT the machine
@@ -949,7 +949,7 @@ async def test_mcp_connection_detail_shows_read_only_provider_not_machine_toggle
         await db.commit()
         conn_id = connection.id
 
-    r = await client.get(
+    r = await scoped_client.get(
         f"/me/connections/{conn_id}", cookies=_signed_in_cookies(user.id)
     )
     assert r.status_code == 200
@@ -970,7 +970,7 @@ async def test_mcp_connection_detail_shows_read_only_provider_not_machine_toggle
 
 
 async def test_connection_controls_live_in_status_card(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    scoped_client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     """Pause/Rotate/Delete moved into the connection status card, so they also
     survive the status fragment's 5s poll instead of sitting in a separate box."""
@@ -981,7 +981,7 @@ async def test_connection_controls_live_in_status_card(
         conn_id = connection.id
 
     # The polled status fragment carries the controls.
-    r = await client.get(
+    r = await scoped_client.get(
         f"/me/connections/{conn_id}/status", cookies=_signed_in_cookies(user.id)
     )
     assert r.status_code == 200
@@ -989,7 +989,7 @@ async def test_connection_controls_live_in_status_card(
     assert f"/me/connections/{conn_id}/rotate" in r.text
 
     # The detail page no longer has a standalone "Connection controls" card.
-    r = await client.get(
+    r = await scoped_client.get(
         f"/me/connections/{conn_id}", cookies=_signed_in_cookies(user.id)
     )
     assert r.status_code == 200
@@ -998,7 +998,7 @@ async def test_connection_controls_live_in_status_card(
 
 
 async def test_mcp_connection_hides_rotate_key_until_key_signin_is_on(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    scoped_client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     """Quiet by default. Someone who signs in with Google and never touches key
     sign-in should not be shown a rotate control for a credential they are not
@@ -1010,7 +1010,7 @@ async def test_mcp_connection_hides_rotate_key_until_key_signin_is_on(
         await db.commit()
         conn_id = connection.id
 
-    r = await client.get(
+    r = await scoped_client.get(
         f"/me/connections/{conn_id}/status", cookies=_signed_in_cookies(user.id)
     )
     assert r.status_code == 200
@@ -1024,7 +1024,7 @@ async def test_mcp_connection_hides_rotate_key_until_key_signin_is_on(
 
 
 async def test_mcp_connection_shows_rotate_key_once_key_signin_is_on(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    scoped_client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     """The bug this replaces: Rotate Key was hidden on EVERY MCP connection,
     because the template assumed one "signs in over OAuth, so there's no key to
@@ -1039,7 +1039,7 @@ async def test_mcp_connection_shows_rotate_key_once_key_signin_is_on(
         await db.commit()
         conn_id = connection.id
 
-    r = await client.get(
+    r = await scoped_client.get(
         f"/me/connections/{conn_id}/status", cookies=_signed_in_cookies(user.id)
     )
     assert r.status_code == 200
@@ -1048,7 +1048,7 @@ async def test_mcp_connection_shows_rotate_key_once_key_signin_is_on(
 
 
 async def test_mcp_connection_detail_offers_key_signin(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    scoped_client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     """The toggle must be reachable on an MCP connection. It was gated on
     `not is_mcp_connection`, so the one client type that cannot complete the
@@ -1060,7 +1060,7 @@ async def test_mcp_connection_detail_offers_key_signin(
         await db.commit()
         conn_id = connection.id
 
-    r = await client.get(
+    r = await scoped_client.get(
         f"/me/connections/{conn_id}", cookies=_signed_in_cookies(user.id)
     )
     assert r.status_code == 200
@@ -1069,7 +1069,7 @@ async def test_mcp_connection_detail_offers_key_signin(
 
 
 async def test_detail_shows_when_connection_last_connected(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    scoped_client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     """The detail page shows when the client last checked in — a relative
     'last seen 12m ago' in the badge plus a precise timestamp line. The wording
@@ -1082,7 +1082,7 @@ async def test_detail_shows_when_connection_last_connected(
         await db.commit()
         conn_id = connection.id
 
-    r = await client.get(
+    r = await scoped_client.get(
         f"/me/connections/{conn_id}", cookies=_signed_in_cookies(user.id)
     )
     assert r.status_code == 200
@@ -1092,7 +1092,7 @@ async def test_detail_shows_when_connection_last_connected(
 
 
 async def test_never_connected_shows_no_last_connected_time(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    scoped_client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     """A connection that has never checked in says so, without a bogus timestamp.
 
@@ -1111,7 +1111,7 @@ async def test_never_connected_shows_no_last_connected_time(
         await db.commit()
         conn_id = connection.id
 
-    r = await client.get(
+    r = await scoped_client.get(
         f"/me/connections/{conn_id}", cookies=_signed_in_cookies(user.id)
     )
     assert r.status_code == 200
@@ -1121,7 +1121,7 @@ async def test_never_connected_shows_no_last_connected_time(
 
 
 async def test_ready_status_copy_is_honest_about_staleness(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    scoped_client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     """A live-but-idle connection (READY) must not claim a guaranteed live link.
 
@@ -1135,7 +1135,7 @@ async def test_ready_status_copy_is_honest_about_staleness(
         await db.commit()
         conn_id = connection.id
 
-    r = await client.get(
+    r = await scoped_client.get(
         f"/me/connections/{conn_id}/status", cookies=_signed_in_cookies(user.id)
     )
     assert r.status_code == 200

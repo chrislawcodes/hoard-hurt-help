@@ -120,7 +120,7 @@ async def app(
 
 
 @pytest.fixture
-async def client(app: FastAPI) -> AsyncIterator[AsyncClient]:
+async def scoped_client(app: FastAPI) -> AsyncIterator[AsyncClient]:
     transport = ASGITransport(app=app)
     async with AsyncClient(
         transport=transport, base_url="http://test", follow_redirects=False
@@ -213,7 +213,7 @@ async def _make_agent_for_provider(
 
 
 async def test_connections_page_load_auto_forwards_when_seen_not_polling(
-    client: AsyncClient,
+    scoped_client: AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """GET /me/connections?provider=claude&next=/lobby: SEEN_NOT_POLLING redirects."""
@@ -230,7 +230,7 @@ async def test_connections_page_load_auto_forwards_when_seen_not_polling(
         await db.commit()
         _ = conn  # used to set up the fixture
 
-    resp = await client.get(
+    resp = await scoped_client.get(
         "/me/connections?provider=claude&next=%2Flobby",
         cookies=_cookies(user.id),
     )
@@ -240,7 +240,7 @@ async def test_connections_page_load_auto_forwards_when_seen_not_polling(
 
 
 async def test_connections_page_load_no_forward_when_no_mcp_connection(
-    client: AsyncClient,
+    scoped_client: AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """GET /me/connections?provider=claude&next=/lobby: NO_MCP_CONNECTION does NOT redirect."""
@@ -249,7 +249,7 @@ async def test_connections_page_load_no_forward_when_no_mcp_connection(
         # No connection at all → NO_MCP_CONNECTION
         await db.commit()
 
-    resp = await client.get(
+    resp = await scoped_client.get(
         "/me/connections?provider=claude&next=%2Flobby",
         cookies=_cookies(user.id),
     )
@@ -258,7 +258,7 @@ async def test_connections_page_load_no_forward_when_no_mcp_connection(
 
 
 async def test_connections_poll_auto_forwards_when_seen_not_polling(
-    client: AsyncClient,
+    scoped_client: AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """GET /me/connections/live-status?provider=claude&next=/lobby: SEEN_NOT_POLLING
@@ -275,7 +275,7 @@ async def test_connections_poll_auto_forwards_when_seen_not_polling(
         )
         await db.commit()
 
-    resp = await client.get(
+    resp = await scoped_client.get(
         "/me/connections/live-status?provider=claude&next=%2Flobby",
         cookies=_cookies(user.id),
     )
@@ -285,7 +285,7 @@ async def test_connections_poll_auto_forwards_when_seen_not_polling(
 
 
 async def test_connections_poll_no_forward_when_no_mcp_connection(
-    client: AsyncClient,
+    scoped_client: AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """GET /me/connections/live-status?provider=claude&next=/lobby: NO_MCP_CONNECTION
@@ -295,7 +295,7 @@ async def test_connections_poll_no_forward_when_no_mcp_connection(
         # No connection at all → NO_MCP_CONNECTION
         await db.commit()
 
-    resp = await client.get(
+    resp = await scoped_client.get(
         "/me/connections/live-status?provider=claude&next=%2Flobby",
         cookies=_cookies(user.id),
     )

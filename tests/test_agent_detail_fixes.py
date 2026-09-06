@@ -96,7 +96,7 @@ async def app(
 
 
 @pytest.fixture
-async def client(app: FastAPI) -> AsyncIterator[AsyncClient]:
+async def scoped_client(app: FastAPI) -> AsyncIterator[AsyncClient]:
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         yield c
@@ -227,7 +227,7 @@ async def test_load_agent_matches_caps_done_at_10(
 
 
 async def test_agent_detail_shows_matches_section(
-    client: AsyncClient,
+    scoped_client: AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     async with session_factory() as db:
@@ -241,7 +241,7 @@ async def test_agent_detail_shows_matches_section(
         await seat_prebuilt_player(db, match=active_match, user=user, agent=agent, version=version, seat_name="A")
         await db.commit()
 
-    resp = await client.get(f"/me/agents/{agent.id}", cookies=_cookies(user.id))
+    resp = await scoped_client.get(f"/me/agents/{agent.id}", cookies=_cookies(user.id))
     assert resp.status_code == 200
     assert "Match M_show" in resp.text
     assert "Watch →" in resp.text
@@ -252,7 +252,7 @@ async def test_agent_detail_shows_matches_section(
 
 
 async def test_agent_detail_matches_shows_leave_for_pre_game(
-    client: AsyncClient,
+    scoped_client: AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     async with session_factory() as db:
@@ -265,7 +265,7 @@ async def test_agent_detail_matches_shows_leave_for_pre_game(
         await seat_prebuilt_player(db, match=pre_match, user=user, agent=agent, version=version, seat_name="A")
         await db.commit()
 
-    resp = await client.get(f"/me/agents/{agent.id}", cookies=_cookies(user.id))
+    resp = await scoped_client.get(f"/me/agents/{agent.id}", cookies=_cookies(user.id))
     assert resp.status_code == 200
     assert "Match M_pre" in resp.text
     assert "Manage →" in resp.text
@@ -273,7 +273,7 @@ async def test_agent_detail_matches_shows_leave_for_pre_game(
 
 
 async def test_agent_detail_shows_no_matches_empty_state(
-    client: AsyncClient,
+    scoped_client: AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     async with session_factory() as db:
@@ -282,7 +282,7 @@ async def test_agent_detail_shows_no_matches_empty_state(
         agent, _ = await make_agent(db, user, connection=conn, name="Alpha")
         await db.commit()
 
-    resp = await client.get(f"/me/agents/{agent.id}", cookies=_cookies(user.id))
+    resp = await scoped_client.get(f"/me/agents/{agent.id}", cookies=_cookies(user.id))
     assert resp.status_code == 200
     assert "isn't in any matches yet" in resp.text
 
@@ -378,7 +378,7 @@ def test_is_ready_to_play_false_when_join_blocked() -> None:
 
 
 async def test_agent_detail_shows_ready_to_play_card_when_warm(
-    client: AsyncClient,
+    scoped_client: AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     recently = datetime.now(timezone.utc) - timedelta(seconds=20)
@@ -388,14 +388,14 @@ async def test_agent_detail_shows_ready_to_play_card_when_warm(
         agent, _ = await make_agent(db, user, connection=conn, name="Alpha")
         await db.commit()
 
-    resp = await client.get(f"/me/agents/{agent.id}", cookies=_cookies(user.id))
+    resp = await scoped_client.get(f"/me/agents/{agent.id}", cookies=_cookies(user.id))
     assert resp.status_code == 200
     assert "Ready to play" in resp.text
     assert "Find a match →" in resp.text
 
 
 async def test_agent_detail_hides_ready_to_play_when_at_capacity(
-    client: AsyncClient,
+    scoped_client: AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """Agent in an active match on a saturated connection: shows match card, not ready-to-play.
@@ -416,7 +416,7 @@ async def test_agent_detail_hides_ready_to_play_when_at_capacity(
         await seat_prebuilt_player(db, match=m, user=user, agent=agent, version=version, seat_name="A")
         await db.commit()
 
-    resp = await client.get(f"/me/agents/{agent.id}", cookies=_cookies(user.id))
+    resp = await scoped_client.get(f"/me/agents/{agent.id}", cookies=_cookies(user.id))
     assert resp.status_code == 200
     # Agent is in an active match → shows match card, not at-capacity or ready-to-play
     assert "Ready to play" not in resp.text
@@ -424,7 +424,7 @@ async def test_agent_detail_hides_ready_to_play_when_at_capacity(
 
 
 async def test_agent_detail_hides_ready_to_play_when_paused(
-    client: AsyncClient,
+    scoped_client: AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     recently = datetime.now(timezone.utc) - timedelta(seconds=20)
@@ -436,7 +436,7 @@ async def test_agent_detail_hides_ready_to_play_when_paused(
         agent, _ = await make_agent(db, user, connection=conn, name="Alpha")
         await db.commit()
 
-    resp = await client.get(f"/me/agents/{agent.id}", cookies=_cookies(user.id))
+    resp = await scoped_client.get(f"/me/agents/{agent.id}", cookies=_cookies(user.id))
     assert resp.status_code == 200
     assert "Ready to play" not in resp.text
 
@@ -447,7 +447,7 @@ async def test_agent_detail_hides_ready_to_play_when_paused(
 
 
 async def test_agent_detail_shows_no_live_connection_when_never_connected(
-    client: AsyncClient,
+    scoped_client: AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """When no live connection covers the provider, the detail page shows
@@ -458,13 +458,13 @@ async def test_agent_detail_shows_no_live_connection_when_never_connected(
         agent, _ = await make_agent(db, user, connection=conn, name="Alpha")
         await db.commit()
 
-    resp = await client.get(f"/me/agents/{agent.id}", cookies=_cookies(user.id))
+    resp = await scoped_client.get(f"/me/agents/{agent.id}", cookies=_cookies(user.id))
     assert resp.status_code == 200
     assert "No live AI connection yet" in resp.text
 
 
 async def test_agent_detail_shows_no_live_connection_when_cold(
-    client: AsyncClient,
+    scoped_client: AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """When the only connection is cold (last_seen_at well past the live window),
@@ -475,13 +475,13 @@ async def test_agent_detail_shows_no_live_connection_when_cold(
         agent, _ = await make_agent(db, user, connection=conn, name="Alpha")
         await db.commit()
 
-    resp = await client.get(f"/me/agents/{agent.id}", cookies=_cookies(user.id))
+    resp = await scoped_client.get(f"/me/agents/{agent.id}", cookies=_cookies(user.id))
     assert resp.status_code == 200
     assert "No live AI connection yet" in resp.text
 
 
 async def test_agent_detail_no_reconnect_card_when_live(
-    client: AsyncClient,
+    scoped_client: AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """Live agent should not show reconnect / runner-down warnings."""
@@ -497,7 +497,7 @@ async def test_agent_detail_no_reconnect_card_when_live(
         await seat_prebuilt_player(db, match=m, user=user, agent=agent, version=version, seat_name="A")
         await db.commit()
 
-    resp = await client.get(f"/me/agents/{agent.id}", cookies=_cookies(user.id))
+    resp = await scoped_client.get(f"/me/agents/{agent.id}", cookies=_cookies(user.id))
     assert resp.status_code == 200
     assert "Runner isn't running" not in resp.text
     assert "hasn't connected yet" not in resp.text
@@ -704,7 +704,7 @@ async def test_onboarding_state_playing_even_when_cold(
 
 
 async def test_status_fragment_shows_ready_to_play_for_connected_idle_agent(
-    client: AsyncClient,
+    scoped_client: AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """Connected idle agent: /status fragment shows 'Ready to play' card."""
@@ -717,14 +717,14 @@ async def test_status_fragment_shows_ready_to_play_for_connected_idle_agent(
         agent, _ = await make_agent(db, user, connection=conn, name="Alpha")
         await db.commit()
 
-    resp = await client.get(f"/me/agents/{agent.id}/status", cookies=_cookies(user.id))
+    resp = await scoped_client.get(f"/me/agents/{agent.id}/status", cookies=_cookies(user.id))
     assert resp.status_code == 200
     assert "Ready to play" in resp.text
     assert "Find a match →" in resp.text
 
 
 async def test_status_fragment_hides_playing_banner(
-    client: AsyncClient,
+    scoped_client: AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """A played agent no longer renders the old playing banner in /status."""
@@ -745,13 +745,13 @@ async def test_status_fragment_hides_playing_banner(
         await _make_turn_submission(db, match=match, player=player, was_defaulted=False)
         await db.commit()
 
-    resp = await client.get(f"/me/agents/{agent.id}/status", cookies=_cookies(user.id))
+    resp = await scoped_client.get(f"/me/agents/{agent.id}/status", cookies=_cookies(user.id))
     assert resp.status_code == 200
     assert resp.text.strip() == ""
 
 
 async def test_status_fragment_shows_at_capacity_card(
-    client: AsyncClient,
+    scoped_client: AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """Connection at capacity with a second agent idle: /status shows 'At capacity'.
@@ -780,14 +780,14 @@ async def test_status_fragment_shows_at_capacity_card(
 
     # agent2 is connected (first_connected_at is set) and idle → connected_no_game,
     # but the connection is at capacity → At capacity card.
-    resp = await client.get(f"/me/agents/{agent2.id}/status", cookies=_cookies(user.id))
+    resp = await scoped_client.get(f"/me/agents/{agent2.id}/status", cookies=_cookies(user.id))
     assert resp.status_code == 200
     assert "At capacity" in resp.text
     assert "Ready to play" not in resp.text
 
 
 async def test_detail_page_shows_onboarding_card_inline(
-    client: AsyncClient,
+    scoped_client: AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """detail.html inlines the onboarding card on first paint (not just htmx-polled)."""
@@ -800,7 +800,7 @@ async def test_detail_page_shows_onboarding_card_inline(
         agent, _ = await make_agent(db, user, connection=conn, name="Alpha")
         await db.commit()
 
-    resp = await client.get(f"/me/agents/{agent.id}", cookies=_cookies(user.id))
+    resp = await scoped_client.get(f"/me/agents/{agent.id}", cookies=_cookies(user.id))
     assert resp.status_code == 200
     # The onboarding slot container with htmx polling should be present
     assert "onboarding-status" in resp.text
@@ -809,7 +809,7 @@ async def test_detail_page_shows_onboarding_card_inline(
 
 
 async def test_detail_name_field_autosaves_on_change(
-    client: AsyncClient,
+    scoped_client: AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """The agent rename field submits itself when the value changes."""
@@ -822,7 +822,7 @@ async def test_detail_name_field_autosaves_on_change(
         agent, _ = await make_agent(db, user, connection=conn, name="Alpha")
         await db.commit()
 
-    resp = await client.get(f"/me/agents/{agent.id}", cookies=_cookies(user.id))
+    resp = await scoped_client.get(f"/me/agents/{agent.id}", cookies=_cookies(user.id))
     assert resp.status_code == 200
     assert 'onchange="this.form.requestSubmit()"' in resp.text
     assert 'class="secondary">Rename</button>' not in resp.text

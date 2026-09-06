@@ -8,7 +8,6 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 
 from app.config import settings
-from app.main import app
 from app.models import Base, RequestIncident, User
 from app.models.user import UserRole
 from app.request_logging import install_request_logging, set_request_trace_context
@@ -33,13 +32,6 @@ async def reset_db(monkeypatch):
 
     yield test_factory
     await test_engine.dispose()
-
-
-@pytest.fixture
-async def client():
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as c:
-        yield c
 
 
 async def test_request_logging_persists_incident_and_request_id(reset_db):

@@ -50,7 +50,7 @@ async def app(
 
 
 @pytest.fixture
-async def client(app: FastAPI) -> AsyncIterator[AsyncClient]:
+async def scoped_client(app: FastAPI) -> AsyncIterator[AsyncClient]:
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         yield c
@@ -91,11 +91,11 @@ async def make_connection_setup(
 
 
 async def test_valid_key_resolves_connection_and_marks_seen(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    scoped_client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     connection, key = await _seed_connection(session_factory)
 
-    r1 = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
+    r1 = await scoped_client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
     assert r1.status_code == 200
     assert r1.json()["status"] == "no_game"
 
@@ -108,7 +108,7 @@ async def test_valid_key_resolves_connection_and_marks_seen(
         assert first_connected_at is not None
         assert last_seen_at is not None
 
-    r2 = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
+    r2 = await scoped_client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
     assert r2.status_code == 200
     assert r2.json()["status"] == "no_game"
 
@@ -124,7 +124,7 @@ async def test_valid_key_resolves_connection_and_marks_seen(
 
 
 async def test_first_key_use_creates_connection_from_setup(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    scoped_client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     async with session_factory() as db:
         user = await make_user(db)
@@ -136,7 +136,7 @@ async def test_first_key_use_creates_connection_from_setup(
         )
         await db.commit()
 
-    r = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
+    r = await scoped_client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
     assert r.status_code == 200
     assert r.json()["status"] == "no_game"
 
@@ -156,15 +156,15 @@ async def test_first_key_use_creates_connection_from_setup(
 
 
 async def test_missing_and_invalid_key_reject(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    scoped_client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     await _seed_connection(session_factory)
 
-    missing = await client.get("/api/agent/next-turn")
+    missing = await scoped_client.get("/api/agent/next-turn")
     assert missing.status_code == 401
     assert missing.json()["detail"]["error"]["code"] == "INVALID_KEY"
 
-    invalid = await client.get(
+    invalid = await scoped_client.get(
         "/api/agent/next-turn",
         headers={"X-Connection-Key": "sk_conn_bogus"},
     )
@@ -173,7 +173,7 @@ async def test_missing_and_invalid_key_reject(
 
 
 async def test_rejected_key_is_named_in_the_log_but_never_disclosed(
-    client: AsyncClient,
+    scoped_client: AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -196,7 +196,7 @@ async def test_rejected_key_is_named_in_the_log_but_never_disclosed(
     for key in (bad_prefix_key, unknown_key):
         caplog.clear()
         with caplog.at_level(logging.WARNING, logger="app.deps"):
-            response = await client.get(
+            response = await scoped_client.get(
                 "/api/agent/next-turn", headers={"X-Connection-Key": key}
             )
         assert response.status_code == 401
@@ -212,17 +212,17 @@ async def test_rejected_key_is_named_in_the_log_but_never_disclosed(
 
 
 async def test_paused_connection_rejected(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    scoped_client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     _, key = await _seed_connection(session_factory, status=ConnectionStatus.PAUSED)
 
-    r = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
+    r = await scoped_client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
     assert r.status_code == 403
     assert r.json()["detail"]["error"]["code"] == "CONNECTION_PAUSED"
 
 
 async def test_deleted_connection_returns_gone(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    scoped_client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     connection, key = await _seed_connection(session_factory)
 
@@ -233,13 +233,13 @@ async def test_deleted_connection_returns_gone(
         stored.deleted_at = datetime.now(timezone.utc)
         await db.commit()
 
-    r = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
+    r = await scoped_client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
     assert r.status_code == 410
     assert r.json()["detail"]["error"]["code"] == "CONNECTION_DELETED"
 
 
 async def test_graceful_rotation_overlap_is_retired_on_new_key_use(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    scoped_client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     connection, old_key = await _seed_connection(session_factory)
     new_key = f"sk_conn_{secrets.token_hex(24)}"
@@ -252,7 +252,7 @@ async def test_graceful_rotation_overlap_is_retired_on_new_key_use(
         stored.prev_key_lookup = bot_key_lookup(old_key)
         await db.commit()
 
-    old_ok = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": old_key})
+    old_ok = await scoped_client.get("/api/agent/next-turn", headers={"X-Connection-Key": old_key})
     assert old_ok.status_code == 200
 
     async with session_factory() as db:
@@ -261,7 +261,7 @@ async def test_graceful_rotation_overlap_is_retired_on_new_key_use(
         ).scalar_one()
         assert stored.prev_key_lookup == bot_key_lookup(old_key)
 
-    new_ok = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": new_key})
+    new_ok = await scoped_client.get("/api/agent/next-turn", headers={"X-Connection-Key": new_key})
     assert new_ok.status_code == 200
 
     async with session_factory() as db:
@@ -270,7 +270,7 @@ async def test_graceful_rotation_overlap_is_retired_on_new_key_use(
         ).scalar_one()
         assert stored.prev_key_lookup is None
 
-    old_dead = await client.get(
+    old_dead = await scoped_client.get(
         "/api/agent/next-turn",
         headers={"X-Connection-Key": old_key},
     )

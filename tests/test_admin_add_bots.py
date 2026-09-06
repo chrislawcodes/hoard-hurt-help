@@ -2,12 +2,10 @@
 
 
 import pytest
-from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 
 from app.config import settings
 from app.engine.bots.seating import BOTS_USER_SUB
-from app.main import app
 from app.models import Base, Agent, AgentKind, GameState, Player, User
 from tests.factories import make_agent, seed_email_user_with_role, seed_match
 from tests.conftest import signed_in_cookies as _cookies
@@ -32,14 +30,6 @@ async def reset_db(monkeypatch):
 
     yield test_factory
     await test_engine.dispose()
-
-
-@pytest.fixture
-async def client():
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as c:
-        yield c
-
 
 
 def _roster(*pairs: tuple[str, str]) -> dict[str, list[str]]:

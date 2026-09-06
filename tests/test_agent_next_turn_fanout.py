@@ -81,7 +81,7 @@ async def app(
 
 
 @pytest.fixture
-async def client(app: FastAPI) -> AsyncIterator[AsyncClient]:
+async def scoped_client(app: FastAPI) -> AsyncIterator[AsyncClient]:
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         yield c
@@ -201,7 +201,7 @@ async def _seat_agent(
 
 
 async def test_one_connection_one_agent_one_match_returns_correct_version(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    scoped_client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     async with session_factory() as db:
         user = await make_user(db)
@@ -219,7 +219,7 @@ async def test_one_connection_one_agent_one_match_returns_correct_version(
         )
         await db.commit()
 
-    r = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
+    r = await scoped_client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["status"] == "your_turn"
@@ -242,7 +242,7 @@ async def test_one_connection_one_agent_one_match_returns_correct_version(
 
 
 async def test_multiple_agents_and_matches_pick_the_most_urgent_turn(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    scoped_client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     async with session_factory() as db:
         user = await make_user(db)
@@ -271,7 +271,7 @@ async def test_multiple_agents_and_matches_pick_the_most_urgent_turn(
         )
         await db.commit()
 
-    r = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
+    r = await scoped_client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["agent_id"] == agent_b.id
@@ -283,7 +283,7 @@ async def test_multiple_agents_and_matches_pick_the_most_urgent_turn(
 
 
 async def test_same_match_agents_fetch_own_turn_and_wrong_agent_submit_is_rejected(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    scoped_client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     async with session_factory() as db:
         user = await make_user(db)
@@ -314,12 +314,12 @@ async def test_same_match_agents_fetch_own_turn_and_wrong_agent_submit_is_reject
     # Each agent fetching only its own turn is covered by the agent_id-filter
     # test; here the surviving contract is that a submit under the WRONG agent_id
     # for a claimed turn token is rejected without recording anything.
-    next_turn = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
+    next_turn = await scoped_client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
     assert next_turn.status_code == 200, next_turn.text
     next_body = next_turn.json()
 
     wrong_agent_id = agent_b.id if next_body["agent_id"] == agent_a.id else agent_a.id
-    wrong_submit = await client.post(
+    wrong_submit = await scoped_client.post(
         f"/api/matches/{match.id}/submit",
         params={
             "agent_turn_token": next_body["agent_turn_token"],
@@ -345,7 +345,7 @@ async def test_same_match_agents_fetch_own_turn_and_wrong_agent_submit_is_reject
         ).scalars().all()
         assert submissions == []
 
-    correct_submit = await client.post(
+    correct_submit = await scoped_client.post(
         f"/api/matches/{match.id}/submit",
         params={
             "agent_turn_token": next_body["agent_turn_token"],
@@ -364,7 +364,7 @@ async def test_same_match_agents_fetch_own_turn_and_wrong_agent_submit_is_reject
 
 
 async def test_next_turn_agent_id_filter_and_batch_serve_each_agent(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    scoped_client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     """Two agents share one connection AND one match. agent_id fetches just one;
     the batch returns both; the no-arg fetch still serves the most-urgent."""
@@ -395,7 +395,7 @@ async def test_next_turn_agent_id_filter_and_batch_serve_each_agent(
         await db.commit()
 
     # agent_id picks exactly that agent's turn — even though both share the match.
-    only_a = await client.get(
+    only_a = await scoped_client.get(
         "/api/agent/next-turn",
         params={"agent_id": agent_a.id},
         headers={"X-Connection-Key": key},
@@ -408,7 +408,7 @@ async def test_next_turn_agent_id_filter_and_batch_serve_each_agent(
     # The static block's own identity field is projected from the served seat.
     assert body_a["static"]["your_agent_id"] == player_a.seat_name
 
-    only_b = await client.get(
+    only_b = await scoped_client.get(
         "/api/agent/next-turn",
         params={"agent_id": agent_b.id},
         headers={"X-Connection-Key": key},
@@ -420,7 +420,7 @@ async def test_next_turn_agent_id_filter_and_batch_serve_each_agent(
     assert body_b["seat_name"] == player_b.seat_name
 
     # The batch returns BOTH agents' turns, one entry per agent.
-    batch = await client.get("/api/agent/next-turns", headers={"X-Connection-Key": key})
+    batch = await scoped_client.get("/api/agent/next-turns", headers={"X-Connection-Key": key})
     assert batch.status_code == 200, batch.text
     batch_body = batch.json()
     assert batch_body["status"] == "your_turn"
@@ -428,26 +428,26 @@ async def test_next_turn_agent_id_filter_and_batch_serve_each_agent(
     assert served_agent_ids == {agent_a.id, agent_b.id}
 
     # Regression: the no-arg fetch still serves a single most-urgent turn.
-    any_turn = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
+    any_turn = await scoped_client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
     assert any_turn.status_code == 200, any_turn.text
     assert any_turn.json()["agent_id"] in {agent_a.id, agent_b.id}
 
 
 async def test_paused_connection_next_turn_is_rejected(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    scoped_client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     async with session_factory() as db:
         user = await make_user(db)
         _connection, key = await make_connection(db, user, status=ConnectionStatus.PAUSED)
         await db.commit()
 
-    r = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
+    r = await scoped_client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
     assert r.status_code == 403
     assert r.json()["detail"]["error"]["code"] == "CONNECTION_PAUSED"
 
 
 async def test_urgency_ordering_prefers_the_earliest_deadline(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    scoped_client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     async with session_factory() as db:
         user = await make_user(db)
@@ -476,7 +476,7 @@ async def test_urgency_ordering_prefers_the_earliest_deadline(
         )
         await db.commit()
 
-    r = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
+    r = await scoped_client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["agent_id"] == early_agent.id
@@ -487,7 +487,7 @@ async def test_urgency_ordering_prefers_the_earliest_deadline(
 
 
 async def test_next_turn_payload_includes_provider(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    scoped_client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     async with session_factory() as db:
         user = await make_user(db)
@@ -505,13 +505,13 @@ async def test_next_turn_payload_includes_provider(
         )
         await db.commit()
 
-    r = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
+    r = await scoped_client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
     assert r.status_code == 200, r.text
     assert r.json()["provider"] == "claude"
 
 
 async def test_report_pid_with_detected_providers_sets_detected_only(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    scoped_client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     async with session_factory() as db:
         user = await make_user(db)
@@ -519,7 +519,7 @@ async def test_report_pid_with_detected_providers_sets_detected_only(
         await db.commit()
         conn_id = connection.id
 
-    r = await client.post(
+    r = await scoped_client.post(
         "/api/agent/report-pid",
         json={"pid": 4321, "detected_providers": ["claude", "openai"]},
         headers={"X-Connection-Key": key},
@@ -552,7 +552,7 @@ async def test_report_pid_with_detected_providers_sets_detected_only(
 
 
 async def test_report_pid_without_detected_providers_still_works(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    scoped_client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     """An OLD connector posts only {pid: ...}; it must not error (acceptance #7)."""
     async with session_factory() as db:
@@ -561,7 +561,7 @@ async def test_report_pid_without_detected_providers_still_works(
         await db.commit()
         conn_id = connection.id
 
-    r = await client.post(
+    r = await scoped_client.post(
         "/api/agent/report-pid", json={"pid": 99}, headers={"X-Connection-Key": key}
     )
     assert r.status_code == 204, r.text
@@ -573,7 +573,7 @@ async def test_report_pid_without_detected_providers_still_works(
 
 
 async def test_report_pid_hostname_defaults_unnamed_connection(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    scoped_client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     """An unnamed machine takes the reported hostname as its default name."""
     async with session_factory() as db:
@@ -582,7 +582,7 @@ async def test_report_pid_hostname_defaults_unnamed_connection(
         await db.commit()
         conn_id = connection.id
 
-    r = await client.post(
+    r = await scoped_client.post(
         "/api/agent/report-pid",
         json={"pid": 7, "hostname": "chris-macbook"},
         headers={"X-Connection-Key": key},
@@ -596,7 +596,7 @@ async def test_report_pid_hostname_defaults_unnamed_connection(
 
 
 async def test_report_pid_hostname_never_overrides_a_typed_name(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    scoped_client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     """A name the operator typed always wins over the hostname default."""
     async with session_factory() as db:
@@ -605,7 +605,7 @@ async def test_report_pid_hostname_never_overrides_a_typed_name(
         await db.commit()
         conn_id = connection.id
 
-    r = await client.post(
+    r = await scoped_client.post(
         "/api/agent/report-pid",
         json={"pid": 7, "hostname": "chris-macbook"},
         headers={"X-Connection-Key": key},
@@ -619,7 +619,7 @@ async def test_report_pid_hostname_never_overrides_a_typed_name(
 
 
 async def test_failover_live_connection_serves_match_pinned_to_dead_connection(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    scoped_client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     async with session_factory() as db:
         user = await make_user(db)
@@ -647,7 +647,7 @@ async def test_failover_live_connection_serves_match_pinned_to_dead_connection(
         live_id = live.id
         player_id = player.id
 
-    r = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": live_key})
+    r = await scoped_client.get("/api/agent/next-turn", headers={"X-Connection-Key": live_key})
     assert r.status_code == 200, r.text
     assert r.json()["status"] == "your_turn"
     # The pin moved to the live connection (failover).
@@ -659,7 +659,7 @@ async def test_failover_live_connection_serves_match_pinned_to_dead_connection(
 
 
 async def test_next_turns_returns_every_servable_turn_at_once(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    scoped_client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     """The batch endpoint hands back ALL open turns across the connection's
     matches in one poll, so the runner can drive them concurrently. The singular
@@ -693,12 +693,12 @@ async def test_next_turns_returns_every_servable_turn_at_once(
         await db.commit()
 
     # Singular endpoint: only the most urgent (M_0702, nearer deadline).
-    single = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
+    single = await scoped_client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
     assert single.status_code == 200, single.text
     assert single.json()["match_id"] == "M_0702"
 
     # Batch endpoint: BOTH matches in one response.
-    batch = await client.get("/api/agent/next-turns", headers={"X-Connection-Key": key})
+    batch = await scoped_client.get("/api/agent/next-turns", headers={"X-Connection-Key": key})
     assert batch.status_code == 200, batch.text
     body = batch.json()
     assert body["status"] == "your_turn"
@@ -710,7 +710,7 @@ async def test_next_turns_returns_every_servable_turn_at_once(
 
 
 async def test_next_turns_omits_a_turn_already_submitted(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    scoped_client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     """A turn the agent has already moved on drops out of the batch, so a worker
     isn't re-dispatched for work that's done."""
@@ -751,14 +751,14 @@ async def test_next_turns_omits_a_turn_already_submitted(
         )
         await db.commit()
 
-    batch = await client.get("/api/agent/next-turns", headers={"X-Connection-Key": key})
+    batch = await scoped_client.get("/api/agent/next-turns", headers={"X-Connection-Key": key})
     assert batch.status_code == 200, batch.text
     body = batch.json()
     assert [t["match_id"] for t in body["turns"]] == ["M_0711"]
 
 
 async def test_no_game_returns_no_game_immediately_with_idle_cadence(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    scoped_client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     """A connection with NO game at all gets 'no_game' (not 'waiting') at once,
     carrying an idle count and the slow 5-minute idle cadence. The plural endpoint
@@ -770,7 +770,7 @@ async def test_no_game_returns_no_game_immediately_with_idle_cadence(
 
     loop = asyncio.get_event_loop()
     started = loop.time()
-    single = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
+    single = await scoped_client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
     elapsed = loop.time() - started
     assert single.status_code == 200, single.text
     body = single.json()
@@ -783,7 +783,7 @@ async def test_no_game_returns_no_game_immediately_with_idle_cadence(
     assert body["idle_seconds"] < 60
     assert "stop_reason" not in body
 
-    batch = await client.get("/api/agent/next-turns", headers={"X-Connection-Key": key})
+    batch = await scoped_client.get("/api/agent/next-turns", headers={"X-Connection-Key": key})
     assert batch.status_code == 200, batch.text
     bbody = batch.json()
     assert bbody["status"] == "no_game"
@@ -792,7 +792,7 @@ async def test_no_game_returns_no_game_immediately_with_idle_cadence(
 
 
 async def test_long_poll_returns_waiting_after_window_when_seated_no_open_turn(
-    client: AsyncClient,
+    scoped_client: AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -835,7 +835,7 @@ async def test_long_poll_returns_waiting_after_window_when_seated_no_open_turn(
 
     loop = asyncio.get_event_loop()
     started = loop.time()
-    r = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
+    r = await scoped_client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
     elapsed = loop.time() - started
     assert r.status_code == 200, r.text
     body = r.json()
@@ -847,7 +847,7 @@ async def test_long_poll_returns_waiting_after_window_when_seated_no_open_turn(
 
 
 async def test_long_poll_returns_promptly_when_a_turn_opens(
-    client: AsyncClient,
+    scoped_client: AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -907,7 +907,7 @@ async def test_long_poll_returns_promptly_when_a_turn_opens(
     # Long hold window, fast re-check interval: the response should come back when
     # the turn opens (~0.15s), not at the 5s window.
     opener = asyncio.create_task(open_turn_soon())
-    r = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
+    r = await scoped_client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
     await opener
     elapsed = loop.time() - started
     assert r.status_code == 200, r.text
@@ -989,7 +989,7 @@ async def test_pacing_is_agent_scoped_when_a_loop_asks_for_one_agent(
 
 
 async def test_api_call_count_increments_and_turn_count_on_real_submit(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    scoped_client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     """Every authenticated call bumps api_call_count; a real (non-defaulted)
     submit bumps turns_played. The detail page reads these raw counts."""
@@ -1011,7 +1011,7 @@ async def test_api_call_count_increments_and_turn_count_on_real_submit(
         connection_id = connection.id
 
     # One poll that serves a turn.
-    served = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
+    served = await scoped_client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
     assert served.status_code == 200, served.text
     body = served.json()
     assert body["status"] == "your_turn"
@@ -1025,7 +1025,7 @@ async def test_api_call_count_increments_and_turn_count_on_real_submit(
         assert stored.api_call_count == 1
         assert stored.turns_played == 0
 
-    submit = await client.post(
+    submit = await scoped_client.post(
         f"/api/matches/M_0900/submit?agent_turn_token={agent_turn_token}",
         headers={"X-Connection-Key": key},
         json={
@@ -1049,7 +1049,7 @@ async def test_api_call_count_increments_and_turn_count_on_real_submit(
 
 
 async def test_no_game_after_idle_window_tells_client_to_stop(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    scoped_client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     """A connection with no game that has been idle past the ~10-min window gets
     should_stop=True with a stop_reason, so an interactive client stops polling."""
@@ -1063,7 +1063,7 @@ async def test_no_game_after_idle_window_tells_client_to_stop(
         connection.created_at = long_ago
         await db.commit()
 
-    r = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
+    r = await scoped_client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["status"] == "no_game"
@@ -1073,7 +1073,7 @@ async def test_no_game_after_idle_window_tells_client_to_stop(
 
 
 async def test_seated_in_active_game_is_waiting_not_no_game(
-    client: AsyncClient,
+    scoped_client: AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1115,7 +1115,7 @@ async def test_seated_in_active_game_is_waiting_not_no_game(
         await db.commit()
 
     # No open turn yet -> waiting (not no_game), and no stop hint.
-    r = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
+    r = await scoped_client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["status"] == "waiting"
@@ -1123,7 +1123,7 @@ async def test_seated_in_active_game_is_waiting_not_no_game(
 
 
 async def test_scheduled_game_keeps_caller_waiting_not_no_game(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    scoped_client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     """A caller seated in a not-yet-started (scheduled) game is 'waiting' — the
     game is about to start, so never 'no_game' and never told to stop."""
@@ -1155,7 +1155,7 @@ async def test_scheduled_game_keeps_caller_waiting_not_no_game(
         )
         await db.commit()
 
-    r = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
+    r = await scoped_client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["status"] == "waiting"
@@ -1163,7 +1163,7 @@ async def test_scheduled_game_keeps_caller_waiting_not_no_game(
 
 
 async def test_provider_agnostic_serving_stamps_played_provider(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    scoped_client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     """An agent with no provider is served by ANY of the user's live connections,
     and the serving connection's provider is stamped onto the player as
@@ -1190,7 +1190,7 @@ async def test_provider_agnostic_serving_stamps_played_provider(
         await db.commit()
         player_id = player.id
 
-    r = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
+    r = await scoped_client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["status"] == "your_turn"
@@ -1209,7 +1209,7 @@ async def test_provider_agnostic_serving_stamps_played_provider(
 
 
 async def test_connection_only_serves_seats_for_its_own_ai(
-    client: AsyncClient,
+    scoped_client: AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1247,19 +1247,19 @@ async def test_connection_only_serves_seats_for_its_own_ai(
         await db.commit()
 
     # The Claude connection covers only "claude" → it is NOT handed the gemini seat.
-    r_claude = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": claude_key})
+    r_claude = await scoped_client.get("/api/agent/next-turn", headers={"X-Connection-Key": claude_key})
     assert r_claude.status_code == 200, r_claude.text
     assert r_claude.json()["status"] != "your_turn"
 
     # The Gemini connection covers "gemini" → it gets the turn, as Gemini.
-    r_gemini = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": gemini_key})
+    r_gemini = await scoped_client.get("/api/agent/next-turn", headers={"X-Connection-Key": gemini_key})
     assert r_gemini.status_code == 200, r_gemini.text
     assert r_gemini.json()["status"] == "your_turn"
     assert r_gemini.json()["provider"] == "gemini"
 
 
 async def test_next_turn_history_is_windowed_to_recent_turns(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    scoped_client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     """The next-turn payload (the connector + MCP path) carries only the last
     couple of resolved turns, not the whole transcript — so a long mid-game match
@@ -1328,7 +1328,7 @@ async def test_next_turn_history_is_windowed_to_recent_turns(
         )
         await db.commit()
 
-    r = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
+    r = await scoped_client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["status"] == "your_turn"
@@ -1337,7 +1337,7 @@ async def test_next_turn_history_is_windowed_to_recent_turns(
 
 
 async def test_next_turn_payload_includes_current_pact_values(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    scoped_client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     """`your_private_state.pact_values` carries what a mutual HELP with each
     other seat would pay each side RIGHT NOW: decayed for a partner the agent
@@ -1447,7 +1447,7 @@ async def test_next_turn_payload_includes_current_pact_values(
         await db.commit()
 
     # Next-turn fan-out path.
-    r = await client.get(
+    r = await scoped_client.get(
         "/api/agent/next-turn",
         params={"agent_id": agent_a.id},
         headers={"X-Connection-Key": key},
@@ -1462,7 +1462,7 @@ async def test_next_turn_payload_includes_current_pact_values(
 
 
 async def test_coach_note_served_on_turn_payload(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    scoped_client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     """A coach note armed for the CURRENT round rides on the turn payload,
     gated to that round."""
@@ -1484,7 +1484,7 @@ async def test_coach_note_served_on_turn_payload(
         player.coach_note_round = match.current_round  # active NOW
         await db.commit()
 
-    fanout = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
+    fanout = await scoped_client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
     assert fanout.status_code == 200, fanout.text
     fanout_body = fanout.json()
     assert fanout_body["status"] == "your_turn"
@@ -1492,7 +1492,7 @@ async def test_coach_note_served_on_turn_payload(
 
 
 async def test_coach_note_for_a_future_round_is_absent_from_turn_payload(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    scoped_client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     """The round gating holds: a note armed for a LATER round does not appear in
     the payload's static block."""
@@ -1514,13 +1514,13 @@ async def test_coach_note_for_a_future_round_is_absent_from_turn_payload(
         player.coach_note_round = match.current_round + 1
         await db.commit()
 
-    fanout = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
+    fanout = await scoped_client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
     assert fanout.status_code == 200, fanout.text
     assert "coach_note" not in fanout.json()["static"]
 
 
 async def test_turn_static_block_carries_unified_fields(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    scoped_client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     """The next-turn static block carries the full identity/rules field set built
     by build_turn_static_dict — including the conditional coach_note — not an
@@ -1543,7 +1543,7 @@ async def test_turn_static_block_carries_unified_fields(
         player.coach_note_round = match.current_round
         await db.commit()
 
-    fanout = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
+    fanout = await scoped_client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
     assert fanout.status_code == 200, fanout.text
 
     static = fanout.json()["static"]
@@ -1554,7 +1554,7 @@ async def test_turn_static_block_carries_unified_fields(
 
 
 async def test_filter_to_candidates_batches_mixed_phase_seats(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    scoped_client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     """The batched owes-a-move filter behaves per seat exactly like the old
     per-seat queries across a mixed board: an act turn already submitted is
@@ -1639,7 +1639,7 @@ async def test_filter_to_candidates_batches_mixed_phase_seats(
         )
         await db.commit()
 
-    batch = await client.get("/api/agent/next-turns", headers={"X-Connection-Key": key})
+    batch = await scoped_client.get("/api/agent/next-turns", headers={"X-Connection-Key": key})
     assert batch.status_code == 200, batch.text
     body = batch.json()
     assert body["status"] == "your_turn"
@@ -1666,7 +1666,7 @@ class _SleepSampler:
 
 
 async def test_hold_frees_its_db_connection_between_re_checks(
-    client: AsyncClient,
+    scoped_client: AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1728,7 +1728,7 @@ async def test_hold_frees_its_db_connection_between_re_checks(
     sampler = _SleepSampler(opened)
     monkeypatch.setattr("app.engine.agent_play_next_turn.asyncio", sampler)
 
-    r = await client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
+    r = await scoped_client.get("/api/agent/next-turn", headers={"X-Connection-Key": key})
 
     assert r.status_code == 200, r.text
     assert r.json()["status"] == "waiting"
