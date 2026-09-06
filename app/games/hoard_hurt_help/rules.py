@@ -269,6 +269,29 @@ def hoard_share(hoarders: int) -> int:
     return HOARD_POT_POINTS // hoarders
 
 
+def pd_move_effect(action: str) -> tuple[int, int | None]:
+    """Nominal per-move effect for the feed. HOARD is the SOLO rate.
+
+    HOARD pays a share of a contested pot, so its real value depends on how
+    many others hoarded that same turn — which this signature cannot express.
+    It reports the best case (a lone hoarder taking the whole pot); the replay
+    builder overrides it with the turn's actual share, because it has the
+    turn's actions and this does not.
+
+    The single source for this: `HoardHurtHelp.move_effect` (the `GameModule`
+    contract) and the replay viewer's per-move feed chip both call it, so
+    neither can drift from the other.
+    """
+    a = action.upper()
+    if a == "HOARD":
+        return hoard_share(1), None
+    if a == "HELP":
+        return 0, HELP_POINTS
+    if a == "HURT":
+        return 0, -HURT_POINTS
+    return 0, None
+
+
 def hoard_legend() -> str:
     """The one-line Hoard description for a replay legend.
 

@@ -27,6 +27,7 @@ from app.games.hoard_hurt_help.rules import (
     LEGACY_MUTUAL_HELP_MODE,
     MUTUAL_HELP_BONUS,
     mutual_help_value,
+    pd_move_effect,
 )
 from app.games.hoard_hurt_help.scoring import apply_inround_turn
 from app.games.hoard_hurt_help.viewer_headline import _turn_headline
@@ -110,23 +111,6 @@ def sample_replay_data() -> str:
     payload.setdefault("owners", {})
     payload.setdefault("providers", {})
     return json.dumps(payload, ensure_ascii=False)
-
-
-def _move_effect_for(game_type: str, action: str) -> tuple[int, int | None]:
-    """Nominal per-move effect for the watch feed, split into (actor_delta, target_delta).
-
-    Delegates to the game module so the viewer carries no game-specific scoring.
-    This is what the move is worth by that game's rules, shown per-move so
-    viewers see who each move lands on. It is deliberately not the player's net
-    change for the turn, which folds in others' moves, bonuses, and the floor.
-    """
-    from app.games import get as get_game_module
-    from app.games.base import GameError
-
-    try:
-        return get_game_module(game_type).move_effect(action)
-    except GameError:
-        return 0, None
 
 
 def _feed_sort_key(a: dict) -> tuple[int, int, str]:
@@ -382,7 +366,7 @@ async def build_pd_replay_view(
         # this turn's hoarders once and override that move's actor delta below.
         turn_hoard_each = hoard_share(sum(1 for a in t.actions if a.action == "HOARD"))
         for action in t.actions:
-            actor_delta, target_delta = _move_effect_for(g.game, action.action)
+            actor_delta, target_delta = pd_move_effect(action.action)
             if action.action == "HOARD":
                 actor_delta = turn_hoard_each
             actions.append(
