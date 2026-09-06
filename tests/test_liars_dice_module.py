@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -19,10 +20,12 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-# Bespoke: drives the game module directly against a raw session, so there is no
-# app.db rebind to delegate to tests/conftest.py's shared reset_db.
+# Bespoke: drives the game module directly against a raw session, so this does
+# NOT rebind app.db like tests/conftest.py's shared reset_db does. It still
+# requests (and ignores) that fixture purely so this file's tests keep the
+# `reset_db` name in their fixture closure and stay tagged `integration`.
 @pytest.fixture(autouse=True)
-async def reset_db():
+async def reset_db_no_app_rebind(reset_db: async_sessionmaker) -> AsyncIterator[async_sessionmaker]:
     engine = make_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
@@ -101,9 +104,9 @@ async def test_config_defaults_and_theme() -> None:
     assert module.theme().key == "liars-dice"
 
 
-async def test_validation_snapshot_and_validate_move(reset_db) -> None:
+async def test_validation_snapshot_and_validate_move(reset_db_no_app_rebind) -> None:
     module = LiarsDice()
-    async with reset_db() as db:
+    async with reset_db_no_app_rebind() as db:
         match, players = await _seed_liars_dice_module_match(
             db,
             dice_by_seat={"A": [5, 5, 1], "B": [2, 2, 2], "C": [3, 3, 3]},
@@ -195,9 +198,9 @@ async def test_validation_snapshot_and_validate_move(reset_db) -> None:
         assert exc.value.code == "ILLEGAL_RAISE"
 
 
-async def test_record_submission_advances_and_challenge_pauses_turn(reset_db) -> None:
+async def test_record_submission_advances_and_challenge_pauses_turn(reset_db_no_app_rebind) -> None:
     module = LiarsDice()
-    async with reset_db() as db:
+    async with reset_db_no_app_rebind() as db:
         match, players = await _seed_liars_dice_module_match(
             db,
             dice_by_seat={"A": [5, 4, 3], "B": [2, 2, 2], "C": [1, 1, 1]},
@@ -253,9 +256,9 @@ async def test_record_submission_advances_and_challenge_pauses_turn(reset_db) ->
         assert await module.next_actor(db, match) is None
 
 
-async def test_award_round_resolves_showdown_and_is_idempotent(reset_db) -> None:
+async def test_award_round_resolves_showdown_and_is_idempotent(reset_db_no_app_rebind) -> None:
     module = LiarsDice()
-    async with reset_db() as db:
+    async with reset_db_no_app_rebind() as db:
         match, players = await _seed_liars_dice_module_match(
             db,
             wild_ones=False,
@@ -299,9 +302,9 @@ async def _player_dice_count(db, player_id: int) -> int:
     return row.state_json["dice_count"]
 
 
-async def test_round_start_falls_back_to_default_config(reset_db) -> None:
+async def test_round_start_falls_back_to_default_config(reset_db_no_app_rebind) -> None:
     module = LiarsDice()
-    async with reset_db() as db:
+    async with reset_db_no_app_rebind() as db:
         match, players = await _seed_liars_dice_module_match(db, dice_by_seat={})
         state = (
             await db.execute(select(MatchState).where(MatchState.match_id == match.id))
@@ -321,9 +324,9 @@ async def test_round_start_falls_back_to_default_config(reset_db) -> None:
         assert {row.state_json["dice_count"] for row in counts} == {5}
 
 
-async def test_private_and_public_state_surfaces(reset_db) -> None:
+async def test_private_and_public_state_surfaces(reset_db_no_app_rebind) -> None:
     module = LiarsDice()
-    async with reset_db() as db:
+    async with reset_db_no_app_rebind() as db:
         match, players = await _seed_liars_dice_module_match(
             db,
             dice_by_seat={"A": [6, 6, 1], "B": [2, 2, 2], "C": [3, 3, 3]},
@@ -344,9 +347,9 @@ async def test_private_and_public_state_surfaces(reset_db) -> None:
         assert "dice" not in public
 
 
-async def test_final_placement_and_match_placement_key(reset_db) -> None:
+async def test_final_placement_and_match_placement_key(reset_db_no_app_rebind) -> None:
     module = LiarsDice()
-    async with reset_db() as db:
+    async with reset_db_no_app_rebind() as db:
         match, players = await _seed_liars_dice_module_match(db)
         state = (
             await db.execute(select(MatchState).where(MatchState.match_id == match.id))
@@ -358,9 +361,9 @@ async def test_final_placement_and_match_placement_key(reset_db) -> None:
         assert module.match_placement_key(round_wins=1.5, total_score=3) == (3.0, 1.5)
 
 
-async def test_default_move_opening_and_ceiling(reset_db) -> None:
+async def test_default_move_opening_and_ceiling(reset_db_no_app_rebind) -> None:
     module = LiarsDice()
-    async with reset_db() as db:
+    async with reset_db_no_app_rebind() as db:
         match, players = await _seed_liars_dice_module_match(db, dice_by_seat={"A": [1], "B": [1], "C": [1]})
         state = (
             await db.execute(select(MatchState).where(MatchState.match_id == match.id))
@@ -375,7 +378,7 @@ async def test_default_move_opening_and_ceiling(reset_db) -> None:
         assert await module.default_move(db, match, players[0]) == {"type": "CHALLENGE"}
 
 
-async def test_sc_hd_no_dice_faces_leak_to_spectator_or_mcp(reset_db) -> None:
+async def test_sc_hd_no_dice_faces_leak_to_spectator_or_mcp(reset_db_no_app_rebind) -> None:
     """SC-HD: a player's dice FACES must not reach the spectator JSON or the MCP
     `get_game_state` tool before the showdown. Both channels go through the same
     `app.routes.spectator_api.public_state` (mcp_server imports it directly), so
@@ -385,7 +388,7 @@ async def test_sc_hd_no_dice_faces_leak_to_spectator_or_mcp(reset_db) -> None:
     from app.routes.spectator_api import public_state
 
     module = LiarsDice()
-    async with reset_db() as db:
+    async with reset_db_no_app_rebind() as db:
         match, _players = await _seed_liars_dice_module_match(
             db,
             wild_ones=False,

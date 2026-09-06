@@ -13,10 +13,12 @@ completion from the resume point through the real turn loop.
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.engine.bots.seating import add_bots_to_game
 from app.engine.match_resume import ResumeError, ResumePoint, resume_match_from
@@ -31,7 +33,9 @@ SEATS = ["Alpha", "Bravo", "Charlie"]
 
 
 @pytest.fixture(autouse=True)
-async def reset_db(monkeypatch, tmp_path):
+async def reset_db_file_backed(
+    reset_db: async_sessionmaker, monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> AsyncIterator[async_sessionmaker]:
     """A FILE-backed database with the scheduler pointed at it.
 
     These tests run real matches, and the turn loop opens its own session
@@ -39,6 +43,10 @@ async def reset_db(monkeypatch, tmp_path):
     per-connection, so that session finds no tables at all — and the failure
     ("no such table: matches") looks nothing like the cause. Same shape as
     tests/test_bots_scheduler.py, which runs games for the same reason.
+
+    Requests (and ignores) tests/conftest.py's own reset_db purely so this
+    file's tests keep the `reset_db` name in their fixture closure and stay
+    tagged `integration`.
     """
     import app.db as app_db
     from sqlalchemy.ext.asyncio import async_sessionmaker as _factory
@@ -70,10 +78,10 @@ def _quiet_publish(monkeypatch):
     monkeypatch.setattr(scheduler, "publish", noop)
 
 
-async def _seed(reset_db, email: str, *, admin: bool) -> User:
+async def _seed(reset_db_file_backed, email: str, *, admin: bool) -> User:
     """Seed a signed-in user. Role is set here rather than inferred from settings,
     so a test says plainly which door it is knocking on."""
-    async with reset_db() as db:
+    async with reset_db_file_backed() as db:
         user = User(
             google_sub=f"sub-{email}",
             email=email,
@@ -86,11 +94,11 @@ async def _seed(reset_db, email: str, *, admin: bool) -> User:
         return user
 
 
-async def _played_match(reset_db, *, rounds: int = 3, turns: int = 2) -> str:
+async def _played_match(reset_db_file_backed, *, rounds: int = 3, turns: int = 2) -> str:
     """A finished match, run by the real loop, to resume from."""
     from app.engine import scheduler
 
-    async with reset_db() as db:
+    async with reset_db_file_backed() as db:
         match = Match(
             id=generate_match_id(1),
             name="source",
@@ -133,17 +141,17 @@ async def _position(db, match_id: str, before: tuple[int, int]) -> dict:
     }
 
 
-async def test_the_carried_position_is_exactly_the_recorded_one(reset_db):
+async def test_the_carried_position_is_exactly_the_recorded_one(reset_db_file_backed):
     """Every seeded move keeps its own action, delta and running score.
 
     Re-scoring the history with today's resolver would silently restate the
     position whenever the payoffs have moved since the match was played — and
     the whole point of a resume is to pick up from the position that existed.
     """
-    source_id = await _played_match(reset_db)
+    source_id = await _played_match(reset_db_file_backed)
     cut = (2, 1)
 
-    async with reset_db() as db:
+    async with reset_db_file_backed() as db:
         source = (await db.execute(select(Match).where(Match.id == source_id))).scalar_one()
         before = await _position(db, source_id, cut)
         new_match, seeded, _ = await resume_match_from(
@@ -156,11 +164,11 @@ async def test_the_carried_position_is_exactly_the_recorded_one(reset_db):
     assert after == before, "the carried position differs from the recorded one"
 
 
-async def test_the_source_match_is_never_touched(reset_db):
+async def test_the_source_match_is_never_touched(reset_db_file_backed):
     """A recovery must not be able to destroy the evidence of what went wrong."""
-    source_id = await _played_match(reset_db)
+    source_id = await _played_match(reset_db_file_backed)
 
-    async with reset_db() as db:
+    async with reset_db_file_backed() as db:
         source = (await db.execute(select(Match).where(Match.id == source_id))).scalar_one()
         was = (source.state, source.current_round, source.current_turn, source.rounds_awarded)
         turn_count = len(
@@ -169,7 +177,7 @@ async def test_the_source_match_is_never_touched(reset_db):
         await resume_match_from(db, source, ResumePoint(round=2, turn=1))
         await db.commit()
 
-    async with reset_db() as db:
+    async with reset_db_file_backed() as db:
         again = (await db.execute(select(Match).where(Match.id == source_id))).scalar_one()
         still = len(
             (await db.execute(select(Turn).where(Turn.match_id == source_id))).scalars().all()
@@ -178,7 +186,7 @@ async def test_the_source_match_is_never_touched(reset_db):
     assert still == turn_count
 
 
-async def test_the_resumed_match_plays_on_to_the_end(reset_db):
+async def test_the_resumed_match_plays_on_to_the_end(reset_db_file_backed):
     """The point of the whole thing: it must finish, through the real loop.
 
     Not a detail — the resume writes `current_round`, `current_turn` and
@@ -187,9 +195,9 @@ async def test_the_resumed_match_plays_on_to_the_end(reset_db):
     """
     from app.engine import scheduler
 
-    source_id = await _played_match(reset_db, rounds=3, turns=2)
+    source_id = await _played_match(reset_db_file_backed, rounds=3, turns=2)
 
-    async with reset_db() as db:
+    async with reset_db_file_backed() as db:
         source = (await db.execute(select(Match).where(Match.id == source_id))).scalar_one()
         new_match, _, _ = await resume_match_from(db, source, ResumePoint(round=2, turn=1))
         new_match.state = GameState.ACTIVE
@@ -199,7 +207,7 @@ async def test_the_resumed_match_plays_on_to_the_end(reset_db):
 
     await scheduler._run_game(new_id)
 
-    async with reset_db() as db:
+    async with reset_db_file_backed() as db:
         finished = (await db.execute(select(Match).where(Match.id == new_id))).scalar_one()
         turns = (await db.execute(select(Turn).where(Turn.match_id == new_id))).scalars().all()
         wins = (
@@ -214,36 +222,36 @@ async def test_the_resumed_match_plays_on_to_the_end(reset_db):
     assert sum(wins) == pytest.approx(3.0)
 
 
-async def test_it_refuses_a_cut_with_nothing_before_it(reset_db):
+async def test_it_refuses_a_cut_with_nothing_before_it(reset_db_file_backed):
     """Resuming at the very first turn carries no position, so it is a mistake."""
-    source_id = await _played_match(reset_db)
+    source_id = await _played_match(reset_db_file_backed)
 
-    async with reset_db() as db:
+    async with reset_db_file_backed() as db:
         source = (await db.execute(select(Match).where(Match.id == source_id))).scalar_one()
         with pytest.raises(ResumeError, match="nothing to carry over"):
             await resume_match_from(db, source, ResumePoint(round=1, turn=1))
 
 
-async def test_it_refuses_a_cut_outside_the_match(reset_db):
+async def test_it_refuses_a_cut_outside_the_match(reset_db_file_backed):
     """A turn the match never had cannot be resumed from."""
-    source_id = await _played_match(reset_db, rounds=3, turns=2)
+    source_id = await _played_match(reset_db_file_backed, rounds=3, turns=2)
 
-    async with reset_db() as db:
+    async with reset_db_file_backed() as db:
         source = (await db.execute(select(Match).where(Match.id == source_id))).scalar_one()
         with pytest.raises(ResumeError, match="outside a 3x2 match"):
             await resume_match_from(db, source, ResumePoint(round=9, turn=1))
 
 
-async def test_a_mid_round_cut_carries_that_round_s_score(reset_db):
+async def test_a_mid_round_cut_carries_that_round_s_score(reset_db_file_backed):
     """Resuming partway through a round must keep the score already earned in it.
 
     The turn loop only zeroes scores when it starts a round at turn 1, so a
     mid-round resume that carried nothing would play the rest of the round from
     zero — a position nobody was ever in.
     """
-    source_id = await _played_match(reset_db, rounds=3, turns=4)
+    source_id = await _played_match(reset_db_file_backed, rounds=3, turns=4)
 
-    async with reset_db() as db:
+    async with reset_db_file_backed() as db:
         source = (await db.execute(select(Match).where(Match.id == source_id))).scalar_one()
         # What round 2 looked like after its second turn, in the source.
         recorded = dict(
@@ -273,12 +281,12 @@ async def test_a_mid_round_cut_carries_that_round_s_score(reset_db):
     assert awarded == 1, "only round 1 finished before the cut"
 
 
-async def test_the_endpoint_builds_the_match_and_reports_the_defaults(reset_db, client):
+async def test_the_endpoint_builds_the_match_and_reports_the_defaults(reset_db_file_backed, client):
     """The admin route returns the new match and the one number worth checking."""
     from tests.conftest import signed_in_cookies as _cookies
 
-    admin = await _seed(reset_db, "admin@test.com", admin=True)
-    source_id = await _played_match(reset_db, rounds=3, turns=2)
+    admin = await _seed(reset_db_file_backed, "admin@test.com", admin=True)
+    source_id = await _played_match(reset_db_file_backed, rounds=3, turns=2)
 
     r = await client.post(
         f"/api/admin/matches/{source_id}/resume-from",
@@ -297,12 +305,12 @@ async def test_the_endpoint_builds_the_match_and_reports_the_defaults(reset_db, 
     assert body["seeded_defaulted_moves"] == 0
 
 
-async def test_the_endpoint_explains_a_cut_it_cannot_use(reset_db, client):
+async def test_the_endpoint_explains_a_cut_it_cannot_use(reset_db_file_backed, client):
     """A refusal must say why, not just fail."""
     from tests.conftest import signed_in_cookies as _cookies
 
-    admin = await _seed(reset_db, "admin@test.com", admin=True)
-    source_id = await _played_match(reset_db, rounds=3, turns=2)
+    admin = await _seed(reset_db_file_backed, "admin@test.com", admin=True)
+    source_id = await _played_match(reset_db_file_backed, rounds=3, turns=2)
 
     r = await client.post(
         f"/api/admin/matches/{source_id}/resume-from",
@@ -314,7 +322,7 @@ async def test_the_endpoint_explains_a_cut_it_cannot_use(reset_db, client):
     assert "nothing to carry over" in r.text
 
 
-async def test_a_plain_user_cannot_resume_a_match(reset_db, client):
+async def test_a_plain_user_cannot_resume_a_match(reset_db_file_backed, client):
     """Session-only and admin-only, like create and cancel.
 
     Spawning matches is not something a leaked credential should be able to do,
@@ -322,8 +330,8 @@ async def test_a_plain_user_cannot_resume_a_match(reset_db, client):
     """
     from tests.conftest import signed_in_cookies as _cookies
 
-    user = await _seed(reset_db, "player@test.com", admin=False)
-    source_id = await _played_match(reset_db, rounds=3, turns=2)
+    user = await _seed(reset_db_file_backed, "player@test.com", admin=False)
+    source_id = await _played_match(reset_db_file_backed, rounds=3, turns=2)
 
     r = await client.post(
         f"/api/admin/matches/{source_id}/resume-from",
@@ -334,7 +342,7 @@ async def test_a_plain_user_cannot_resume_a_match(reset_db, client):
     assert r.status_code in (401, 403), r.text
 
 
-async def test_it_allocates_an_id_that_does_not_already_exist(reset_db):
+async def test_it_allocates_an_id_that_does_not_already_exist(reset_db_file_backed):
     """The new match must not collide with an existing one.
 
     This shipped broken. The id came from a row COUNT, which is only the same as
@@ -343,9 +351,9 @@ async def test_it_allocates_an_id_that_does_not_already_exist(reset_db):
     existed and returned a 500. `allocate_match_id` reads the highest suffix and
     is the one home for this; counting rows was a second, wrong answer.
     """
-    source_id = await _played_match(reset_db, rounds=3, turns=2)
+    source_id = await _played_match(reset_db_file_backed, rounds=3, turns=2)
 
-    async with reset_db() as db:
+    async with reset_db_file_backed() as db:
         # A high-numbered match with a big gap below it: exactly the shape a
         # real database has after matches are deleted.
         db.add(
@@ -359,7 +367,7 @@ async def test_it_allocates_an_id_that_does_not_already_exist(reset_db):
         )
         await db.commit()
 
-    async with reset_db() as db:
+    async with reset_db_file_backed() as db:
         source = (await db.execute(select(Match).where(Match.id == source_id))).scalar_one()
         new_match, _, _ = await resume_match_from(db, source, ResumePoint(round=2, turn=1))
         await db.commit()
@@ -367,7 +375,7 @@ async def test_it_allocates_an_id_that_does_not_already_exist(reset_db):
 
     assert new_id == "M_9001", f"expected the next id after the highest, got {new_id}"
 
-    async with reset_db() as db:
+    async with reset_db_file_backed() as db:
         matching = (
             await db.execute(select(Match.id).where(Match.id == new_id))
         ).scalars().all()

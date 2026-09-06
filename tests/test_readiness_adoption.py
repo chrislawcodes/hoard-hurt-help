@@ -78,6 +78,11 @@ def _mcp_recent() -> datetime:
 # ---------------------------------------------------------------------------
 
 
+# Kept under its conftest-shared name (rather than renamed): it carries the
+# schema-creation step conftest.py's own bare `engine` defers to `db`, and
+# `db_session`/`app` in this file depend on that by requesting `engine`
+# directly — pytest's fixture-override resolution means this override also
+# feeds conftest's own (otherwise-identical) `session_factory` and `db`.
 @pytest.fixture
 async def engine() -> AsyncIterator[AsyncEngine]:
     eng = make_engine("sqlite+aiosqlite:///:memory:")
@@ -88,19 +93,14 @@ async def engine() -> AsyncIterator[AsyncEngine]:
 
 
 @pytest.fixture
-async def session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
-    return async_sessionmaker(engine, expire_on_commit=False)
+async def db_session(db: AsyncSession) -> AsyncSession:
+    """Alias for tests/conftest.py's db, kept for this file's existing
+    db_session-named call sites."""
+    return db
 
 
 @pytest.fixture
-async def db_session(engine: AsyncEngine) -> AsyncIterator[AsyncSession]:
-    factory = async_sessionmaker(engine, expire_on_commit=False)
-    async with factory() as session:
-        yield session
-
-
-@pytest.fixture
-async def app(
+async def app_with_connections_setup_route(
     session_factory: async_sessionmaker[AsyncSession],
     engine: AsyncEngine,
     monkeypatch: pytest.MonkeyPatch,
@@ -120,8 +120,10 @@ async def app(
 
 
 @pytest.fixture
-async def scoped_client(app: FastAPI) -> AsyncIterator[AsyncClient]:
-    transport = ASGITransport(app=app)
+async def scoped_client(
+    app_with_connections_setup_route: FastAPI,
+) -> AsyncIterator[AsyncClient]:
+    transport = ASGITransport(app=app_with_connections_setup_route)
     async with AsyncClient(
         transport=transport, base_url="http://test", follow_redirects=False
     ) as c:

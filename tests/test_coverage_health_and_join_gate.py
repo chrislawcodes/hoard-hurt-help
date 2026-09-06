@@ -11,20 +11,17 @@ Covers:
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db import make_engine
 from app.engine.join_gate_capacity import (
     active_matches_for_provider,
     is_join_blocked,
     live_provider_capacity,
 )
 from app.engine.provider_readiness import provider_is_covered, provider_loop_running
-from app.models import Base
 from app.models.agent import AgentStatus
 from app.models.connection import ConnectionProvider, ConnectionStatus
 from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
@@ -111,19 +108,10 @@ async def test_loop_running_false_when_paused(
 
 
 @pytest.fixture
-async def engine() -> AsyncIterator[AsyncEngine]:
-    eng = make_engine("sqlite+aiosqlite:///:memory:")
-    async with eng.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    yield eng
-    await eng.dispose()
-
-
-@pytest.fixture
-async def db_session(engine: AsyncEngine) -> AsyncIterator[AsyncSession]:
-    factory = async_sessionmaker(engine, expire_on_commit=False)
-    async with factory() as session:
-        yield session
+async def db_session(db: AsyncSession) -> AsyncSession:
+    """Alias for tests/conftest.py's db, kept for this file's existing
+    db_session-named call sites."""
+    return db
 
 
 # ---------------------------------------------------------------------------

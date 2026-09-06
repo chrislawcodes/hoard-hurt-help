@@ -17,11 +17,13 @@ change removes.
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.games.hoard_hurt_help.rules import DEFAULT_MUTUAL_HELP_MODE
 from app.models import Base, GameState, Match, MatchState
@@ -41,7 +43,16 @@ HIDDEN_GAME = "liars-dice"  # admin_only=True — under construction
 
 
 @pytest.fixture
-async def reset_db(monkeypatch):
+async def reset_db_no_admin_emails(
+    reset_db: async_sessionmaker, monkeypatch: pytest.MonkeyPatch
+) -> AsyncIterator[async_sessionmaker]:
+    """Like tests/conftest.py's reset_db, but with admin_emails/platform_admin_emails
+    both cleared (no email-based admin grants: role comes from the column, nothing
+    else) — the opposite of the admin_settings composable, so it keeps its own
+    engine rather than delegating to reset_db, which this still requests (and
+    ignores) purely so this file's tests keep the `reset_db` name in their
+    fixture closure and stay tagged `integration`.
+    """
     from app.db import make_engine
     from sqlalchemy.ext.asyncio import async_sessionmaker as _factory
 
@@ -62,8 +73,8 @@ async def reset_db(monkeypatch):
     await test_engine.dispose()
 
 
-async def _user(reset_db, tag: str, *, admin: bool = False) -> User:
-    async with reset_db() as db:
+async def _user(reset_db_no_admin_emails, tag: str, *, admin: bool = False) -> User:
+    async with reset_db_no_admin_emails() as db:
         u = User(
             google_sub=f"sub-{tag}",
             email=f"{tag}@test.com",
@@ -100,8 +111,8 @@ def _code(response) -> str:
     return response.json()["detail"]["error"]["code"]
 
 
-async def _named(reset_db, name: str) -> Match | None:
-    async with reset_db() as db:
+async def _named(reset_db_no_admin_emails, name: str) -> Match | None:
+    async with reset_db_no_admin_emails() as db:
         return (
             await db.execute(select(Match).where(Match.name == name))
         ).scalar_one_or_none()
@@ -112,13 +123,13 @@ async def _named(reset_db, name: str) -> Match | None:
 # --------------------------------------------------------------------------
 
 
-async def test_player_creates_a_match_with_every_setting_they_chose(client, reset_db):
+async def test_player_creates_a_match_with_every_setting_they_chose(client, reset_db_no_admin_emails):
     """Row 1. Every posted value is distinct from every default.
 
     If the route ignored the new form fields and kept using fixed defaults, the
     posted values would round-trip anyway when they happen to match. They don't.
     """
-    player = await _user(reset_db, "player")
+    player = await _user(reset_db_no_admin_emails, "player")
     r = await _post_create(
         client,
         player,
@@ -130,7 +141,7 @@ async def test_player_creates_a_match_with_every_setting_they_chose(client, rese
         turns_per_round=6,
     )
     assert r.status_code == 303, r.text
-    match = await _named(reset_db, "Custom")
+    match = await _named(reset_db_no_admin_emails, "Custom")
     assert match is not None
     assert match.min_players == 7
     assert match.max_players == 9
@@ -140,88 +151,88 @@ async def test_player_creates_a_match_with_every_setting_they_chose(client, rese
     assert match.created_by_user_id == player.id
 
 
-async def test_player_count_below_the_games_floor_is_rejected(client, reset_db):
+async def test_player_count_below_the_games_floor_is_rejected(client, reset_db_no_admin_emails):
     """Row 2. `player_count_error` is still the gate — the engine's own band is
     1 to 20, so only the per-game check can reject 2."""
-    player = await _user(reset_db, "player")
+    player = await _user(reset_db_no_admin_emails, "player")
     r = await _post_create(client, player, name="TooSmall", min_players=2, max_players=9)
     assert r.status_code == 400
     assert "Player counts must be 6 to 10." in r.text
-    assert await _named(reset_db, "TooSmall") is None
+    assert await _named(reset_db_no_admin_emails, "TooSmall") is None
 
 
-async def test_rounds_below_the_route_band_are_rejected(client, reset_db):
+async def test_rounds_below_the_route_band_are_rejected(client, reset_db_no_admin_emails):
     """Row 3. 2 rounds is inside `create_match`'s 1-20 band, so this passes only
     if the route runs its own 3-20 check."""
-    player = await _user(reset_db, "player")
+    player = await _user(reset_db_no_admin_emails, "player")
     r = await _post_create(client, player, name="TooFew", total_rounds=2)
     assert r.status_code == 400
     assert "Total rounds must be 3 to 20." in r.text
-    assert await _named(reset_db, "TooFew") is None
+    assert await _named(reset_db_no_admin_emails, "TooFew") is None
 
 
-async def test_turns_below_the_route_band_are_rejected(client, reset_db):
+async def test_turns_below_the_route_band_are_rejected(client, reset_db_no_admin_emails):
     """Row 4. Same shape as rounds — 2 is inside the engine's band."""
-    player = await _user(reset_db, "player")
+    player = await _user(reset_db_no_admin_emails, "player")
     r = await _post_create(client, player, name="TooShort", turns_per_round=2)
     assert r.status_code == 400
     assert "Turns per round must be 3 to 20." in r.text
-    assert await _named(reset_db, "TooShort") is None
+    assert await _named(reset_db_no_admin_emails, "TooShort") is None
 
 
 @pytest.mark.parametrize("deadline", [0, 99999])
-async def test_out_of_band_turn_deadline_is_rejected(client, reset_db, deadline):
+async def test_out_of_band_turn_deadline_is_rejected(client, reset_db_no_admin_emails, deadline):
     """Rows 5 and 6. The HTML form bounded this nowhere before; a player could
     have created a match with a zero-second or day-long turn."""
-    player = await _user(reset_db, "player")
+    player = await _user(reset_db_no_admin_emails, "player")
     r = await _post_create(
         client, player, name=f"Deadline{deadline}", per_turn_deadline_seconds=deadline
     )
     assert r.status_code == 400
     assert "Per-turn deadline must be 5 to 600 seconds." in r.text
-    assert await _named(reset_db, f"Deadline{deadline}") is None
+    assert await _named(reset_db_no_admin_emails, f"Deadline{deadline}") is None
 
 
-async def test_a_players_submitted_mutual_help_mode_is_ignored(client, reset_db):
+async def test_a_players_submitted_mutual_help_mode_is_ignored(client, reset_db_no_admin_emails):
     """Row 7. Choosing the per-match rule is an admin power. A player's value is
     dropped, not honoured — and the match still gets the platform default.
 
     "flat_8" here is just a value the platform default is not, so the assertion
     below can only pass by the value being dropped.
     """
-    player = await _user(reset_db, "player")
+    player = await _user(reset_db_no_admin_emails, "player")
     assert DEFAULT_MUTUAL_HELP_MODE.value != "flat_8"
     r = await _post_create(client, player, name="PlayerMode", mutual_help_mode="flat_8")
     assert r.status_code == 303, r.text
-    match = await _named(reset_db, "PlayerMode")
+    match = await _named(reset_db_no_admin_emails, "PlayerMode")
     assert match is not None
     assert match.mutual_help_mode == DEFAULT_MUTUAL_HELP_MODE.value
 
 
-async def test_an_admin_may_choose_the_mutual_help_mode(client, reset_db):
+async def test_an_admin_may_choose_the_mutual_help_mode(client, reset_db_no_admin_emails):
     """Row 8."""
-    admin = await _user(reset_db, "boss", admin=True)
+    admin = await _user(reset_db_no_admin_emails, "boss", admin=True)
     r = await _post_create(client, admin, name="AdminMode", mutual_help_mode="flat_8")
     assert r.status_code == 303, r.text
-    match = await _named(reset_db, "AdminMode")
+    match = await _named(reset_db_no_admin_emails, "AdminMode")
     assert match is not None
     assert match.mutual_help_mode == "flat_8"
 
 
-async def test_an_unknown_mutual_help_mode_from_an_admin_is_rejected(client, reset_db):
+async def test_an_unknown_mutual_help_mode_from_an_admin_is_rejected(client, reset_db_no_admin_emails):
     """Row 9. A typo silently becoming "decay" would mislabel which rule the
     match was played under."""
-    admin = await _user(reset_db, "boss", admin=True)
+    admin = await _user(reset_db_no_admin_emails, "boss", admin=True)
     r = await _post_create(client, admin, name="BadMode", mutual_help_mode="nonsense")
     assert r.status_code == 400
     assert "nonsense" in r.text
-    assert await _named(reset_db, "BadMode") is None
+    assert await _named(reset_db_no_admin_emails, "BadMode") is None
 
 
-async def test_the_json_api_rejects_an_unknown_mutual_help_mode(client, reset_db):
+async def test_the_json_api_rejects_an_unknown_mutual_help_mode(client, reset_db_no_admin_emails):
     """Row 10. The schema field was a bare `str`, so garbage reached the column
     on the platform-admin API too."""
-    admin = await _user(reset_db, "boss", admin=True)
+    admin = await _user(reset_db_no_admin_emails, "boss", admin=True)
     r = await client.post(
         "/api/admin/matches",
         json={
@@ -248,13 +259,13 @@ async def test_the_json_api_rejects_an_unknown_mutual_help_mode(client, reset_db
         cookies=_cookies(admin.id),
     )
     assert r.status_code == 422, r.text
-    assert await _named(reset_db, "ApiWorseMode") is None
+    assert await _named(reset_db_no_admin_emails, "ApiWorseMode") is None
 
 
-async def test_the_mode_control_is_admin_only_and_hoard_hurt_help_only(client, reset_db):
+async def test_the_mode_control_is_admin_only_and_hoard_hurt_help_only(client, reset_db_no_admin_emails):
     """Rows 11, 12 and 13."""
-    player = await _user(reset_db, "player")
-    admin = await _user(reset_db, "boss", admin=True)
+    player = await _user(reset_db_no_admin_emails, "player")
+    admin = await _user(reset_db_no_admin_emails, "boss", admin=True)
 
     as_player = await client.get(f"/games/{GAME}/matches/new", cookies=_cookies(player.id))
     assert as_player.status_code == 200
@@ -271,7 +282,7 @@ async def test_the_mode_control_is_admin_only_and_hoard_hurt_help_only(client, r
     assert 'name="mutual_help_mode"' not in other_game.text
 
 
-async def test_the_admin_create_route_is_gone(client, reset_db):
+async def test_the_admin_create_route_is_gone(client, reset_db_no_admin_emails):
     """Row 14. Asserted structurally: `/matches/new` still partially matches the
     `/matches/{match_id}` route, so a 404 alone would prove nothing."""
     from app.main import create_app
@@ -279,14 +290,14 @@ async def test_the_admin_create_route_is_gone(client, reset_db):
     paths = {getattr(r, "path", None) for r in create_app().routes}
     assert "/games/{game}/admin/matches/new" not in paths
 
-    admin = await _user(reset_db, "boss", admin=True)
+    admin = await _user(reset_db_no_admin_emails, "boss", admin=True)
     r = await client.get(
         f"/games/{GAME}/admin/matches/new", cookies=_cookies(admin.id)
     )
     assert r.status_code == 404
 
 
-async def test_no_template_links_to_the_removed_create_route(client, reset_db):
+async def test_no_template_links_to_the_removed_create_route(client, reset_db_no_admin_emails):
     """Row 15. A dead link in the admin dashboard is how this route family broke
     twice before."""
     offenders = [
@@ -302,11 +313,11 @@ async def test_no_template_links_to_the_removed_create_route(client, reset_db):
 # --------------------------------------------------------------------------
 
 
-async def _seed_export_match(reset_db, *, owner: User, rival: User) -> str:
+async def _seed_export_match(reset_db_no_admin_emails, *, owner: User, rival: User) -> str:
     """One match, two agent seats with DIFFERENT strategy text, one resolved
     turn and one still in flight."""
     match_id = "M_EXPORT"
-    async with reset_db() as db:
+    async with reset_db_no_admin_emails() as db:
         await make_match(
             db, match_id, state=GameState.ACTIVE, created_by_user_id=owner.id
         )
@@ -331,11 +342,11 @@ async def _seed_export_match(reset_db, *, owner: User, rival: User) -> str:
     return match_id
 
 
-async def test_a_players_json_export_hides_other_peoples_strategies(client, reset_db):
+async def test_a_players_json_export_hides_other_peoples_strategies(client, reset_db_no_admin_emails):
     """Row 16. Their own is real; the rival's is null."""
-    owner = await _user(reset_db, "owner")
-    rival = await _user(reset_db, "rival")
-    match_id = await _seed_export_match(reset_db, owner=owner, rival=rival)
+    owner = await _user(reset_db_no_admin_emails, "owner")
+    rival = await _user(reset_db_no_admin_emails, "rival")
+    match_id = await _seed_export_match(reset_db_no_admin_emails, owner=owner, rival=rival)
 
     r = await client.get(
         f"/api/game-admin/{GAME}/matches/{match_id}/export.json",
@@ -348,12 +359,12 @@ async def test_a_players_json_export_hides_other_peoples_strategies(client, rese
     assert None in prompts
 
 
-async def test_an_admins_json_export_shows_every_strategy(client, reset_db):
+async def test_an_admins_json_export_shows_every_strategy(client, reset_db_no_admin_emails):
     """Row 17 — the game-scoped export."""
-    owner = await _user(reset_db, "owner")
-    rival = await _user(reset_db, "rival")
-    admin = await _user(reset_db, "boss", admin=True)
-    match_id = await _seed_export_match(reset_db, owner=owner, rival=rival)
+    owner = await _user(reset_db_no_admin_emails, "owner")
+    rival = await _user(reset_db_no_admin_emails, "rival")
+    admin = await _user(reset_db_no_admin_emails, "boss", admin=True)
+    match_id = await _seed_export_match(reset_db_no_admin_emails, owner=owner, rival=rival)
 
     r = await client.get(
         f"/api/game-admin/{GAME}/matches/{match_id}/export.json",
@@ -364,13 +375,13 @@ async def test_an_admins_json_export_shows_every_strategy(client, reset_db):
     assert prompts == {"MY-SECRET-PLAN", "THEIR-SECRET-PLAN"}
 
 
-async def test_the_platform_admin_export_route_is_not_redacted(client, reset_db):
+async def test_the_platform_admin_export_route_is_not_redacted(client, reset_db_no_admin_emails):
     """Row 18. This route shares a builder with the game-scoped one; a redacting
     default would silently strip it and no other test would notice."""
-    owner = await _user(reset_db, "owner")
-    rival = await _user(reset_db, "rival")
-    admin = await _user(reset_db, "boss", admin=True)
-    match_id = await _seed_export_match(reset_db, owner=owner, rival=rival)
+    owner = await _user(reset_db_no_admin_emails, "owner")
+    rival = await _user(reset_db_no_admin_emails, "rival")
+    admin = await _user(reset_db_no_admin_emails, "boss", admin=True)
+    match_id = await _seed_export_match(reset_db_no_admin_emails, owner=owner, rival=rival)
 
     r = await client.get(
         f"/api/admin/matches/{match_id}/export.json", cookies=_cookies(admin.id)
@@ -380,13 +391,13 @@ async def test_the_platform_admin_export_route_is_not_redacted(client, reset_db)
     assert prompts == {"MY-SECRET-PLAN", "THEIR-SECRET-PLAN"}
 
 
-async def test_a_players_export_hides_other_peoples_thinking(client, reset_db):
+async def test_a_players_export_hides_other_peoples_thinking(client, reset_db_no_admin_emails):
     """`thinking` is gated like the strategy prompt, not shipped as a public
     column. The agent prompt promises opponents never see it, and the export is
     reachable by any signed-in player."""
-    owner = await _user(reset_db, "owner")
-    rival = await _user(reset_db, "rival")
-    match_id = await _seed_export_match(reset_db, owner=owner, rival=rival)
+    owner = await _user(reset_db_no_admin_emails, "owner")
+    rival = await _user(reset_db_no_admin_emails, "rival")
+    match_id = await _seed_export_match(reset_db_no_admin_emails, owner=owner, rival=rival)
 
     r = await client.get(
         f"/api/game-admin/{GAME}/matches/{match_id}/export.json",
@@ -399,13 +410,13 @@ async def test_a_players_export_hides_other_peoples_thinking(client, reset_db):
     assert None in thoughts
 
 
-async def test_an_admin_export_shows_every_agents_thinking(client, reset_db):
+async def test_an_admin_export_shows_every_agents_thinking(client, reset_db_no_admin_emails):
     """Reading why a preset did not follow its own instructions is the whole
     point of exporting `thinking`, so the admin payload must not redact it."""
-    owner = await _user(reset_db, "owner")
-    rival = await _user(reset_db, "rival")
-    admin = await _user(reset_db, "boss", admin=True)
-    match_id = await _seed_export_match(reset_db, owner=owner, rival=rival)
+    owner = await _user(reset_db_no_admin_emails, "owner")
+    rival = await _user(reset_db_no_admin_emails, "rival")
+    admin = await _user(reset_db_no_admin_emails, "boss", admin=True)
+    match_id = await _seed_export_match(reset_db_no_admin_emails, owner=owner, rival=rival)
 
     r = await client.get(
         f"/api/admin/matches/{match_id}/export.json", cookies=_cookies(admin.id)
@@ -415,13 +426,13 @@ async def test_an_admin_export_shows_every_agents_thinking(client, reset_db):
     assert {"MY-PRIVATE-REASONING", "THEIR-PRIVATE-REASONING"} <= thoughts
 
 
-async def test_the_csv_export_columns_are_unchanged_for_a_player(client, reset_db):
+async def test_the_csv_export_columns_are_unchanged_for_a_player(client, reset_db_no_admin_emails):
     """Row 19. The CSV never carried strategy text and still does not."""
     from app.read_models.match_export import EXPORT_COLUMNS
 
-    owner = await _user(reset_db, "owner")
-    rival = await _user(reset_db, "rival")
-    match_id = await _seed_export_match(reset_db, owner=owner, rival=rival)
+    owner = await _user(reset_db_no_admin_emails, "owner")
+    rival = await _user(reset_db_no_admin_emails, "rival")
+    match_id = await _seed_export_match(reset_db_no_admin_emails, owner=owner, rival=rival)
 
     r = await client.get(
         f"/api/game-admin/{GAME}/matches/{match_id}/export.csv",
@@ -432,13 +443,13 @@ async def test_the_csv_export_columns_are_unchanged_for_a_player(client, reset_d
     assert header == ",".join(EXPORT_COLUMNS)
 
 
-async def test_a_player_cannot_read_the_in_flight_turn(client, reset_db):
+async def test_a_player_cannot_read_the_in_flight_turn(client, reset_db_no_admin_emails):
     """Row 20. The sharpest leak this change had to close: between the act
     deadline and the resolve, an opponent could have read every rival's chosen
     action, target and message out of the export."""
-    owner = await _user(reset_db, "owner")
-    rival = await _user(reset_db, "rival")
-    match_id = await _seed_export_match(reset_db, owner=owner, rival=rival)
+    owner = await _user(reset_db_no_admin_emails, "owner")
+    rival = await _user(reset_db_no_admin_emails, "rival")
+    match_id = await _seed_export_match(reset_db_no_admin_emails, owner=owner, rival=rival)
 
     csv_body = await client.get(
         f"/api/game-admin/{GAME}/matches/{match_id}/export.csv",
@@ -453,12 +464,12 @@ async def test_a_player_cannot_read_the_in_flight_turn(client, reset_db):
     assert "IN-FLIGHT-MOVE" not in json_body.text
 
 
-async def test_an_admin_still_sees_the_in_flight_turn(client, reset_db):
+async def test_an_admin_still_sees_the_in_flight_turn(client, reset_db_no_admin_emails):
     """Row 21. The admin export is unchanged from before it became reachable."""
-    owner = await _user(reset_db, "owner")
-    rival = await _user(reset_db, "rival")
-    admin = await _user(reset_db, "boss", admin=True)
-    match_id = await _seed_export_match(reset_db, owner=owner, rival=rival)
+    owner = await _user(reset_db_no_admin_emails, "owner")
+    rival = await _user(reset_db_no_admin_emails, "rival")
+    admin = await _user(reset_db_no_admin_emails, "boss", admin=True)
+    match_id = await _seed_export_match(reset_db_no_admin_emails, owner=owner, rival=rival)
 
     r = await client.get(
         f"/api/game-admin/{GAME}/matches/{match_id}/export.csv",
@@ -521,26 +532,26 @@ def test_the_repo_has_no_trace_of_the_removed_role():
 # --------------------------------------------------------------------------
 
 
-async def test_a_plain_user_cannot_reach_the_prompts_page(client, reset_db):
+async def test_a_plain_user_cannot_reach_the_prompts_page(client, reset_db_no_admin_emails):
     """Row 25."""
-    player = await _user(reset_db, "player")
+    player = await _user(reset_db_no_admin_emails, "player")
     r = await client.get(f"/games/{GAME}/admin/prompts", cookies=_cookies(player.id))
     assert r.status_code == 403
     assert _code(r) == "NOT_PLATFORM_ADMIN"
 
 
-async def test_a_plain_user_cannot_reach_the_game_dashboard(client, reset_db):
+async def test_a_plain_user_cannot_reach_the_game_dashboard(client, reset_db_no_admin_emails):
     """Row 26."""
-    player = await _user(reset_db, "player")
+    player = await _user(reset_db_no_admin_emails, "player")
     r = await client.get(f"/games/{GAME}/admin/", cookies=_cookies(player.id))
     assert r.status_code == 403
     assert _code(r) == "NOT_PLATFORM_ADMIN"
 
 
-async def test_a_platform_admin_reaches_both_admin_pages(client, reset_db):
+async def test_a_platform_admin_reaches_both_admin_pages(client, reset_db_no_admin_emails):
     """Row 27. Before this change the gate read an env list and never looked at
     `users.role`, so an unlisted platform admin got a 403 here."""
-    admin = await _user(reset_db, "boss", admin=True)
+    admin = await _user(reset_db_no_admin_emails, "boss", admin=True)
     for path in (f"/games/{GAME}/admin/", f"/games/{GAME}/admin/prompts"):
         r = await client.get(path, cookies=_cookies(admin.id))
         assert r.status_code == 200, path
@@ -557,13 +568,13 @@ async def _bots_user(db) -> User:
 
 
 async def test_an_owner_sees_only_their_own_strategy_on_the_detail_page(
-    client, reset_db
+    client, reset_db_no_admin_emails
 ):
     """Row 28."""
-    owner = await _user(reset_db, "owner")
-    rival = await _user(reset_db, "rival")
+    owner = await _user(reset_db_no_admin_emails, "owner")
+    rival = await _user(reset_db_no_admin_emails, "rival")
     match_id = "M_DETAIL"
-    async with reset_db() as db:
+    async with reset_db_no_admin_emails() as db:
         await make_match(
             db, match_id, state=GameState.REGISTERING, created_by_user_id=owner.id
         )
@@ -583,15 +594,15 @@ async def test_an_owner_sees_only_their_own_strategy_on_the_detail_page(
     assert "THEIR-SECRET-PLAN" not in r.text
 
 
-async def test_a_seated_bots_strategy_stays_visible_to_its_owner(client, reset_db):
+async def test_a_seated_bots_strategy_stays_visible_to_its_owner(client, reset_db_no_admin_emails):
     """Row 29. A bot's preset is not a private prompt — the owner who seated it
     must be able to see what they picked, and the Type column already names it."""
     from app.models.agent import Agent, AgentKind
     from app.models.player import Player
 
-    owner = await _user(reset_db, "owner")
+    owner = await _user(reset_db_no_admin_emails, "owner")
     match_id = "M_BOTS"
-    async with reset_db() as db:
+    async with reset_db_no_admin_emails() as db:
         match = await make_match(
             db, match_id, state=GameState.REGISTERING, created_by_user_id=owner.id
         )
@@ -625,13 +636,13 @@ async def test_a_seated_bots_strategy_stays_visible_to_its_owner(client, reset_d
     assert "always_hoard" in r.text
 
 
-async def test_an_admin_sees_every_strategy_on_the_detail_page(client, reset_db):
+async def test_an_admin_sees_every_strategy_on_the_detail_page(client, reset_db_no_admin_emails):
     """Row 30."""
-    owner = await _user(reset_db, "owner")
-    rival = await _user(reset_db, "rival")
-    admin = await _user(reset_db, "boss", admin=True)
+    owner = await _user(reset_db_no_admin_emails, "owner")
+    rival = await _user(reset_db_no_admin_emails, "rival")
+    admin = await _user(reset_db_no_admin_emails, "boss", admin=True)
     match_id = "M_DETAIL"
-    async with reset_db() as db:
+    async with reset_db_no_admin_emails() as db:
         await make_match(
             db, match_id, state=GameState.REGISTERING, created_by_user_id=owner.id
         )
@@ -651,10 +662,10 @@ async def test_an_admin_sees_every_strategy_on_the_detail_page(client, reset_db)
     assert "THEIR-SECRET-PLAN" in r.text
 
 
-async def test_an_owner_can_open_and_use_the_bots_form(client, reset_db):
+async def test_an_owner_can_open_and_use_the_bots_form(client, reset_db_no_admin_emails):
     """Row 31."""
-    owner = await _user(reset_db, "owner")
-    await seed_match(reset_db, "M_OWNED", state=GameState.REGISTERING, owner_id=owner.id)
+    owner = await _user(reset_db_no_admin_emails, "owner")
+    await seed_match(reset_db_no_admin_emails, "M_OWNED", state=GameState.REGISTERING, owner_id=owner.id)
 
     form = await client.get(
         f"/games/{GAME}/admin/matches/M_OWNED/bots", cookies=_cookies(owner.id)
@@ -671,7 +682,7 @@ async def test_an_owner_can_open_and_use_the_bots_form(client, reset_db):
     # The redirect proves the route ran; only the row proves it seated anything.
     from app.models.player import Player
 
-    async with reset_db() as db:
+    async with reset_db_no_admin_emails() as db:
         seats = (
             (await db.execute(select(Player).where(Player.match_id == "M_OWNED")))
             .scalars()
@@ -685,15 +696,15 @@ async def test_an_owner_can_open_and_use_the_bots_form(client, reset_db):
     [("get", ""), ("get", "/bots"), ("post", "/bots")],
 )
 async def test_a_non_owner_is_refused_on_someone_elses_match(
-    client, reset_db, method, suffix
+    client, reset_db_no_admin_emails, method, suffix
 ):
     """Row 32. The match has a real, different owner — asserted, because every
     factory match used to come out ownerless, which would collapse this test
     into the NULL-owner one below."""
-    owner = await _user(reset_db, "owner")
-    stranger = await _user(reset_db, "stranger")
-    await seed_match(reset_db, "M_OWNED", state=GameState.REGISTERING, owner_id=owner.id)
-    async with reset_db() as db:
+    owner = await _user(reset_db_no_admin_emails, "owner")
+    stranger = await _user(reset_db_no_admin_emails, "stranger")
+    await seed_match(reset_db_no_admin_emails, "M_OWNED", state=GameState.REGISTERING, owner_id=owner.id)
+    async with reset_db_no_admin_emails() as db:
         match = (
             await db.execute(select(Match).where(Match.id == "M_OWNED"))
         ).scalar_one()
@@ -709,11 +720,11 @@ async def test_a_non_owner_is_refused_on_someone_elses_match(
     assert _code(r) == "NOT_MATCH_OWNER"
 
 
-async def test_a_match_with_no_creator_is_admin_only(client, reset_db):
+async def test_a_match_with_no_creator_is_admin_only(client, reset_db_no_admin_emails):
     """Row 33. An auto-scheduled match has no `created_by_user_id`. "Nobody owns
     it" must not read as "anybody owns it"."""
-    player = await _user(reset_db, "player")
-    await seed_match(reset_db, "M_ORPHAN", state=GameState.REGISTERING, owner_id=None)
+    player = await _user(reset_db_no_admin_emails, "player")
+    await seed_match(reset_db_no_admin_emails, "M_ORPHAN", state=GameState.REGISTERING, owner_id=None)
 
     for suffix in ("", "/bots"):
         r = await client.get(
@@ -723,10 +734,10 @@ async def test_a_match_with_no_creator_is_admin_only(client, reset_db):
         assert _code(r) == "NOT_MATCH_OWNER"
 
 
-async def test_an_admin_can_open_a_match_with_no_creator(client, reset_db):
+async def test_an_admin_can_open_a_match_with_no_creator(client, reset_db_no_admin_emails):
     """Row 34."""
-    admin = await _user(reset_db, "boss", admin=True)
-    await seed_match(reset_db, "M_ORPHAN", state=GameState.REGISTERING, owner_id=None)
+    admin = await _user(reset_db_no_admin_emails, "boss", admin=True)
+    await seed_match(reset_db_no_admin_emails, "M_ORPHAN", state=GameState.REGISTERING, owner_id=None)
     r = await client.get(
         f"/games/{GAME}/admin/matches/M_ORPHAN", cookies=_cookies(admin.id)
     )
@@ -735,14 +746,14 @@ async def test_an_admin_can_open_a_match_with_no_creator(client, reset_db):
 
 @pytest.mark.parametrize("action", ["start", "cancel"])
 async def test_force_start_and_cancel_stay_admin_only_even_for_the_owner(
-    client, reset_db, action
+    client, reset_db_no_admin_emails, action
 ):
     """Row 35. Force-start skips the seat check, the player floor and the bot
     fill that the player start route runs. Cancel is an organizer's power — a
     player deletes their own pre-start match instead. Neither is "manage your own
     match", so owning it is not enough."""
-    owner = await _user(reset_db, "owner")
-    await seed_match(reset_db, "M_OWNED", state=GameState.REGISTERING, owner_id=owner.id)
+    owner = await _user(reset_db_no_admin_emails, "owner")
+    await seed_match(reset_db_no_admin_emails, "M_OWNED", state=GameState.REGISTERING, owner_id=owner.id)
     r = await client.post(
         f"/games/{GAME}/admin/matches/M_OWNED/{action}",
         cookies=_cookies(owner.id),
@@ -752,10 +763,10 @@ async def test_force_start_and_cancel_stay_admin_only_even_for_the_owner(
     assert _code(r) == "NOT_PLATFORM_ADMIN"
 
 
-async def test_the_owners_detail_page_hides_the_force_start_button(client, reset_db):
+async def test_the_owners_detail_page_hides_the_force_start_button(client, reset_db_no_admin_emails):
     """Row 36. A button that always 403s is worse than no button."""
-    owner = await _user(reset_db, "owner")
-    await seed_match(reset_db, "M_OWNED", state=GameState.REGISTERING, owner_id=owner.id)
+    owner = await _user(reset_db_no_admin_emails, "owner")
+    await seed_match(reset_db_no_admin_emails, "M_OWNED", state=GameState.REGISTERING, owner_id=owner.id)
     r = await client.get(
         f"/games/{GAME}/admin/matches/M_OWNED", cookies=_cookies(owner.id)
     )
@@ -765,12 +776,12 @@ async def test_the_owners_detail_page_hides_the_force_start_button(client, reset
 
 @pytest.mark.parametrize("suffix", ["", "/bots"])
 async def test_the_owners_pages_show_no_platform_admin_navigation(
-    client, reset_db, suffix
+    client, reset_db_no_admin_emails, suffix
 ):
     """Row 37. Both pages hardcoded `is_admin: True` before, which would have
     shown a player the admin menu."""
-    owner = await _user(reset_db, "owner")
-    await seed_match(reset_db, "M_OWNED", state=GameState.REGISTERING, owner_id=owner.id)
+    owner = await _user(reset_db_no_admin_emails, "owner")
+    await seed_match(reset_db_no_admin_emails, "M_OWNED", state=GameState.REGISTERING, owner_id=owner.id)
     r = await client.get(
         f"/games/{GAME}/admin/matches/M_OWNED{suffix}", cookies=_cookies(owner.id)
     )
@@ -779,11 +790,11 @@ async def test_the_owners_pages_show_no_platform_admin_navigation(
     assert 'href="/admin/reports"' not in r.text
 
 
-async def test_an_admin_may_act_on_a_match_they_did_not_create(client, reset_db):
+async def test_an_admin_may_act_on_a_match_they_did_not_create(client, reset_db_no_admin_emails):
     """Row 38."""
-    owner = await _user(reset_db, "owner")
-    admin = await _user(reset_db, "boss", admin=True)
-    await seed_match(reset_db, "M_OWNED", state=GameState.REGISTERING, owner_id=owner.id)
+    owner = await _user(reset_db_no_admin_emails, "owner")
+    admin = await _user(reset_db_no_admin_emails, "boss", admin=True)
+    await seed_match(reset_db_no_admin_emails, "M_OWNED", state=GameState.REGISTERING, owner_id=owner.id)
 
     detail = await client.get(
         f"/games/{GAME}/admin/matches/M_OWNED", cookies=_cookies(admin.id)
@@ -799,7 +810,7 @@ async def test_an_admin_may_act_on_a_match_they_did_not_create(client, reset_db)
         follow_redirects=False,
     )
     assert cancelled.status_code == 303, cancelled.text
-    async with reset_db() as db:
+    async with reset_db_no_admin_emails() as db:
         after = (
             await db.execute(select(Match).where(Match.id == "M_OWNED"))
         ).scalar_one()
@@ -820,7 +831,7 @@ ALL_GATED_PATHS = [
 
 
 @pytest.mark.parametrize("method,template", ALL_GATED_PATHS)
-async def test_anonymous_callers_get_401_everywhere(client, reset_db, method, template):
+async def test_anonymous_callers_get_401_everywhere(client, reset_db_no_admin_emails, method, template):
     """Row 39. Authentication runs before any role or ownership test."""
     r = await getattr(client, method)(
         template.format(game=GAME), follow_redirects=False
@@ -830,7 +841,7 @@ async def test_anonymous_callers_get_401_everywhere(client, reset_db, method, te
 
 
 @pytest.mark.parametrize("method,template", ALL_GATED_PATHS)
-async def test_a_hidden_game_answers_404_never_403(client, reset_db, method, template):
+async def test_a_hidden_game_answers_404_never_403(client, reset_db_no_admin_emails, method, template):
     """Row 50. A 403 would confirm the under-construction game exists. The
     visibility check has to run before the role and ownership checks, on every
     route — not just the create form.
@@ -840,8 +851,8 @@ async def test_a_hidden_game_answers_404_never_403(client, reset_db, method, tem
     its own and this would pass with the guard deleted — which is exactly what a
     mutation test showed.
     """
-    player = await _user(reset_db, "player")
-    async with reset_db() as db:
+    player = await _user(reset_db_no_admin_emails, "player")
+    async with reset_db_no_admin_emails() as db:
         match = await make_match(
             db, "M_ANY", state=GameState.REGISTERING, created_by_user_id=player.id
         )
@@ -856,12 +867,12 @@ async def test_a_hidden_game_answers_404_never_403(client, reset_db, method, tem
     assert r.status_code == 404, r.text
 
 
-async def test_a_disabled_account_is_bounced_not_served(client, reset_db):
+async def test_a_disabled_account_is_bounced_not_served(client, reset_db_no_admin_emails):
     """Rows 40 to 42. The response shape differs by what the caller accepts, so
     all three are pinned. The trap here is swapping the auth dependency for a
     plain "who is signed in?" lookup, which does not check `disabled_at`."""
-    player = await _user(reset_db, "player")
-    async with reset_db() as db:
+    player = await _user(reset_db_no_admin_emails, "player")
+    async with reset_db_no_admin_emails() as db:
         row = (await db.execute(select(User).where(User.id == player.id))).scalar_one()
         row.disabled_at = datetime.now(timezone.utc)
         await db.commit()
@@ -893,10 +904,10 @@ async def test_a_disabled_account_is_bounced_not_served(client, reset_db):
     assert _code(api) == "ACCOUNT_DISABLED"
 
 
-async def test_the_three_match_cap_still_applies_to_players(client, reset_db):
+async def test_the_three_match_cap_still_applies_to_players(client, reset_db_no_admin_emails):
     """Row 43. The cap lived on one route; this change had to keep it there and
     make sure no second create route grew around it."""
-    player = await _user(reset_db, "player")
+    player = await _user(reset_db_no_admin_emails, "player")
     for n in range(3):
         r = await _post_create(client, player, name=f"Held{n}")
         assert r.status_code == 303, r.text
@@ -904,23 +915,23 @@ async def test_the_three_match_cap_still_applies_to_players(client, reset_db):
     r = await _post_create(client, player, name="OneTooMany")
     assert r.status_code == 409
     assert "at most 3" in r.text
-    assert await _named(reset_db, "OneTooMany") is None
+    assert await _named(reset_db_no_admin_emails, "OneTooMany") is None
 
 
-async def test_the_three_match_cap_does_not_apply_to_admins(client, reset_db):
+async def test_the_three_match_cap_does_not_apply_to_admins(client, reset_db_no_admin_emails):
     """Row 44."""
-    admin = await _user(reset_db, "boss", admin=True)
+    admin = await _user(reset_db_no_admin_emails, "boss", admin=True)
     for n in range(4):
         r = await _post_create(client, admin, name=f"AdminHeld{n}")
         assert r.status_code == 303, r.text
-    assert await _named(reset_db, "AdminHeld3") is not None
+    assert await _named(reset_db_no_admin_emails, "AdminHeld3") is not None
 
 
-async def test_deleting_someone_elses_match_is_still_refused(client, reset_db):
+async def test_deleting_someone_elses_match_is_still_refused(client, reset_db_no_admin_emails):
     """Row 45. Existing behaviour, pinned so the refactor cannot change it."""
-    owner = await _user(reset_db, "owner")
-    stranger = await _user(reset_db, "stranger")
-    await seed_match(reset_db, "M_OWNED", state=GameState.REGISTERING, owner_id=owner.id)
+    owner = await _user(reset_db_no_admin_emails, "owner")
+    stranger = await _user(reset_db_no_admin_emails, "stranger")
+    await seed_match(reset_db_no_admin_emails, "M_OWNED", state=GameState.REGISTERING, owner_id=owner.id)
     r = await client.post(
         "/matches/M_OWNED/delete",
         cookies=_cookies(stranger.id),
@@ -930,11 +941,11 @@ async def test_deleting_someone_elses_match_is_still_refused(client, reset_db):
     assert _code(r) == "NOT_MATCH_OWNER"
 
 
-async def test_an_admin_may_delete_someone_elses_match(client, reset_db):
+async def test_an_admin_may_delete_someone_elses_match(client, reset_db_no_admin_emails):
     """Row 46."""
-    owner = await _user(reset_db, "owner")
-    admin = await _user(reset_db, "boss", admin=True)
-    await seed_match(reset_db, "M_OWNED", state=GameState.REGISTERING, owner_id=owner.id)
+    owner = await _user(reset_db_no_admin_emails, "owner")
+    admin = await _user(reset_db_no_admin_emails, "boss", admin=True)
+    await seed_match(reset_db_no_admin_emails, "M_OWNED", state=GameState.REGISTERING, owner_id=owner.id)
     r = await client.post(
         "/matches/M_OWNED/delete", cookies=_cookies(admin.id), follow_redirects=False
     )
@@ -942,12 +953,12 @@ async def test_an_admin_may_delete_someone_elses_match(client, reset_db):
 
 
 async def test_the_player_start_route_still_requires_a_confirmed_seat(
-    client, reset_db
+    client, reset_db_no_admin_emails
 ):
     """Row 47. Owning a match is not the same as holding a seat in it. The
     player start route's eligibility rules are untouched by this change."""
-    owner = await _user(reset_db, "owner")
-    await seed_match(reset_db, "M_OWNED", state=GameState.REGISTERING, owner_id=owner.id)
+    owner = await _user(reset_db_no_admin_emails, "owner")
+    await seed_match(reset_db_no_admin_emails, "M_OWNED", state=GameState.REGISTERING, owner_id=owner.id)
     r = await client.post(
         f"/games/{GAME}/matches/M_OWNED/start",
         cookies=_cookies(owner.id),
@@ -965,24 +976,24 @@ async def test_the_player_start_route_still_requires_a_confirmed_seat(
     ],
 )
 async def test_the_under_construction_game_stays_hidden_from_players(
-    client, reset_db, path
+    client, reset_db_no_admin_emails, path
 ):
     """Row 48. `_is_any_admin` used to be true for a game admin, which is what
     made this game visible to someone never promoted in the database."""
-    player = await _user(reset_db, "player")
+    player = await _user(reset_db_no_admin_emails, "player")
     r = await client.get(path, cookies=_cookies(player.id), follow_redirects=False)
     assert r.status_code == 404, path
 
 
 async def test_the_under_construction_game_is_absent_from_the_games_catalog(
-    client, reset_db
+    client, reset_db_no_admin_emails
 ):
     """Row 49, the catalog half. The catalog lists registered games directly, so
     an empty database is enough to make this meaningful — an admin does see the
     slug here. The leaderboard and home-page halves need a seeded section, so
     they live in their own test below."""
-    player = await _user(reset_db, "player")
-    admin = await _user(reset_db, "boss", admin=True)
+    player = await _user(reset_db_no_admin_emails, "player")
+    admin = await _user(reset_db_no_admin_emails, "boss", admin=True)
 
     as_admin = await client.get("/games", cookies=_cookies(admin.id))
     assert as_admin.status_code == 200
@@ -999,7 +1010,7 @@ async def test_the_under_construction_game_is_absent_from_the_games_catalog(
 
 
 async def test_an_admin_creates_a_liars_dice_match_with_its_own_config(
-    client, reset_db
+    client, reset_db_no_admin_emails
 ):
     """Row 51. `wild_ones` is a checkbox, so it is omitted to mean false.
 
@@ -1007,7 +1018,7 @@ async def test_an_admin_creates_a_liars_dice_match_with_its_own_config(
     fabricates a default `MatchState` when one is missing, so an assertion that
     the row exists would pass while the admin's choices were silently lost.
     """
-    admin = await _user(reset_db, "boss", admin=True)
+    admin = await _user(reset_db_no_admin_emails, "boss", admin=True)
     r = await _post_create(
         client,
         admin,
@@ -1020,9 +1031,9 @@ async def test_an_admin_creates_a_liars_dice_match_with_its_own_config(
         dice_per_player=3,
     )
     assert r.status_code == 303, r.text
-    match = await _named(reset_db, "LD")
+    match = await _named(reset_db_no_admin_emails, "LD")
     assert match is not None
-    async with reset_db() as db:
+    async with reset_db_no_admin_emails() as db:
         state = (
             await db.execute(select(MatchState).where(MatchState.match_id == match.id))
         ).scalar_one()
@@ -1030,12 +1041,12 @@ async def test_an_admin_creates_a_liars_dice_match_with_its_own_config(
 
 
 async def test_the_liars_dice_form_prefills_values_its_own_route_accepts(
-    client, reset_db
+    client, reset_db_no_admin_emails
 ):
     """Row 52. The game's own defaults are 3-6 players over 64 rounds of 256
     turns. Rendering those raw would give an admin a form whose default
     submission the very same route rejects."""
-    admin = await _user(reset_db, "boss", admin=True)
+    admin = await _user(reset_db_no_admin_emails, "boss", admin=True)
     r = await client.get(
         f"/games/{HIDDEN_GAME}/matches/new", cookies=_cookies(admin.id)
     )
@@ -1047,26 +1058,26 @@ async def test_the_liars_dice_form_prefills_values_its_own_route_accepts(
 
 
 async def test_a_hoard_hurt_help_match_stores_no_other_games_config(
-    client, reset_db
+    client, reset_db_no_admin_emails
 ):
     """Row 53. Every admin-created match used to get Liar's Dice keys stamped
     onto it, whatever game it was."""
-    player = await _user(reset_db, "player")
+    player = await _user(reset_db_no_admin_emails, "player")
     r = await _post_create(client, player, name="Plain")
     assert r.status_code == 303
-    match = await _named(reset_db, "Plain")
+    match = await _named(reset_db_no_admin_emails, "Plain")
     assert match is not None
-    async with reset_db() as db:
+    async with reset_db_no_admin_emails() as db:
         state = (
             await db.execute(select(MatchState).where(MatchState.match_id == match.id))
         ).scalar_one()
     assert state.state_json["config"] == {}
 
 
-async def test_both_creation_paths_agree_on_the_stored_config(client, reset_db):
+async def test_both_creation_paths_agree_on_the_stored_config(client, reset_db_no_admin_emails):
     """Row 54. The HTML route and the JSON API share one config helper, so they
     cannot drift over what a game's module-owned config looks like."""
-    admin = await _user(reset_db, "boss", admin=True)
+    admin = await _user(reset_db_no_admin_emails, "boss", admin=True)
     r = await client.post(
         "/api/admin/matches",
         json={
@@ -1079,9 +1090,9 @@ async def test_both_creation_paths_agree_on_the_stored_config(client, reset_db):
         cookies=_cookies(admin.id),
     )
     assert r.status_code == 201, r.text
-    match = await _named(reset_db, "ViaApi")
+    match = await _named(reset_db_no_admin_emails, "ViaApi")
     assert match is not None
-    async with reset_db() as db:
+    async with reset_db_no_admin_emails() as db:
         state = (
             await db.execute(select(MatchState).where(MatchState.match_id == match.id))
         ).scalar_one()
@@ -1089,7 +1100,7 @@ async def test_both_creation_paths_agree_on_the_stored_config(client, reset_db):
 
 
 async def test_a_player_can_delete_a_match_they_created_through_the_form(
-    client, reset_db
+    client, reset_db_no_admin_emails
 ):
     """The create route and the delete route must agree on every row a match owns.
 
@@ -1099,10 +1110,10 @@ async def test_a_player_can_delete_a_match_they_created_through_the_form(
     seeds a bare Match row, so none of them could catch it — the match has to be
     created through the real route.
     """
-    player = await _user(reset_db, "player")
+    player = await _user(reset_db_no_admin_emails, "player")
     created = await _post_create(client, player, name="Doomed")
     assert created.status_code == 303, created.text
-    match = await _named(reset_db, "Doomed")
+    match = await _named(reset_db_no_admin_emails, "Doomed")
     assert match is not None
 
     deleted = await client.post(
@@ -1111,8 +1122,8 @@ async def test_a_player_can_delete_a_match_they_created_through_the_form(
         follow_redirects=False,
     )
     assert deleted.status_code == 303, deleted.text
-    assert await _named(reset_db, "Doomed") is None
-    async with reset_db() as db:
+    assert await _named(reset_db_no_admin_emails, "Doomed") is None
+    async with reset_db_no_admin_emails() as db:
         leftover = (
             await db.execute(
                 select(MatchState).where(MatchState.match_id == match.id)
@@ -1122,14 +1133,14 @@ async def test_a_player_can_delete_a_match_they_created_through_the_form(
 
 
 @pytest.mark.parametrize("dice", [0, 99])
-async def test_out_of_band_dice_per_player_is_rejected(client, reset_db, dice):
+async def test_out_of_band_dice_per_player_is_rejected(client, reset_db_no_admin_emails, dice):
     """The JSON API bounded this 1-20; the HTML form bounded it nowhere.
 
     A zero-dice Liar's Dice match is a wedged match, not a rejected request, so
     it has to fail before the write. The two create paths share one config
     helper, so they must share the bound too.
     """
-    admin = await _user(reset_db, "boss", admin=True)
+    admin = await _user(reset_db_no_admin_emails, "boss", admin=True)
     r = await _post_create(
         client,
         admin,
@@ -1143,14 +1154,14 @@ async def test_out_of_band_dice_per_player_is_rejected(client, reset_db, dice):
     )
     assert r.status_code == 400
     assert "Dice per player must be 1 to 20." in r.text
-    assert await _named(reset_db, f"Dice{dice}") is None
+    assert await _named(reset_db_no_admin_emails, f"Dice{dice}") is None
 
 
-async def test_creating_lands_each_role_where_they_started(client, reset_db):
+async def test_creating_lands_each_role_where_they_started(client, reset_db_no_admin_emails):
     """An admin creates from the per-game dashboard and belongs back on it. A
     player has no dashboard, so their new match is waiting on /me/matches."""
-    player = await _user(reset_db, "player")
-    admin = await _user(reset_db, "boss", admin=True)
+    player = await _user(reset_db_no_admin_emails, "player")
+    admin = await _user(reset_db_no_admin_emails, "boss", admin=True)
 
     as_player = await _post_create(client, player, name="PlayerLanding")
     assert as_player.headers["location"] == "/me/matches"
@@ -1159,14 +1170,14 @@ async def test_creating_lands_each_role_where_they_started(client, reset_db):
     assert as_admin.headers["location"] == f"/games/{GAME}/admin"
 
 
-async def test_the_owner_gets_a_link_to_the_page_they_may_open(client, reset_db):
+async def test_the_owner_gets_a_link_to_the_page_they_may_open(client, reset_db_no_admin_emails):
     """Seating bots is the owner's power, and /me/matches is the only place they
     meet their own match. Without the link the permission is unreachable in the
     product — the page exists but nothing points at it."""
-    player = await _user(reset_db, "player")
+    player = await _user(reset_db_no_admin_emails, "player")
     created = await _post_create(client, player, name="Mine")
     assert created.status_code == 303
-    match = await _named(reset_db, "Mine")
+    match = await _named(reset_db_no_admin_emails, "Mine")
     assert match is not None
 
     href = f"/games/{GAME}/admin/matches/{match.id}"
@@ -1179,16 +1190,16 @@ async def test_the_owner_gets_a_link_to_the_page_they_may_open(client, reset_db)
     assert followed.status_code == 200
 
 
-async def test_a_stranger_may_export_but_sees_nothing_private(client, reset_db):
+async def test_a_stranger_may_export_but_sees_nothing_private(client, reset_db_no_admin_emails):
     """Exports are open to every signed-in player — that is the audience
     decision, and without this test it could be narrowed back to owner-only with
     the whole suite still green. What a stranger gets is the redacted view: no
     strategy prompts and no thinking at all, and nothing from the turn still in
     flight."""
-    owner = await _user(reset_db, "owner")
-    rival = await _user(reset_db, "rival")
-    stranger = await _user(reset_db, "stranger")
-    match_id = await _seed_export_match(reset_db, owner=owner, rival=rival)
+    owner = await _user(reset_db_no_admin_emails, "owner")
+    rival = await _user(reset_db_no_admin_emails, "rival")
+    stranger = await _user(reset_db_no_admin_emails, "stranger")
+    match_id = await _seed_export_match(reset_db_no_admin_emails, owner=owner, rival=rival)
 
     r = await client.get(
         f"/api/game-admin/{GAME}/matches/{match_id}/export.json",
@@ -1202,14 +1213,14 @@ async def test_a_stranger_may_export_but_sees_nothing_private(client, reset_db):
     assert "resolved-move" in r.text
 
 
-async def test_deleting_a_match_clears_its_per_player_state(client, reset_db):
+async def test_deleting_a_match_clears_its_per_player_state(client, reset_db_no_admin_emails):
     """`PlayerState` points at both the match and a player, so it has to go
     before the players do. Only Liar's Dice writes it, and only once a round
     starts, so the hoard-hurt-help delete test cannot reach this branch — but an
     admin deleting a Liar's Dice match can."""
     from app.models.game_state import PlayerState
 
-    admin = await _user(reset_db, "boss", admin=True)
+    admin = await _user(reset_db_no_admin_emails, "boss", admin=True)
     created = await _post_create(
         client,
         admin,
@@ -1222,10 +1233,10 @@ async def test_deleting_a_match_clears_its_per_player_state(client, reset_db):
         dice_per_player=3,
     )
     assert created.status_code == 303, created.text
-    match = await _named(reset_db, "Dicey")
+    match = await _named(reset_db_no_admin_emails, "Dicey")
     assert match is not None
 
-    async with reset_db() as db:
+    async with reset_db_no_admin_emails() as db:
         player = await seat_player(db, match.id, "Roller", user=admin)
         db.add(
             PlayerState(
@@ -1240,7 +1251,7 @@ async def test_deleting_a_match_clears_its_per_player_state(client, reset_db):
         follow_redirects=False,
     )
     assert deleted.status_code == 303, deleted.text
-    async with reset_db() as db:
+    async with reset_db_no_admin_emails() as db:
         leftover = (
             (
                 await db.execute(
@@ -1254,15 +1265,15 @@ async def test_deleting_a_match_clears_its_per_player_state(client, reset_db):
 
 
 async def test_a_participant_who_does_not_own_the_match_gets_no_manage_link(
-    client, reset_db
+    client, reset_db_no_admin_emails
 ):
     """/me/matches lists matches you PLAY IN, not only ones you created. Showing
     a manage link to a participant would hand them a link that 403s — the same
     dead-button problem the force-start row pins."""
-    owner = await _user(reset_db, "owner")
-    guest = await _user(reset_db, "guest")
+    owner = await _user(reset_db_no_admin_emails, "owner")
+    guest = await _user(reset_db_no_admin_emails, "guest")
     match_id = "M_SHARED"
-    async with reset_db() as db:
+    async with reset_db_no_admin_emails() as db:
         await make_match(
             db, match_id, state=GameState.REGISTERING, created_by_user_id=owner.id
         )
@@ -1283,7 +1294,7 @@ async def test_a_participant_who_does_not_own_the_match_gets_no_manage_link(
 
 @pytest.mark.parametrize("path", ["/leaderboard", "/"])
 async def test_the_leaderboard_pages_hide_an_admin_only_games_section(
-    client, reset_db, monkeypatch, path
+    client, reset_db_no_admin_emails, monkeypatch, path
 ):
     """Both pages filter on the same narrowed admin flag.
 
@@ -1329,8 +1340,8 @@ async def test_the_leaderboard_pages_hide_an_admin_only_games_section(
             module, "load_leaderboard_sections_cached", _fake_sections, raising=False
         )
 
-    player = await _user(reset_db, "player")
-    admin = await _user(reset_db, "boss", admin=True)
+    player = await _user(reset_db_no_admin_emails, "player")
+    admin = await _user(reset_db_no_admin_emails, "boss", admin=True)
 
     as_admin = await client.get(path, cookies=_cookies(admin.id))
     assert as_admin.status_code == 200

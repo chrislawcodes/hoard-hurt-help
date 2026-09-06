@@ -12,33 +12,21 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from app.config import settings
-from app.models import Base, GameState, Match, Player, User
+from app.models import GameState, Match, Player, User
 from app.models.user import UserRole
 from tests.factories import seed_match
 from tests.conftest import signed_in_cookies as _cookies
 
 
-# Bespoke: also seeds admin_emails for this file's admin-gate tests, so it can't
-# delegate to tests/conftest.py's shared reset_db.
+# Autouse override of tests/conftest.py's reset_db: composes admin_settings so
+# this file's admin-gate tests get admin@test.com for free.
 @pytest.fixture(autouse=True)
-async def reset_db(monkeypatch):
-    from sqlalchemy.ext.asyncio import async_sessionmaker as _factory
-
-    from app.db import make_engine
-
-    test_engine = make_engine("sqlite+aiosqlite:///:memory:")
-    async with test_engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-    test_factory = _factory(test_engine, expire_on_commit=False)
-    monkeypatch.setattr("app.db.SessionLocal", test_factory)
-    monkeypatch.setattr("app.db.engine", test_engine)
-    monkeypatch.setattr(settings, "admin_emails", "admin@test.com")
-
-    yield test_factory
-    await test_engine.dispose()
+async def reset_db(
+    reset_db: async_sessionmaker, admin_settings: None
+) -> async_sessionmaker:
+    return reset_db
 
 
 async def _seed_admin(reset_db) -> User:

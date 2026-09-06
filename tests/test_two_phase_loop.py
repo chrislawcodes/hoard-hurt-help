@@ -1,44 +1,36 @@
 """Two-phase turn loop tests: talk defaulting, quorum, and resume tri-state."""
 
 import asyncio
+from collections.abc import AsyncIterator
 from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app import db as app_db
 from app.engine import scheduler
 from app.engine.resolver import finalize_talk_phase
 from app.engine.scheduler_turn_loop import _all_messaged
-from app.models import Base, Match, GameState, Player, Turn, TurnMessage, User
+from app.models import Match, GameState, Player, Turn, TurnMessage, User
 from tests.factories import make_agent
 
 
-# Bespoke: also monkeypatches app_db/scheduler's own SessionLocal binding directly
-# (scheduler imported SessionLocal by name, so the string-path patch alone won't
-# reach it) — can't delegate to tests/conftest.py's shared reset_db.
+# Autouse override of tests/conftest.py's reset_db: also points
+# app.engine.scheduler's own SessionLocal binding at the test database, since
+# scheduler imported SessionLocal by name — the app.db string-path patch alone
+# doesn't reach it, and the turn loop opens sessions through
+# scheduler.SessionLocal directly.
 @pytest.fixture(autouse=True)
-async def reset_db(monkeypatch):
-    from app.db import make_engine
-    from sqlalchemy.ext.asyncio import async_sessionmaker as _factory
-
-    test_engine = make_engine("sqlite+aiosqlite:///:memory:")
-    async with test_engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-    test_factory = _factory(test_engine, expire_on_commit=False)
-    monkeypatch.setattr("app.db.SessionLocal", test_factory)
-    monkeypatch.setattr("app.db.engine", test_engine)
-    monkeypatch.setattr(app_db, "SessionLocal", test_factory)
-    monkeypatch.setattr(scheduler, "SessionLocal", test_factory)
-    yield test_factory
-    await test_engine.dispose()
+async def reset_db_with_scheduler_patch(
+    reset_db: async_sessionmaker, monkeypatch: pytest.MonkeyPatch
+) -> async_sessionmaker:
+    monkeypatch.setattr(scheduler, "SessionLocal", reset_db)
+    return reset_db
 
 
 @pytest.fixture
-async def db(reset_db):
-    async with reset_db() as session:
+async def db(reset_db_with_scheduler_patch: async_sessionmaker) -> AsyncIterator[AsyncSession]:
+    async with reset_db_with_scheduler_patch() as session:
         yield session
 
 

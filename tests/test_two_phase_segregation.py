@@ -15,30 +15,17 @@ from app.engine.resolver import finalize_talk_phase
 from app.games.hoard_hurt_help.scoring import resolve_turn
 from app.engine.scheduler_turn_loop import _begin_act_phase
 from app.engine.tokens import generate_turn_token
-from app.models import Base, Match, GameState, Player, Turn, TurnMessage, TurnSubmission
+from app.models import Match, GameState, Player, Turn, TurnMessage, TurnSubmission
 from tests.factories import seat_player
 
 
-# Bespoke: also resets agent_api._last_pull for this file's polling tests, so it
-# can't delegate to tests/conftest.py's shared reset_db.
+# Autouse override of tests/conftest.py's reset_db: composes reset_pull_rate_limit
+# so this file's polling tests aren't throttled by an earlier test.
 @pytest.fixture(autouse=True)
-async def reset_db(monkeypatch):
-    """Bind the app to an in-memory sqlite database for each test."""
-    from app.db import make_engine
-    from sqlalchemy.ext.asyncio import async_sessionmaker as _factory
-
-    test_engine = make_engine("sqlite+aiosqlite:///:memory:")
-    async with test_engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-    test_factory = _factory(test_engine, expire_on_commit=False)
-    monkeypatch.setattr("app.db.SessionLocal", test_factory)
-    monkeypatch.setattr("app.db.engine", test_engine)
-    monkeypatch.setattr("app.routes.agent_api._last_pull", {})
-
-    yield test_factory
-
-    await test_engine.dispose()
+async def reset_db(
+    reset_db: async_sessionmaker, reset_pull_rate_limit: None
+) -> async_sessionmaker:
+    return reset_db
 
 
 async def _seed_two_phase_game(

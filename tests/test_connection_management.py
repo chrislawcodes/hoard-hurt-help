@@ -15,7 +15,6 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from itsdangerous import TimestampSigner
 from starlette.middleware.sessions import SessionMiddleware
 
-from app.db import make_engine
 from app.engine.connection_health_badge import ConnectionHealth, compute_connection_health
 from app.engine.pending_connection_gc import gc_pending_connections
 from app.engine.tokens import bot_key_lookup, generate_connection_key
@@ -44,13 +43,11 @@ from tests.factories import (
 NOW = datetime(2026, 6, 6, 12, 0, tzinfo=timezone.utc)
 
 
-@pytest.fixture
-async def engine() -> AsyncIterator[AsyncEngine]:
-    eng = make_engine("sqlite+aiosqlite:///:memory:")
-    yield eng
-    await eng.dispose()
-
-
+# Kept under its conftest-shared name (rather than renamed): conftest.py's own
+# bare `session_factory` doesn't create the schema (it defers that to `db`),
+# and tests/helpers in this file depend on `session_factory` directly — pytest's
+# fixture-override resolution means this override also feeds conftest's own
+# (otherwise-identical) `engine`.
 @pytest.fixture
 async def session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
     async with engine.begin() as conn:
@@ -59,7 +56,7 @@ async def session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSessio
 
 
 @pytest.fixture
-async def app(
+async def app_with_agent_next_turn_and_connection_routes(
     session_factory: async_sessionmaker[AsyncSession],
     engine: AsyncEngine,
     monkeypatch: pytest.MonkeyPatch,
@@ -82,8 +79,10 @@ async def app(
 
 
 @pytest.fixture
-async def scoped_client(app: FastAPI) -> AsyncIterator[AsyncClient]:
-    transport = ASGITransport(app=app)
+async def scoped_client(
+    app_with_agent_next_turn_and_connection_routes: FastAPI,
+) -> AsyncIterator[AsyncClient]:
+    transport = ASGITransport(app=app_with_agent_next_turn_and_connection_routes)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         yield c
 

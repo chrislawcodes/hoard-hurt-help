@@ -56,6 +56,11 @@ PAST_RECENT = NOW - timedelta(seconds=20)
 # ---------------------------------------------------------------------------
 
 
+# Kept under its conftest-shared name (rather than renamed): it carries the
+# schema-creation step conftest.py's own bare `engine` defers to `db`, and
+# tests/helpers in this file depend on that by requesting `engine`/
+# `session_factory` directly — pytest's fixture-override resolution means this
+# override also feeds conftest's own (otherwise-identical) `session_factory`.
 @pytest.fixture
 async def engine() -> AsyncIterator[AsyncEngine]:
     eng = make_engine("sqlite+aiosqlite:///:memory:")
@@ -66,12 +71,7 @@ async def engine() -> AsyncIterator[AsyncEngine]:
 
 
 @pytest.fixture
-async def session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
-    return async_sessionmaker(engine, expire_on_commit=False)
-
-
-@pytest.fixture
-async def app(
+async def app_with_agent_and_connection_routes(
     session_factory: async_sessionmaker[AsyncSession],
     engine: AsyncEngine,
     monkeypatch: pytest.MonkeyPatch,
@@ -96,8 +96,10 @@ async def app(
 
 
 @pytest.fixture
-async def scoped_client(app: FastAPI) -> AsyncIterator[AsyncClient]:
-    transport = ASGITransport(app=app)
+async def scoped_client(
+    app_with_agent_and_connection_routes: FastAPI,
+) -> AsyncIterator[AsyncClient]:
+    transport = ASGITransport(app=app_with_agent_and_connection_routes)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         yield c
 

@@ -11,36 +11,27 @@ import pytest
 from fastmcp.server.auth.auth import AccessToken
 from sqlalchemy import select
 from sqlalchemy.orm import joinedload
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.engine.tokens import bot_key_hint, bot_key_lookup, generate_connection_key
-from app.models import Base, Match, GameState, Player
+from app.models import Match, GameState, Player
 from app.models.connection import Connection
 from tests.factories import make_agent, make_connection, make_user
 from tests.conftest import signed_in_cookies as _signed_in_cookies
 
 
-# Bespoke: also resets agent_api._last_pull and zeroes the long-poll hold for this
-# file's next-turn polling tests, so it can't delegate to tests/conftest.py's shared
-# reset_db.
+# Autouse override of tests/conftest.py's reset_db: composes reset_pull_rate_limit,
+# and also zeroes the long-poll hold — next-turn long-polls in an active game with
+# no open turn, so without this these back-to-back auth probes would wait out a
+# real hold.
 @pytest.fixture(autouse=True)
-async def reset_db(monkeypatch):
-    from sqlalchemy.ext.asyncio import async_sessionmaker as _factory
-
-    from app.db import make_engine
-
-    test_engine = make_engine("sqlite+aiosqlite:///:memory:")
-    async with test_engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-    test_factory = _factory(test_engine, expire_on_commit=False)
-    monkeypatch.setattr("app.db.SessionLocal", test_factory)
-    monkeypatch.setattr("app.db.engine", test_engine)
-    monkeypatch.setattr("app.routes.agent_api._last_pull", {})
-    # next-turn long-polls in an active game with no open turn; return at once so
-    # these back-to-back auth probes don't wait out a real hold.
+async def reset_db(
+    reset_db: async_sessionmaker,
+    reset_pull_rate_limit: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> async_sessionmaker:
     monkeypatch.setattr("app.engine.agent_idle.LONG_POLL_HOLD_SECONDS", 0)
-    yield test_factory
-    await test_engine.dispose()
+    return reset_db
 
 
 async def _bot_in_active_game(reset_db, key: str) -> int:

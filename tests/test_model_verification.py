@@ -6,39 +6,27 @@ timeout escalation, upsert), and model_status_for (aggregate precedence).
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
 from datetime import datetime, timezone
 
 import pytest
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db import make_engine
 from app.engine.model_verification import (
     model_status_for,
     record_results,
     sanitize_error,
 )
-from app.models import Base
 from app.models.connection import ConnectionProvider
 from app.models.model_verification import ModelVerification, ModelVerificationStatus
 from tests.factories import make_connection, make_user
 
 
 @pytest.fixture
-async def engine() -> AsyncIterator[AsyncEngine]:
-    eng = make_engine("sqlite+aiosqlite:///:memory:")
-    async with eng.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    yield eng
-    await eng.dispose()
-
-
-@pytest.fixture
-async def db_session(engine: AsyncEngine) -> AsyncIterator[AsyncSession]:
-    factory = async_sessionmaker(engine, expire_on_commit=False)
-    async with factory() as session:
-        yield session
+async def db_session(db: AsyncSession) -> AsyncSession:
+    """Alias for tests/conftest.py's db, kept for this file's existing
+    db_session-named call sites."""
+    return db
 
 
 # --- sanitize_error -----------------------------------------------------------
