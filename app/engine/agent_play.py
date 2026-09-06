@@ -57,6 +57,7 @@ from app.models.player import Player
 from app.models.turn import TurnSubmission
 from app.models.user_milestone import MilestoneKind
 from app.ops_events import log_ops_event
+from app.read_models.matches import load_players
 from app.schemas.agent import (
     AgentStateResponse,
     ChatLine,
@@ -367,11 +368,11 @@ async def opponent_history(
 ) -> OpponentHistoryResponse:
     _check_pull_rate_limit(rate_state, player.agent_id, "opponent_history")
     game = await _game_for(match_id, db)
-    opponent = (
-        await db.execute(
-            select(Player).where(Player.match_id == game.id, Player.seat_name == opponent_id)
-        )
-    ).scalar_one_or_none()
+    # One seat out of the match's ~20 at most, so a single load_players call plus
+    # a Python filter beats a second query shaped just for this lookup.
+    opponent = next(
+        (p for p in await load_players(db, game.id) if p.seat_name == opponent_id), None
+    )
     if opponent is None:
         raise _err(
             "INVALID_TARGET",

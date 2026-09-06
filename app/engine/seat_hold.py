@@ -25,6 +25,7 @@ from app.engine.provider_readiness import ProviderReadiness, provider_readiness,
 from app.models.connection import ConnectionProvider
 from app.models.player import Player
 from app.engine.turn_clock import now_utc
+from app.read_models.matches import load_players
 
 # How long a held seat is kept while the user brings their AI online. This is a
 # generous window, not a race: first-time setup (add the MCP server + sign in)
@@ -68,18 +69,9 @@ async def release_held_seats(db: AsyncSession, match_id: str) -> None:
 
     Does not commit — the caller owns the transaction.
     """
-    held = list(
-        (
-            await db.execute(
-                select(Player).where(
-                    Player.match_id == match_id,
-                    Player.seat_reserved_until.is_not(None),
-                )
-            )
-        )
-        .scalars()
-        .all()
-    )
+    # One site needs this filter, so it's applied in Python rather than added
+    # as a new load_players keyword (a match has at most ~20 seats).
+    held = [p for p in await load_players(db, match_id) if p.seat_reserved_until is not None]
     for player in held:
         await db.delete(player)
 

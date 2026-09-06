@@ -26,9 +26,9 @@ from app.games.hoard_hurt_help.rules import (
     mutual_help_value,
 )
 from app.models.match import Match
-from app.models.player import Player
 from app.models.turn import Turn, TurnSubmission
 from app.engine.turn_clock import now_utc
+from app.read_models.matches import load_players
 
 
 def mutual_help_counts(
@@ -145,11 +145,7 @@ async def resolve_turn(db: AsyncSession, turn: Turn) -> None:
     mode = MutualHelpMode(match.mutual_help_mode or LEGACY_MUTUAL_HELP_MODE)
 
     # Players in this game.
-    players: list[Player] = list(
-        (await db.execute(select(Player).where(Player.match_id == turn.match_id)))
-        .scalars()
-        .all()
-    )
+    players = await load_players(db, turn.match_id)
 
     # Per-pair mutual-help decay: count how many times each pair already mutually
     # helped in this match's PRIOR resolved turns (the current turn isn't resolved

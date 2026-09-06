@@ -9,8 +9,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import select
-
 from app.agent_prompt import make_agent_base_prompt
 from app.config import settings
 from app.engine import resolver
@@ -39,6 +37,7 @@ from app.games.hoard_hurt_help.rules import (
 from app.games.hoard_hurt_help.strategy import PD_DEFAULT_STRATEGY, PD_STRATEGY_PRESETS
 from app.models.player import Player
 from app.models.turn import TurnMessage, TurnSubmission
+from app.read_models.matches import load_players
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -219,13 +218,13 @@ class HoardHurtHelp(BaseGameModule):
         target_id = move.get("target_id")
         target_player_id: int | None = None
         if target_id is not None:
-            target = (
-                await db.execute(
-                    select(Player).where(
-                        Player.match_id == turn.match_id, Player.agent_id == target_id
-                    )
-                )
-            ).scalar_one_or_none()
+            # One seat out of the match's ~20 at most, so a single load_players
+            # call plus a Python filter beats a second query shaped just for
+            # this lookup (agent_id + match_id is unique, so at most one match).
+            target = next(
+                (p for p in await load_players(db, turn.match_id) if p.agent_id == target_id),
+                None,
+            )
             target_player_id = target.id if target is not None else None
         message = str(move.get("message", ""))
         thinking = str(move.get("thinking", ""))
@@ -309,11 +308,7 @@ class HoardHurtHelp(BaseGameModule):
         # (feature `mutual-help-pact-value`; k itself comes from
         # `scoring.mutual_help_counts`, derived from resolved turns so it's
         # resume-safe).
-        all_players = (
-            (await db.execute(select(Player).where(Player.match_id == match.id)))
-            .scalars()
-            .all()
-        )
+        all_players = await load_players(db, match.id)
         other_players = [p for p in all_players if p.id != player.id]
         if not other_players:
             return {}

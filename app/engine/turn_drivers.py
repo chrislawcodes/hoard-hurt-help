@@ -22,6 +22,7 @@ from datetime import timedelta
 from typing import TYPE_CHECKING, Protocol
 
 from sqlalchemy import select
+from sqlalchemy.exc import NoResultFound
 
 from app.aware_datetime import ensure_aware
 from app.broadcast import publish
@@ -30,6 +31,7 @@ from app.engine.tokens import generate_turn_token
 from app.engine.turn_clock import SUBMIT_POLL_SECONDS, now_utc, seconds_until
 from app.models.player import Player
 from app.models.turn import Turn
+from app.read_models.matches import load_players
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -91,13 +93,14 @@ class SequentialDriver:
 
             turn_num += 1
             turn = await self._open_actor_turn(db, game, round_num, turn_num)
-            player = (
-                await db.execute(
-                    select(Player).where(
-                        Player.match_id == game.id, Player.seat_name == actor
-                    )
-                )
-            ).scalar_one()
+            # One seat out of the match's ~20 at most, so a single load_players
+            # call plus a Python filter beats a second query shaped just for
+            # this lookup (match_id + seat_name is unique, so at most one match).
+            player = next(
+                (p for p in await load_players(db, game.id) if p.seat_name == actor), None
+            )
+            if player is None:
+                raise NoResultFound(f"no player with seat_name={actor!r} in match {game.id}")
             await publish(
                 game.id,
                 "turn_opened",

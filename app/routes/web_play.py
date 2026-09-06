@@ -39,7 +39,7 @@ from app.models.match import GameState, Match
 from app.models.player import Player
 from app.models.turn import Turn, TurnMessage, TurnSubmission
 from app.models.user import User
-from app.read_models.matches import count_players
+from app.read_models.matches import count_players, load_players
 from app.routes.web_match_loaders import (
     GameScopedMatchOr404,
     _load_match_or_404,
@@ -159,13 +159,7 @@ async def _render_live(request: Request, db: DbSession, match: Match) -> HTMLRes
 
 
 async def _all_players(db: DbSession, match_id: str) -> list[Player]:
-    return list(
-        (
-            await db.execute(select(Player).where(Player.match_id == match_id))
-        )
-        .scalars()
-        .all()
-    )
+    return await load_players(db, match_id)
 
 
 @router.post("/games/{game}/matches/{match_id}/play/talk")

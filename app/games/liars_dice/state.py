@@ -20,6 +20,7 @@ from app.games.liars_dice.engine import Bid
 from app.models.game_state import MatchState, PlayerState
 from app.models.match import Match
 from app.models.player import Player
+from app.read_models.matches import load_players
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -106,15 +107,7 @@ async def _load_state(
 
 
 async def _players(db: AsyncSession, match_id: str) -> list[Player]:
-    return list(
-        (
-            await db.execute(
-                select(Player).where(Player.match_id == match_id).order_by(Player.seat_name)
-            )
-        )
-        .scalars()
-        .all()
-    )
+    return await load_players(db, match_id)
 
 
 async def _player_state_map(db: AsyncSession, match_id: str) -> dict[int, PlayerState]:
