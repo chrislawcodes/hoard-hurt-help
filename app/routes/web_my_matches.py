@@ -11,8 +11,8 @@ from sqlalchemy import case, func, select
 
 from app.config import settings
 from app.deps import DbSession, require_user
-from app.game_types import DEFAULT_GAME_TYPE
 from app.games import get as get_game_module
+from app.match_naming import humanize_game_type
 from app.models.agent import Agent, AgentKind
 from app.models.agent_version import AgentVersion
 from app.models.match import GameState, Match
@@ -87,7 +87,7 @@ async def my_matches(
     for g in ordered_matches:
         slug = g.game
         if slug not in sections_map:
-            title = {DEFAULT_GAME_TYPE: "Hoard Hurt Help"}.get(slug, slug.replace("-", " ").title())
+            title = humanize_game_type(slug)
             sections_map[slug] = {"title": title, "active": [], "completed": [], "cancelled": []}
 
         row = counts_by_match.get(g.id)
