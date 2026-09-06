@@ -275,7 +275,7 @@ async def test_a_mid_round_cut_carries_that_round_s_score(reset_db):
 
 async def test_the_endpoint_builds_the_match_and_reports_the_defaults(reset_db, client):
     """The admin route returns the new match and the one number worth checking."""
-    from tests.test_admin import _cookies
+    from tests.conftest import signed_in_cookies as _cookies
 
     admin = await _seed(reset_db, "admin@test.com", admin=True)
     source_id = await _played_match(reset_db, rounds=3, turns=2)
@@ -299,7 +299,7 @@ async def test_the_endpoint_builds_the_match_and_reports_the_defaults(reset_db, 
 
 async def test_the_endpoint_explains_a_cut_it_cannot_use(reset_db, client):
     """A refusal must say why, not just fail."""
-    from tests.test_admin import _cookies
+    from tests.conftest import signed_in_cookies as _cookies
 
     admin = await _seed(reset_db, "admin@test.com", admin=True)
     source_id = await _played_match(reset_db, rounds=3, turns=2)
@@ -320,7 +320,7 @@ async def test_a_plain_user_cannot_resume_a_match(reset_db, client):
     Spawning matches is not something a leaked credential should be able to do,
     which is why this is not on the wider connection-key door the exports use.
     """
-    from tests.test_admin import _cookies
+    from tests.conftest import signed_in_cookies as _cookies
 
     user = await _seed(reset_db, "player@test.com", admin=False)
     source_id = await _played_match(reset_db, rounds=3, turns=2)
