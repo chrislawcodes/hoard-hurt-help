@@ -374,12 +374,6 @@ note = "8 copies (test_agent_detail_fixes, test_agent_versions, test_connection_
 home = "tests/factories.py"
 
 [[test_helpers]]
-name = "_make_user"
-files = ["tests/test_handle_gate.py", "tests/test_human_player.py", "tests/test_mcp_connection.py"]
-verdict = "unjudged"
-note = ""
-
-[[test_helpers]]
 name = "_seed_active_match"
 files = ["tests/test_admin.py", "tests/test_migrations.py"]
 verdict = "unjudged"
