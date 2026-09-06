@@ -20,15 +20,14 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
-from starlette.middleware.sessions import SessionMiddleware
 
-from app.config import settings
 from app.db import make_engine
 from app.models import Base
 from app.models.agent import Agent, AgentStatus
 from app.models.match import GameState
 from app.routes.agents_detail import router as agents_detail_router
 from app.routes.agents_lifecycle import router as agents_lifecycle_router
+from tests.conftest import make_scoped_app
 from tests.conftest import signed_in_cookies as _cookies
 from tests.factories import make_agent, make_match, make_user, seat_prebuilt_player
 
@@ -55,20 +54,13 @@ async def app_with_agent_lifecycle_and_detail_routes(
 ) -> FastAPI:
     monkeypatch.setattr("app.db.SessionLocal", session_factory)
     monkeypatch.setattr("app.db.engine", engine)
-    test_app = FastAPI()
-    test_app.add_middleware(
-        SessionMiddleware,
-        secret_key=settings.session_secret,
-        same_site="lax",
-        https_only=False,
-        session_cookie="hhh_session",
-    )
     # Both routers on purpose: the warning is a redirect from the lifecycle
     # router into a page rendered by the detail router, so a test that only
     # mounted one could not follow the round trip a user actually takes.
-    test_app.include_router(agents_lifecycle_router, prefix="/me/agents")
-    test_app.include_router(agents_detail_router, prefix="/me/agents")
-    return test_app
+    return make_scoped_app(
+        (agents_lifecycle_router, "/me/agents"),
+        (agents_detail_router, "/me/agents"),
+    )
 
 
 @pytest.fixture

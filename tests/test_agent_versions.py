@@ -9,9 +9,7 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
-from starlette.middleware.sessions import SessionMiddleware
 
-from app.config import settings
 from app.engine.tokens import bot_key_lookup
 from app.models import Base
 from app.models.agent import Agent
@@ -36,6 +34,7 @@ from tests.factories import (
     make_version,
     seat_prebuilt_player,
 )
+from tests.conftest import make_scoped_app
 from tests.conftest import signed_in_cookies as _signed_in_cookies
 
 
@@ -59,21 +58,14 @@ async def app_with_agent_and_connection_routes(
 ) -> FastAPI:
     monkeypatch.setattr("app.db.SessionLocal", session_factory)
     monkeypatch.setattr("app.db.engine", engine)
-    test_app = FastAPI()
-    test_app.add_middleware(
-        SessionMiddleware,
-        secret_key=settings.session_secret,
-        same_site="lax",
-        https_only=False,
-        session_cookie="hhh_session",
+    return make_scoped_app(
+        (agents_setup_router, "/me/agents"),
+        (agents_status_router, "/me/agents"),
+        (agents_lifecycle_router, "/me/agents"),
+        (connections_setup_router, "/me/connections"),
+        (connections_credentials_router, "/me/connections"),
+        (connections_lifecycle_router, "/me/connections"),
     )
-    test_app.include_router(agents_setup_router, prefix="/me/agents")
-    test_app.include_router(agents_status_router, prefix="/me/agents")
-    test_app.include_router(agents_lifecycle_router, prefix="/me/agents")
-    test_app.include_router(connections_setup_router, prefix="/me/connections")
-    test_app.include_router(connections_credentials_router, prefix="/me/connections")
-    test_app.include_router(connections_lifecycle_router, prefix="/me/connections")
-    return test_app
 
 
 @pytest.fixture

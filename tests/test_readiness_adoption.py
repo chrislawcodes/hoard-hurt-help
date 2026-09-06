@@ -25,9 +25,7 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
-from starlette.middleware.sessions import SessionMiddleware
 
-from app.config import settings
 from app.db import make_engine
 from app.engine.connection_health_badge import ConnectionHealth
 from app.engine.provider_readiness import ProviderReadiness, provider_readiness
@@ -45,6 +43,7 @@ from app.routes.agents_health_presenter import readiness_health_status
 from app.routes.connections_setup import router as connections_setup_router
 from app.routes.nav_context import PlaySetupStage, resolve_play_setup_state
 from tests.factories import make_connection, make_match, make_user
+from tests.conftest import make_scoped_app
 from tests.conftest import signed_in_cookies as _cookies
 
 
@@ -107,16 +106,7 @@ async def app_with_connections_setup_route(
 ) -> FastAPI:
     monkeypatch.setattr("app.db.SessionLocal", session_factory)
     monkeypatch.setattr("app.db.engine", engine)
-    test_app = FastAPI()
-    test_app.add_middleware(
-        SessionMiddleware,
-        secret_key=settings.session_secret,
-        same_site="lax",
-        https_only=False,
-        session_cookie="hhh_session",
-    )
-    test_app.include_router(connections_setup_router, prefix="/me/connections")
-    return test_app
+    return make_scoped_app((connections_setup_router, "/me/connections"))
 
 
 @pytest.fixture

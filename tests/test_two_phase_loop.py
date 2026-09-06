@@ -11,8 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.engine import scheduler
 from app.engine.resolver import finalize_talk_phase
 from app.engine.scheduler_turn_loop import _all_messaged
-from app.models import Match, GameState, Player, Turn, TurnMessage, User
-from tests.factories import make_agent
+from app.models import Match, Player, Turn, TurnMessage
+from tests.factories import make_match_with_seated_players
 
 
 # Autouse delegate to tests/conftest.py's quiet_scheduler: this file's turn-loop
@@ -43,37 +43,7 @@ def published(monkeypatch):
 
 
 async def _make_two_phase_game_with_agents(db: AsyncSession, n: int) -> tuple[Match, list[Player]]:
-    game = Match(
-        id="G_TEST",
-        name="test",
-        state=GameState.ACTIVE,
-        scheduled_start=datetime.now(timezone.utc),
-        started_at=datetime.now(timezone.utc),
-        per_turn_deadline_seconds=60,
-        total_rounds=1,
-        turns_per_round=1,
-    )
-    db.add(game)
-    await db.flush()
-
-    players: list[Player] = []
-    for i in range(n):
-        u = User(google_sub=f"sub-{i}", email=f"u{i}@test.com", name=f"u{i}")
-        db.add(u)
-        await db.flush()
-        agent, _ = await make_agent(db, u, name=f"AI_{i}")
-        p = Player(
-            match_id=game.id,
-            user_id=u.id,
-            agent_id=agent.id,
-            seat_name=f"AI_{i}",
-        )
-        db.add(p)
-        await db.flush()
-        players.append(p)
-
-    await db.commit()
-    return game, players
+    return await make_match_with_seated_players(db, "G_TEST", n, total_rounds=1, turns_per_round=1)
 
 
 async def _open_turn(

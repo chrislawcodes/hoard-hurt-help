@@ -7,12 +7,13 @@
 Canonical home for the fixtures every DB/HTTP test reuses:
 ``reset_db`` (rebinds the app to a fresh in-memory SQLite), ``db`` (a bare
 session for direct-logic tests), ``client`` (an httpx client bound to the app),
-plus ``session_cookie`` / ``signed_in_cookies`` for signed-in requests. Tests
-that need genuinely different setup (a file-backed DB, extra monkeypatches, no
-DB rebind at all) keep their own independent local copy, with a comment
-explaining why it can't delegate here. Test files where every test just needs
-``reset_db`` to run without asking for it by name (most of them) instead keep a
-thin autouse override that delegates to this one:
+plus ``session_cookie`` / ``signed_in_cookies`` for signed-in requests, and
+``make_scoped_app`` for tests that need a router-scoped FastAPI app instead of
+the real one. Tests that need genuinely different setup (a file-backed DB,
+extra monkeypatches, no DB rebind at all) keep their own independent local
+copy, with a comment explaining why it can't delegate here. Test files where
+every test just needs ``reset_db`` to run without asking for it by name (most
+of them) instead keep a thin autouse override that delegates to this one:
 
     @pytest.fixture(autouse=True)
     async def reset_db(reset_db: async_sessionmaker) -> async_sessionmaker:
@@ -36,9 +37,11 @@ from pathlib import Path
 from types import ModuleType
 
 import pytest
+from fastapi import APIRouter, FastAPI
 from httpx import ASGITransport, AsyncClient
 from itsdangerous import TimestampSigner
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
+from starlette.middleware.sessions import SessionMiddleware
 
 from app.config import settings
 from app.db import make_engine
@@ -51,6 +54,7 @@ from tests.factories import make_user
 
 __all__ = [
     "load_script_module",
+    "make_scoped_app",
     "make_user",
     "session_cookie",
     "signed_in_cookies",
@@ -191,6 +195,36 @@ async def client() -> AsyncIterator[AsyncClient]:
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         yield c
+
+
+def make_scoped_app(*routers: APIRouter | tuple[APIRouter, str]) -> FastAPI:
+    """Build a router-scoped FastAPI test app, wired the way this suite needs.
+
+    Several test files build their own tiny FastAPI app instead of using the
+    real `app.main.app`, to exercise one or two routers in isolation. Every
+    one of them added the same session middleware — same secret, same
+    cookie name — so that block lives here once instead of copied into each
+    file.
+
+    Pass a bare router to mount it as-is (its own module already sets any
+    prefix it needs), or an `(router, prefix)` tuple to mount it under a
+    path prefix — the two shapes those hand-built apps used.
+    """
+    test_app = FastAPI()
+    test_app.add_middleware(
+        SessionMiddleware,
+        secret_key=settings.session_secret,
+        same_site="lax",
+        https_only=False,
+        session_cookie="hhh_session",
+    )
+    for entry in routers:
+        if isinstance(entry, tuple):
+            router, prefix = entry
+            test_app.include_router(router, prefix=prefix)
+        else:
+            test_app.include_router(entry)
+    return test_app
 
 
 @pytest.fixture

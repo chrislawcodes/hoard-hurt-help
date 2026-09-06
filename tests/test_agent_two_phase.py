@@ -10,8 +10,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.engine.tokens import generate_turn_token
-from app.models import Match, GameState, Player, Turn, TurnMessage, TurnSubmission
-from tests.factories import make_match, seat_player
+from app.models import Match, Player, Turn, TurnMessage, TurnSubmission
+from tests.factories import seed_active_two_phase_match
 
 
 # Autouse override of tests/conftest.py's reset_db: composes reset_pull_rate_limit
@@ -25,27 +25,8 @@ async def reset_db(
 
 async def _seed_two_phase_match(
     reset_db: async_sessionmaker,
-    *,
-    n_players: int = 2,
 ) -> tuple[Match, list[Player]]:
-    async with reset_db() as db:
-        now = datetime.now(timezone.utc)
-        game = await make_match(
-            db,
-            "G_007",
-            state=GameState.ACTIVE,
-            name="two-phase",
-            scheduled_start=now,
-            started_at=now,
-            total_rounds=1,
-            turns_per_round=1,
-        )
-        players: list[Player] = []
-        for i in range(n_players):
-            player = await seat_player(db, game.id, f"AI_{i}", i=i)
-            players.append(player)
-        await db.commit()
-        return game, players
+    return await seed_active_two_phase_match(reset_db, "G_007", name="two-phase")
 
 
 async def _open_turn(

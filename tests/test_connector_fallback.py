@@ -21,9 +21,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.engine.tokens import generate_turn_token
-from app.models import Match, GameState, Player, Turn, TurnMessage, TurnSubmission
+from app.models import Match, Player, Turn, TurnMessage, TurnSubmission
 from tests.conftest import load_script_module
-from tests.factories import seat_player
+from tests.factories import seed_active_two_phase_match
 
 
 @pytest.fixture(scope="module")
@@ -369,27 +369,9 @@ async def reset_db(
 
 
 async def _seed_active_game(
-    reset_db: async_sessionmaker, *, n_players: int = 2
+    reset_db: async_sessionmaker,
 ) -> tuple[Match, list[Player]]:
-    async with reset_db() as db:
-        game = Match(
-            id="G_CB1",
-            name="circuit-breaker-test",
-            state=GameState.ACTIVE,
-            scheduled_start=datetime.now(timezone.utc),
-            started_at=datetime.now(timezone.utc),
-            per_turn_deadline_seconds=60,
-            total_rounds=1,
-            turns_per_round=1,
-        )
-        db.add(game)
-        await db.flush()
-        players: list[Player] = []
-        for i in range(n_players):
-            player = await seat_player(db, game.id, f"AI_{i}", i=i)
-            players.append(player)
-        await db.commit()
-        return game, players
+    return await seed_active_two_phase_match(reset_db, "G_CB1", name="circuit-breaker-test")
 
 
 async def _open_turn(
