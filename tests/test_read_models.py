@@ -13,6 +13,7 @@ from app.models import GameState, Match, TurnMessage
 from app.models.agent import AgentKind
 from app.models.player import Player
 from app.read_models.matches import (
+    _agent_counts,
     count_players,
     count_players_by_match,
     load_action_records,
@@ -21,7 +22,6 @@ from app.read_models.matches import (
     load_scoreboard,
     winner_agent_id_by_player,
 )
-from app.routes.web_support import _agent_counts
 from tests.factories import add_submission, make_agent, make_turn, make_user, seat_player
 
 

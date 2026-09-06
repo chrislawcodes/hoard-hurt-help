@@ -10,9 +10,9 @@ The service is split into focused modules under ``app/engine/``:
 * ``agent_play_reads`` — DB-to-payload projection helpers.
 * ``agent_play_next_turn`` — connection-level "what do I do next" fan-out.
 
-This module keeps the per-match agent verbs and re-exports the public names so
-``from app.engine.agent_play import <name>`` keeps working for both the HTTP
-routes and the MCP layer.
+This module keeps the per-match agent verbs. The connection-level "what do I
+do next" calls live in ``agent_play_next_turn`` — import those directly from
+there.
 """
 
 from __future__ import annotations
@@ -32,11 +32,6 @@ from app.engine.agent_play_guards import (
     _seat_name_map,
     _validate_agent_match_binding,
     _validate_agent_turn_binding,
-)
-from app.engine.agent_play_next_turn import (
-    agent_identity_for,
-    get_next_turn,
-    get_next_turns,
 )
 from app.engine.agent_play_reads import (
     _existing_message_for_player,
@@ -79,12 +74,8 @@ from app.schemas.agent import (
 logger = logging.getLogger(__name__)
 
 __all__ = [
-    "PullRateState",
     "chat_transcript",
     "get_agent_state",
-    "get_next_turn",
-    "get_next_turns",
-    "agent_identity_for",
     "leave_match",
     "opponent_history",
     "standings",

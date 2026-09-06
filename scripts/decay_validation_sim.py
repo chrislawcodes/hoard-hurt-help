@@ -139,7 +139,7 @@ async def run_condition(
     from sqlalchemy import func, select
 
     from app.engine.bots.seating import add_bots_to_game
-    from app.engine.scheduler import _run_game
+    from app.engine.scheduler_turn_loop import _run_game
     from app.engine.state_machine import assert_transition
     from app.engine.tokens import generate_match_id
     from app.models.match import GameState, Match

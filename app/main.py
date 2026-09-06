@@ -25,7 +25,7 @@ from app.canonical_host import CanonicalHostMiddleware, canonical_host_of
 from app.identity.first_touch import FirstTouchMiddleware
 from app.oauth_dcr_compat import OAuthRegistrationCompatMiddleware
 from app.request_logging import install_request_logging
-from app.routes.web_support import GameSlugRedirect, game_slug_redirect_response
+from app.routes.web_match_loaders import GameSlugRedirect, game_slug_redirect_response
 from app.routes import (
     admin_engagement,
     admin_api,

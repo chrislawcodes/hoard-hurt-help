@@ -28,12 +28,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import SessionLocal
 from app.engine.agent_idle import LONG_POLL_HOLD_SECONDS
 from app.engine.agent_play import (
-    agent_identity_for,
     chat_transcript,
-    get_next_turn as play_get_next_turn,
-    get_next_turns as play_get_next_turns,
     submit_action as play_submit_action,
     submit_talk as play_submit_talk,
+)
+from app.engine.agent_play_next_turn import (
+    agent_identity_for,
+    get_next_turn as play_get_next_turn,
+    get_next_turns as play_get_next_turns,
 )
 from app.engine.agent_playability import playable_agent_filter
 from app.games import get as get_game_module

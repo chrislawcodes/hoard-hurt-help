@@ -110,7 +110,7 @@ async def _run_one_match(match_index: int, strategies: list[str]) -> str:
             match.started_at = now
             await db.commit()
 
-    from app.engine.scheduler import _run_game
+    from app.engine.scheduler_turn_loop import _run_game
     await _run_game(match_id)
     return match_id
 

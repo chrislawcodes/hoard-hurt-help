@@ -10,8 +10,8 @@ from app.engine.game_records import ActionRecord, PlayerRecord
 from app.games import get as get_game_module
 from app.models.match import Match, GameState
 from app.read_models.matches import load_action_records, load_player_records
+from app.routes.web_match_loaders import GameScopedMatch
 from app.routes.web_support import (
-    GameScopedMatch,
     _game_theme,
     _is_any_admin,
     _redirect_to_match,

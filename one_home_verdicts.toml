@@ -199,17 +199,6 @@ evidence = "Tier 4 close-out of the refactoring survey (see STATUS.md entry + it
 # this pattern; those four have no entry below because they no longer qualify.
 
 [[reexports]]
-module = "app/engine/agent_play.py"
-names = [
-    "PullRateState",
-    "agent_identity_for",
-    "get_next_turn",
-    "get_next_turns",
-]
-verdict = "unjudged"
-note = ""
-
-[[reexports]]
 module = "app/engine/bots/__init__.py"
 names = [
     "BOT_PACKS",
@@ -236,46 +225,41 @@ names = [
     "resolve_profile_choice",
     "validate_bot_profile_fields",
 ]
-verdict = "unjudged"
-note = ""
+verdict = "leave"
+note = "package API"
 
 [[reexports]]
 module = "app/engine/scheduler.py"
 names = [
-    "SimultaneousDriver",
-    "_all_messaged",
-    "_all_submitted",
-    "_begin_act_phase",
-    "_open_turn",
     "_run_game",
-    "_run_game_guarded",
-    "_select_driver",
     "_wait_for_messages",
     "_wait_for_turn",
     "auto_submit_bot_phase",
     "publish",
     "record_background_incident",
 ]
-verdict = "unjudged"
-note = ""
+verdict = "leave"
+note = """PR M: not a public re-export — scheduler_turn_loop.py (and, for
+`publish`, overdue_sweeper.py) read these off this module by attribute at call
+time so a test that patches `scheduler.publish` etc. reaches production code
+that runs after this module loads; see scheduler_turn_loop.py's docstring.
+Kept in __all__ so ruff also sees them as used. The other 7 names PR C/M found
+here (SimultaneousDriver, _all_messaged, _all_submitted, _begin_act_phase,
+_open_turn, _select_driver — no reflective read, external importers repointed
+to scheduler_turn_loop — and _run_game_guarded — internal-only bare call) were
+resolved and dropped from this entry."""
 
 [[reexports]]
 module = "app/games/__init__.py"
 names = ["GameConfig", "GameError", "GameModule"]
-verdict = "unjudged"
-note = ""
+verdict = "leave"
+note = "package API"
 
 [[reexports]]
 module = "app/games/liars_dice/__init__.py"
 names = ["LiarsDice"]
-verdict = "unjudged"
-note = ""
-
-[[reexports]]
-module = "app/games/liars_dice/state.py"
-names = ["_next_alive_seat"]
-verdict = "unjudged"
-note = ""
+verdict = "leave"
+note = "package API"
 
 [[reexports]]
 module = "app/models/__init__.py"
@@ -307,70 +291,8 @@ names = [
     "User",
     "UserMilestone",
 ]
-verdict = "unjudged"
-note = ""
-
-[[reexports]]
-module = "app/routes/admin_match_actions.py"
-names = ["load_match_or_404"]
-verdict = "unjudged"
-note = ""
-
-[[reexports]]
-module = "app/routes/web_lobby.py"
-names = [
-    "_game_tagline",
-    "_leaderboard_url",
-    "_upcoming_views",
-    "account_disabled",
-    "agent_instructions_page",
-    "cancel_overdue_unfilled_games",
-    "contact",
-    "games_catalog",
-    "home",
-    "leaderboard_page",
-    "legacy_play_redirect",
-    "legacy_play_upcoming_redirect",
-    "operator_join_page",
-    "privacy",
-    "terms",
-]
-verdict = "unjudged"
-note = ""
-
-[[reexports]]
-module = "app/routes/web_support.py"
-names = [
-    "GameScopedMatch",
-    "GameScopedMatchOr404",
-    "GameScopedMatchPost",
-    "GameScopedMatchToViewer",
-    "GameSlugRedirect",
-    "_agent_count",
-    "_agent_counts",
-    "_corrected_game_path",
-    "_load_match_or_404",
-    "_make_game_scoped_match_loader",
-    "_make_game_scoped_match_or_404_loader",
-    "_match_url",
-    "_upcoming_views",
-    "game_slug_redirect_response",
-    "load_game_match_or_404",
-    "load_game_scoped_match",
-    "load_game_scoped_match_or_404",
-    "load_game_scoped_match_post",
-    "load_game_scoped_match_to_viewer",
-    "load_match_or_404",
-    "raise_for_game_slug_mismatch",
-]
-verdict = "unjudged"
-note = ""
-
-[[reexports]]
-module = "mcp_server/key_auth.py"
-names = ["looks_like_connection_key"]
-verdict = "unjudged"
-note = ""
+verdict = "leave"
+note = "package API"
 
 [[reexports]]
 module = "mcp_server/server.py"
@@ -771,7 +693,7 @@ verdict = "unjudged"
 
 [[oversized]]
 file = "app/engine/agent_play.py"
-lines = 476
+lines = 467
 kind = "source"
 
 [[oversized]]
@@ -801,7 +723,7 @@ kind = "source"
 
 [[oversized]]
 file = "app/engine/scheduler.py"
-lines = 469
+lines = 466
 kind = "source"
 
 [[oversized]]
@@ -871,7 +793,7 @@ kind = "source"
 
 [[oversized]]
 file = "mcp_server/mcp_tools.py"
-lines = 471
+lines = 473
 kind = "source"
 
 [[oversized]]

@@ -20,7 +20,12 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
-from app.engine.tokens import bot_key_hint, bot_key_lookup, generate_connection_key
+from app.engine.tokens import (
+    bot_key_hint,
+    bot_key_lookup,
+    generate_connection_key,
+    looks_like_connection_key,
+)
 from app.routes.connections_connect_guide import ANTIGRAVITY_KEY_PLACEHOLDER
 from app.models import Base
 from app.models.connection import Connection, ConnectionStatus
@@ -209,9 +214,9 @@ async def test_paused_connection_authenticates_then_fails_downstream(
 
 def test_only_connection_keys_take_the_key_path() -> None:
     """Routing is by prefix, so a JWT bearer never reaches the key verifier."""
-    assert key_auth.looks_like_connection_key(generate_connection_key())
-    assert not key_auth.looks_like_connection_key("eyJhbGciOiJIUzI1NiJ9.e30.sig")
-    assert not key_auth.looks_like_connection_key("")
+    assert looks_like_connection_key(generate_connection_key())
+    assert not looks_like_connection_key("eyJhbGciOiJIUzI1NiJ9.e30.sig")
+    assert not looks_like_connection_key("")
 
 
 async def test_provider_dispatches_a_key_with_the_scopes_it_enforces(

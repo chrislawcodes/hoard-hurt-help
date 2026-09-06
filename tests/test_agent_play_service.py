@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.engine import agent_play
+from app.engine.agent_play_next_turn import get_next_turn, get_next_turns
 from app.engine.connection_activity import mark_seen
 from app.engine.tokens import generate_turn_token
 from app.models import Connection, GameState, Match, Player, Turn
@@ -122,7 +123,7 @@ async def test_next_turn_service_returns_payload(reset_db):
             )
         ).scalar_one()
         await mark_seen(db, connection, presented_key_hash=connection.key_lookup)
-        response = await agent_play.get_next_turn(db, connection)
+        response = await get_next_turn(db, connection)
         assert response["status"] == "your_turn"
         assert response["match_id"] == seed["match_id"]
         assert response["turn_token"] == seed["turn_token"]
@@ -147,7 +148,7 @@ async def test_next_turn_stamps_play_loop_heartbeat(reset_db, monkeypatch):
             )
         ).scalar_one()
         assert connection.last_polled_at is None
-        await agent_play.get_next_turn(db, connection)
+        await get_next_turn(db, connection)
     async with reset_db() as db:
         refreshed = (
             await db.execute(
@@ -171,7 +172,7 @@ async def test_next_turns_stamps_play_loop_heartbeat_when_waiting(reset_db):
         connection, _key = await make_connection(db, user)
         assert connection.last_polled_at is None
         # No match or turn seeded → the AI is waiting, not serving a turn.
-        response = await agent_play.get_next_turns(db, connection)
+        response = await get_next_turns(db, connection)
         assert response["status"] != "your_turn"
         connection_id = connection.id
     async with reset_db() as db:

@@ -7,7 +7,8 @@ import pytest
 from sqlalchemy import func, select
 
 from app.engine import scheduler
-from app.engine.scheduler import _all_submitted, _wait_for_turn
+from app.engine.scheduler_turn_loop import _all_submitted, _wait_for_turn
+from app.engine.scheduler_turn_loop import _open_turn as _prod_open_turn
 from app.engine.tokens import generate_turn_token
 from app.models import Match, GameState, Player, Turn, TurnSubmission, User
 from tests.factories import make_bot
@@ -158,9 +159,12 @@ async def test_open_turn_reuses_existing_row_on_resume(db):
     # Resuming at game.current_turn hits a turn row that already exists.
     # _open_turn must return that same row, not blow up on the
     # (match_id, round, turn) unique constraint (the bug that froze G_0012).
+    # This calls the real scheduler_turn_loop._open_turn (imported above as
+    # _prod_open_turn to avoid shadowing this file's own _open_turn fixture
+    # helper), not the fixture — its get-or-create behavior is what's under test.
     game, _ = await _make_game(db, n_players=3)
-    first = await scheduler._open_turn(db, game, 2, 5)
-    again = await scheduler._open_turn(db, game, 2, 5)
+    first = await _prod_open_turn(db, game, 2, 5)
+    again = await _prod_open_turn(db, game, 2, 5)
 
     assert again.id == first.id
     count = await db.scalar(
@@ -172,8 +176,9 @@ async def test_open_turn_reuses_existing_row_on_resume(db):
 
 
 async def test_open_turn_creates_fresh_row_and_sets_pointer(db):
+    # Real scheduler_turn_loop._open_turn (see _prod_open_turn note above).
     game, _ = await _make_game(db, n_players=3)
-    turn = await scheduler._open_turn(db, game, 3, 7)
+    turn = await _prod_open_turn(db, game, 3, 7)
 
     assert (turn.round, turn.turn) == (3, 7)
     assert turn.resolved_at is None
