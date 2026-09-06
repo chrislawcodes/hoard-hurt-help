@@ -5,7 +5,6 @@ Routes and middleware are added by each phase.
 
 import asyncio
 import logging
-import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -79,25 +78,21 @@ SESSION_MAX_AGE_SECONDS = 90 * 24 * 60 * 60
 # upstream validation). Off by default; set MCP_AUTH_DEBUG=1 to surface the
 # precise reason a bearer token is rejected on /mcp, without flooding normal
 # request logs. Safe to leave wired in — it only raises one sub-logger's level.
-if os.getenv("MCP_AUTH_DEBUG", "").strip() == "1":
+if settings.mcp_auth_debug:
     logging.getLogger("fastmcp.server.auth").setLevel(logging.DEBUG)
     logger.warning("MCP_AUTH_DEBUG=1: fastmcp auth-layer DEBUG logging is ON")
 
 
 def _should_run_startup_migrations() -> bool:
     """Skip automatic migrations in tests and on Railway; run them elsewhere."""
-    if os.getenv("PYTEST_CURRENT_TEST"):
+    if settings.in_test_run:
         return False
     # Railway runs migrations in preDeployCommand, before the container starts.
     # The runtime env marker keeps the app from repeating the same work and
     # stalling the healthcheck window.
-    if os.getenv("RAILWAY_ENVIRONMENT_ID"):
+    if settings.in_production:
         return False
-    return os.getenv("SKIP_STARTUP_MIGRATIONS", "").strip().lower() not in {
-        "1",
-        "true",
-        "yes",
-    }
+    return not settings.skip_startup_migrations
 
 
 def _check_oauth_config() -> None:
@@ -111,7 +106,7 @@ def _check_oauth_config() -> None:
     Missing vars are named explicitly so the operator can fix them without
     reading source code.
     """
-    if os.getenv("PYTEST_CURRENT_TEST"):
+    if settings.in_test_run:
         return
 
     problems = [
@@ -151,7 +146,7 @@ def _check_oauth_config() -> None:
         return
 
     problems_str = "; ".join(problems)
-    if os.getenv("RAILWAY_ENVIRONMENT_ID"):
+    if settings.in_production:
         # Fail loud BEFORE serving traffic so /mcp never starts in a broken,
         # fail-open state (the GoogleProvider dev-placeholder fallback must never
         # run in a real deployment).
@@ -171,7 +166,7 @@ def _check_platform_admin_config() -> None:
     Advisory only — the app still starts. Without a floor admin no one can
     reach /admin/matches, so operators should notice quickly. Tests are skipped.
     """
-    if os.getenv("PYTEST_CURRENT_TEST"):
+    if settings.in_test_run:
         return
     if not settings.platform_admin_emails_set:
         logger.warning(
@@ -289,7 +284,7 @@ def create_app() -> FastAPI:
     app.add_middleware(
         CanonicalHostMiddleware,
         canonical_host=canonical_host_of(settings.base_url),
-        enabled=bool(os.getenv("RAILWAY_ENVIRONMENT_ID")),
+        enabled=settings.in_production,
     )
 
     app.mount("/static", StaticFiles(directory="app/static"), name="static")

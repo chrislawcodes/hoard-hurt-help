@@ -7,12 +7,12 @@ game-agnostic talk/round/game finalization to `app.engine.resolver`.
 
 from __future__ import annotations
 
-import os
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import select
 
 from app.agent_prompt import make_agent_base_prompt
+from app.config import settings
 from app.engine import resolver
 from app.engine.turn_clock import now_utc
 from app.games.base import (
@@ -55,10 +55,6 @@ if TYPE_CHECKING:
 # Derived, never re-listed: the move vocabulary lives in rules.ACTIONS.
 _VALID_ACTIONS = frozenset(ACTIONS)
 
-# Act-phase window for new matches. Reasoning models (e.g. gpt-5.4-mini) can take
-# ~50s to decide a move; 75s clears them with margin.
-DEFAULT_ACT_DEADLINE_SECONDS = 75
-
 
 def act_deadline_seconds() -> int:
     """The act-phase window a new match starts with.
@@ -73,8 +69,12 @@ def act_deadline_seconds() -> int:
     module — a reload would swap the HoardHurtHelp class out from under the game
     registry. Note a change still only reaches matches created afterwards, since each
     match stores its own deadline at creation time.
+
+    Delegates to settings.act_deadline_seconds (app/config.py owns the actual
+    env read); that property reads fresh on every access, so this stays a
+    per-call read too.
     """
-    return int(os.environ.get("HHH_ACT_DEADLINE_SECONDS", DEFAULT_ACT_DEADLINE_SECONDS))
+    return settings.act_deadline_seconds
 
 
 def _shipped_counts(
