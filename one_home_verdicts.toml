@@ -405,12 +405,6 @@ verdict = "rename"
 note = "renamed from _seed_agent; seeds both a user and an agent in one call and returns their bare ids rather than model objects"
 
 [[test_helpers]]
-name = "_seed_connection"
-files = ["tests/test_bot_agents.py", "tests/test_connection_auth.py"]
-verdict = "unjudged"
-note = ""
-
-[[test_helpers]]
 name = "_seed_disabled_user"
 files = ["tests/test_account_disabled.py", "tests/test_contact_page.py", "tests/test_legal_pages.py"]
 verdict = "unjudged"
