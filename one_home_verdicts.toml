@@ -1326,3 +1326,23 @@ windows = 8
 file_a = "tests/test_agent_next_turn_pacing.py"
 file_b = "tests/test_agent_next_turn_payload.py"
 windows = 8
+
+# --- idiom_baselines (PR U3) ---
+# A "looked at it, leaving it on purpose" record for a site that matches one
+# of this repo's small shared-idiom scans (app/engine/turn_clock.seconds_until,
+# app/match_naming.humanize_game_type) but is not the same rule as the one
+# home — a real behaviour difference, or the same transform shape applied to
+# a genuinely different kind of value. `idiom` names which scan the site
+# would otherwise trip; `file`/`line` pin it.
+#
+# Read by tests/test_small_idioms_have_one_home.py, whose scans skip exactly
+# these (idiom, file, line) triples — a hit anywhere else still fails. `idiom`
+# must be one of the names those scans use; a typo there is itself caught by
+# that file's test_baselined_sites_are_recorded_with_the_right_idiom.
+
+[[idiom_baselines]]
+idiom = "seconds_until"
+file = "app/routes/web_seat_connect.py"
+line = 172
+note = "keeps one clock snapshot (`now`, bound once earlier in the function) across two reads; seconds_until() would read the clock a second time — a real behaviour change, not a duplicate"
+pr = "PR U3"

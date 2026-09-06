@@ -26,7 +26,7 @@ from sqlalchemy import select
 from app.broadcast import publish
 from app.engine.bot_kind import is_bot_kind
 from app.engine.tokens import generate_turn_token
-from app.engine.turn_clock import SUBMIT_POLL_SECONDS, now_utc
+from app.engine.turn_clock import SUBMIT_POLL_SECONDS, now_utc, seconds_until
 from app.models.player import Player
 from app.models.turn import Turn
 
@@ -175,7 +175,7 @@ class SequentialDriver:
         if deadline.tzinfo is None:
             deadline = deadline.replace(tzinfo=timezone.utc)
         while True:
-            remaining = (deadline - now_utc()).total_seconds()
+            remaining = seconds_until(deadline)
             if remaining <= 0:
                 return
             if await self._has_real_submission(db, turn, player):

@@ -34,7 +34,7 @@ from app.engine import resolver
 from app.engine.agent_play_reads import load_turn_at
 from app.engine.match_cancellation import mark_cancelled
 from app.engine.tokens import generate_turn_token
-from app.engine.turn_clock import SUBMIT_POLL_SECONDS, now_utc
+from app.engine.turn_clock import SUBMIT_POLL_SECONDS, now_utc, seconds_until
 from app.engine.turn_drivers import SequentialDriver, TurnDriver
 from app.games import get as get_game_module
 from app.games.base import GameError
@@ -379,7 +379,7 @@ async def _wait_for_messages(db, turn: Turn) -> None:
     """Block until the talk deadline, or until all active players have messaged."""
     deadline = ensure_aware(turn.deadline_at)
     while True:
-        remaining = (deadline - now_utc()).total_seconds()
+        remaining = seconds_until(deadline)
         if remaining <= 0:
             return
         if await _all_messaged(db, turn):
@@ -412,7 +412,7 @@ async def _wait_for_turn(db, turn: Turn) -> None:
     """Block until the turn deadline, or until all active players have submitted."""
     deadline = ensure_aware(turn.deadline_at)
     while True:
-        remaining = (deadline - now_utc()).total_seconds()
+        remaining = seconds_until(deadline)
         if remaining <= 0:
             return
         if await _all_submitted(db, turn):
