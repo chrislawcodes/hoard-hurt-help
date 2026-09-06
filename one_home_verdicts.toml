@@ -25,7 +25,9 @@
 #   leave    = looked at, kept as two definitions on purpose.
 #   rename   = looked at, will be told apart by a rename rather than merged.
 #   merged   = it used to be duplicated; the merge landed, so this name
-#              should NOT be found by the scanner any more.
+#              should NOT be found by the scanner any more. Carries a `home`
+#              key naming the module the merged copy now lives in — the
+#              ratchet test names it when a copy comes back.
 #   unjudged = nobody has looked at this pair yet.
 
 [[function_names]]
@@ -55,6 +57,7 @@ files = ["app/read_models/leaderboard.py", "app/routes/web_games_catalog.py"]
 verdict = "merged"
 note = "identical bodies; merged into app.games.game_display_name"
 pr = "PR H"
+home = "app/games/__init__.py"
 
 [[function_names]]
 name = "_load_user_agents"
@@ -73,6 +76,7 @@ files = ["app/games/hoard_hurt_help/game.py", "app/games/liars_dice/game.py"]
 verdict = "merged"
 note = "both game modules now import turn_clock.now_utc instead of defining their own _now (PR #748); guarded by tests/test_now_helper_single_source.py"
 pr = "PR A"
+home = "app/engine/turn_clock.py"
 
 [[function_names]]
 name = "_safe_next"
@@ -438,7 +442,9 @@ note = "thin assembler re-exports on purpose"
 # verdict is one of: leave | merged | unjudged
 #   leave    = looked at, kept as two (or more) definitions on purpose.
 #   merged   = it used to be duplicated; the merge landed, so this name
-#              should NOT be found by the test any more.
+#              should NOT be found by the test any more. Carries a `home`
+#              key naming the module the merged copy now lives in — the
+#              ratchet test names it when a copy comes back.
 #   unjudged = nobody has looked at this one yet — today's baseline, so the
 #              count can only fall from here.
 
@@ -469,6 +475,7 @@ files = [
 ]
 verdict = "merged"
 note = "8 copies (test_agent_detail_fixes, test_agent_versions, test_connection_management, test_coverage_health_and_join_gate, test_human_join, test_human_plus_agent_join, test_readiness_adoption, test_user_start_solo_match) already held an open db session, so they were deleted and call tests.factories.make_match directly; 1 renamed to _make_mutual_help_match (test_mutual_help_modes.py) because it needs the mutual_help_mode field make_match doesn't support and seats players a different way"
+home = "tests/factories.py"
 
 [[test_helpers]]
 name = "_make_turn"
@@ -499,6 +506,7 @@ files = [
 ]
 verdict = "merged"
 note = "2 copies (test_lobby.py, test_lobby_join_and_stacking.py) were byte-identical and merged into tests.factories.seed_connected_agent; 3 renamed because each does something that helper can't represent: _seed_lineup_agent (test_join_lineup.py — takes a blurb, no key param, returns just the Agent), _seed_agent_with_connection (test_bot_soft_delete.py — simpler connection bookkeeping, returns the Connection object itself), _seed_user_and_agent_ids (test_agent_set_model.py — seeds both a user and an agent in one call, returns bare ids)"
+home = "tests/factories.py"
 
 [[test_helpers]]
 name = "_seed_agent_with_connection"
@@ -555,6 +563,7 @@ files = [
 ]
 verdict = "merged"
 note = "6 copies (test_admin_add_bots, test_agent_ludum_routing, test_bot_form_validation, test_bot_soft_delete, test_lobby, test_lobby_join_and_stacking) merged into tests.factories.seed_match; 3 renamed because each does more than seed_match can represent: _seed_game_with_players (test_agent_api.py — seats players, takes scheduled_start, returns a tuple), _seed_two_phase_match (test_agent_two_phase.py — a fixed two-phase match plus seated players), _seed_c2_match (test_turn_openers.py — takes an already-open db session)"
+home = "tests/factories.py"
 
 [[test_helpers]]
 name = "_seed_match"
@@ -575,6 +584,7 @@ files = [
 ]
 verdict = "merged"
 note = "8 copies merged into tests.factories.seed_match; 2 (test_bot_agents.py, test_bot_profile_validation.py) deleted and call make_match directly since they already held an open session; 3 renamed (see _seed_liars_dice_driver_match, _seed_liars_dice_module_match, _seed_match_from_rounds) because each does game- or scenario-specific work make_match can't represent"
+home = "tests/factories.py"
 
 [[test_helpers]]
 name = "_seed_liars_dice_driver_match"
@@ -614,6 +624,7 @@ files = [
 ]
 verdict = "merged"
 note = "2 copies (test_join_lineup.py, test_bot_soft_delete.py) were thin make_user wrappers and merged into tests.factories.seed_user; test_matches_user.py's copy (a caller-chosen role, no allowlist lookup) now calls seed_user directly with its `role` argument; 2 copies (test_lobby.py, test_lobby_join_and_stacking.py) that also derive role from settings.platform_admin_emails_set were byte-identical and merged into tests.factories.seed_user_with_role; 2 copies (test_admin.py, test_admin_add_bots.py) that build the row from a caller-given email instead of an index were byte-identical and merged into tests.factories.seed_email_user_with_role; test_bot_agents.py's copy renamed to _seed_user_with_handle because it takes an already-open db session and needs a `None` handle to stay `None` (make_user always falls back to a derived one)"
+home = "tests/factories.py"
 
 [[test_helpers]]
 name = "_seed_user_with_handle"
