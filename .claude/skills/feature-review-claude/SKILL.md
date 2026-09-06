@@ -54,7 +54,7 @@ normally would. This skill replaces only the **review** half of the checkpoint.
 
 ## The dance (per stage)
 
-Run from the repo root. `RF=docs/workflow/operations/codex-skills/feature-factory/scripts/run_factory.py`.
+Run from the repo root. `RF=tools/feature-factory/feature-factory/scripts/run_factory.py`.
 
 ### 1. Prepare — build the manifest + emit one prompt per lens
 
@@ -93,7 +93,7 @@ transcript alone only records a streaming-start output snapshot).
 
 ### 3. Assemble — turn each reply into a checkpoint-compatible review file
 
-`RCR=docs/workflow/operations/codex-skills/review-lens/scripts/run_claude_review.py`
+`RCR=tools/feature-factory/review-lens/scripts/run_claude_review.py`
 
 For each entry:
 

@@ -63,7 +63,7 @@ Run the diff stage of the `feature-review-claude` dance. The prepare step genera
 the canonical diff for you (scope it with `--path`):
 
 ```bash
-RF=docs/workflow/operations/codex-skills/feature-factory/scripts/run_factory.py
+RF=tools/feature-factory/feature-factory/scripts/run_factory.py
 python3 $RF prepare-claude-reviews --slug <slug> --stage diff \
   --path <file-or-dir touched by this slice> [--path ...] --base-ref origin/main
 ```

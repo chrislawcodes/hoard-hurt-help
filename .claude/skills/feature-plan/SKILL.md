@@ -14,12 +14,12 @@ hoard-hurt-help has a **repo-owned Feature Factory engine**. Drive it; do not ha
 
 ## Read first
 
-- Engine guide: `docs/workflow/operations/codex-skills/feature-factory/SKILL.md`
+- Engine guide: `tools/feature-factory/feature-factory/SKILL.md`
 
 ## How to run the plan stage
 
 ```bash
-RUN=docs/workflow/operations/codex-skills/feature-factory/scripts/run_factory.py
+RUN=tools/feature-factory/feature-factory/scripts/run_factory.py
 python3 $RUN status --slug <slug>            # confirm spec stage is checkpointed first
 ```
 

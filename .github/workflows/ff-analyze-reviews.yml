@@ -32,7 +32,7 @@ jobs:
 
       - name: Run analyze-reviews
         run: |
-          python3 docs/workflow/operations/codex-skills/feature-factory/scripts/run_factory.py \
+          python3 tools/feature-factory/feature-factory/scripts/run_factory.py \
             analyze-reviews
 
       - name: Upload report

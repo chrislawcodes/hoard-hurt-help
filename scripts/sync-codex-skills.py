@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Vendored-fork marker for the Feature Factory / review-lens engine.
 
-The engine under ``docs/workflow/operations/codex-skills/`` is a VENDORED FORK of
+The engine under ``tools/feature-factory/`` is a VENDORED FORK of
 the ValueRank project's workflow engine. There is no automated upstream sync:
 changes flow ValueRank -> here by manual port, and this repo's copy is the source
 of truth for hoard-hurt-help. See ``docs/workflow/FEATURE_FACTORY_DESIGN.md`` (Section 11).
@@ -15,7 +15,7 @@ import sys
 
 _NOTICE = (
     "Feature Factory engine is a vendored fork of ValueRank — there is no automated sync.\n"
-    "This repo's copy under docs/workflow/operations/codex-skills/ is authoritative; port\n"
+    "This repo's copy under tools/feature-factory/ is authoritative; port\n"
     "upstream changes by hand. See docs/workflow/FEATURE_FACTORY_DESIGN.md (Section 11)."
 )
 
