@@ -16,6 +16,7 @@ from app.games import known_types
 from app.games.hoard_hurt_help.rules import DEFAULT_MUTUAL_HELP_MODE
 from app.models.game_state import MatchState
 from app.models.match import GameState, Match, MatchKind
+from app.engine.turn_clock import now_utc
 
 
 # Games whose module owns per-match config. Everything else stores an empty
@@ -113,7 +114,7 @@ async def create_match(
         raise ValueError(f"Unknown game type {game!r}.")
     if scheduled_start.tzinfo is None:
         scheduled_start = scheduled_start.replace(tzinfo=timezone.utc)
-    if scheduled_start <= datetime.now(timezone.utc):
+    if scheduled_start <= now_utc():
         raise ValueError("scheduled_start must be in the future.")
     if not (1 <= min_players <= 20) or not (1 <= max_players <= 20):
         raise ValueError("Player counts must be 1 to 20.")

@@ -32,7 +32,6 @@ import asyncio
 import functools
 import logging
 from collections.abc import Awaitable, Callable
-from datetime import datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -59,6 +58,7 @@ from app.models.match import (
 from app.models.player import Player
 from app.ops_events import log_ops_event
 from app.request_logging import record_background_incident
+from app.engine.turn_clock import now_utc
 
 # _run_game, _wait_for_messages, _wait_for_turn, auto_submit_bot_phase, publish,
 # and record_background_incident are not defined here, but stay in __all__ on
@@ -154,7 +154,7 @@ class SchedulerRegistry:
         factory = session_factory or SessionLocal
         started = 0
         async with factory() as db:
-            now = datetime.now(timezone.utc)
+            now = now_utc()
             games = (
                 (
                     await db.execute(
@@ -333,7 +333,7 @@ class SchedulerRegistry:
 
     async def _watchdog(self, factory: async_sessionmaker) -> None:
         """Cancel playerless ACTIVE games; restart ACTIVE games with dead tasks."""
-        now = datetime.now(timezone.utc)
+        now = now_utc()
         async with factory() as db:
             active_games: list[Match] = list(
                 (await db.execute(select(Match).where(Match.state == GameState.ACTIVE)))
@@ -406,7 +406,7 @@ async def cancel_overdue_unfilled_games(db) -> int:
     waiting to start is left untouched here. Only the (common) under-floor case —
     a game whose moment passed without enough players — is resolved on read.
     """
-    now = datetime.now(timezone.utc)
+    now = now_utc()
     games = (
         (
             await db.execute(
@@ -476,7 +476,7 @@ async def start_game(db, game: Match) -> None:
         game.state = GameState.REGISTERING
     assert_transition(game.state, GameState.ACTIVE)
     game.state = GameState.ACTIVE
-    game.started_at = datetime.now(timezone.utc)
+    game.started_at = now_utc()
     # Same transaction as the ACTIVE flip: the pins and the state change commit
     # (or fail) together, so serving never sees a started match with stale pins.
     await _pin_current_versions(db, game.id)

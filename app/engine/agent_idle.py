@@ -35,7 +35,7 @@ it.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -49,6 +49,7 @@ from app.models.connection import Connection
 from app.models.match import GameState, Match
 from app.models.player import Player
 from app.models.turn import TurnSubmission
+from app.engine.turn_clock import now_utc
 
 # How long the interactive client may go with NO game before the server hints it
 # should stop polling. ~10 minutes.
@@ -208,7 +209,7 @@ async def game_timing_for_user(
     Shared by the play loop's pacing and the on-page "next game" status line, so
     both read the same truth. Pass ``agent_id`` to scope to one agent.
     """
-    now = now or datetime.now(timezone.utc)
+    now = now or now_utc()
     games = await _seated_game_states(db, user_id, agent_id=agent_id)
     has_live = any(state == GameState.ACTIVE for state, _ in games)
     starts = [
@@ -272,7 +273,7 @@ async def compute_idle_status(
     that agent, so its pacing follows its own soonest game — not a busier sibling
     agent on the same connection.
     """
-    now = now or datetime.now(timezone.utc)
+    now = now or now_utc()
     timing = await game_timing_for_user(
         db, connection.user_id, now=now, agent_id=agent_id
     )

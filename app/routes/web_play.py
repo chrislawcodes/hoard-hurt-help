@@ -15,7 +15,6 @@ path does.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Path, Request, status
@@ -50,6 +49,7 @@ from app.routes.web_support import (
     require_can_view_game,
     unique_seat_name,
 )
+from app.engine.turn_clock import now_utc
 
 router = APIRouter(tags=["web"])
 
@@ -140,7 +140,7 @@ async def _load_open_turn(
             "That turn already resolved — hang tight for the next one.",
             status.HTTP_409_CONFLICT,
         )
-    if datetime.now(timezone.utc) >= ensure_aware(turn.deadline_at):
+    if now_utc() >= ensure_aware(turn.deadline_at):
         raise _play_error(
             "TURN_RESOLVED",
             "That turn already resolved — hang tight for the next one.",
@@ -374,7 +374,7 @@ async def play_leave(
             "NOT_YOUR_SEAT", "You're not in this match.", status.HTTP_403_FORBIDDEN
         )
     match = await _load_match_or_404(db, match_id)
-    now = datetime.now(timezone.utc)
+    now = now_utc()
     if match.state in (GameState.SCHEDULED, GameState.REGISTERING):
         row.left_at = now  # pre-start: free the seat entirely
     elif match.state == GameState.ACTIVE and row.autopilot_at is None:

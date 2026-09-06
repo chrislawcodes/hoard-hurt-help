@@ -10,7 +10,6 @@ by both of those siblings lives here.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from typing import Literal, Sequence, cast
 
 from fastapi import status
@@ -33,6 +32,7 @@ from app.schemas.agent import (
     TalkMessage,
 )
 from app.seat_talk import seat_talk_text
+from app.engine.turn_clock import now_utc
 
 # How many of the most-recent resolved turns the per-poll payload carries. The
 # poll is served on every loop iteration, so it must stay small: re-sending the
@@ -429,7 +429,7 @@ async def _load_active_phase_turn(
             f"Turn is not in {expected_phase} phase.",
             status.HTTP_409_CONFLICT,
         )
-    if datetime.now(timezone.utc) >= ensure_aware(turn.deadline_at):
+    if now_utc() >= ensure_aware(turn.deadline_at):
         raise _err("DEADLINE_PASSED", "Submission past deadline.", status.HTTP_410_GONE)
     return game, turn
 

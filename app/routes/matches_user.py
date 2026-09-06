@@ -8,7 +8,7 @@ separate admin create route.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Path, Request, status
@@ -50,6 +50,7 @@ from app.routes.web_support import (
     require_can_view_game,
 )
 from app.templating import templates
+from app.engine.turn_clock import now_utc
 
 router = APIRouter(tags=["web"])
 
@@ -246,7 +247,7 @@ async def create_match_submit(
             submitted=submitted,
         )
     when = ensure_aware(when)
-    if when <= datetime.now(timezone.utc):
+    if when <= now_utc():
         return _html_error(
             request,
             user,

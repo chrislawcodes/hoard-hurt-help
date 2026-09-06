@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,6 +13,7 @@ from app.models.match import GameState, Match
 from app.models.player import Player
 from app.models.request_incident import RequestIncident
 from app.models.turn import Turn, TurnMessage, TurnSubmission
+from app.engine.turn_clock import now_utc
 
 
 def cancel_blocked_reason(match: Match, *, allow_active: bool = False) -> str | None:
@@ -61,7 +61,7 @@ async def cancel_match(db: AsyncSession, match: Match) -> None:
     cancelled. Committing first means it is no longer ACTIVE when the task
     stops, so the watchdog correctly ignores it.
     """
-    mark_cancelled(match, datetime.now(timezone.utc))
+    mark_cancelled(match, now_utc())
     await db.commit()
     registry.stop(match.id)
 

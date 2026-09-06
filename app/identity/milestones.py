@@ -29,7 +29,7 @@ Hence the listener path takes a savepoint on the *connection*
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import insert
@@ -38,6 +38,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
 from app.models.user_milestone import MilestoneKind, UserMilestone
+from app.engine.turn_clock import now_utc
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +54,7 @@ def build_row(
     return {
         "user_id": user_id,
         "milestone": milestone,
-        "reached_at": reached_at or datetime.now(timezone.utc),
+        "reached_at": reached_at or now_utc(),
         "source_match_id": source_match_id,
     }
 

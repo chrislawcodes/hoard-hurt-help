@@ -20,8 +20,17 @@ source and fails if a second now-helper appears anywhere in ``app/`` or
 ``mcp_server/``, under any name. It deliberately matches only the exact shape
 ``return datetime.now(timezone.utc)`` — a function that merely *uses* the
 current time while doing something else (``identity/milestones.build_row``
-takes it as a dict default; the standalone operator connector formats it into a
-log timestamp) is not a now-helper and is not caught.
+used to take it as a dict default; the standalone operator connector formats it
+into a log timestamp) is not a now-helper and is not caught by that check.
+
+A second guard below closes the gap the first one leaves open: 71 call sites
+across 42 files wrote the raw expression ``datetime.now(timezone.utc)`` inline
+without ever wrapping it in a function, so the shape-based check above never
+saw them. That guard reads the source as plain TEXT and fails on the literal
+string ``datetime.now(timezone.utc)`` appearing anywhere in ``app/`` or
+``mcp_server/`` outside this module — no AST shape required, so nothing about
+*how* it's written (a dict default, a log line, a bare expression) lets it
+hide.
 """
 
 from __future__ import annotations
@@ -105,3 +114,49 @@ def test_the_scan_ignores_functions_that_merely_use_the_clock() -> None:
     assert not _is_now_helper(uses_clock_but_is_not_a_helper)
     assert not _is_now_helper(formats_the_clock)
     assert _is_now_helper(real_helper)
+
+
+def _find_inline_now_calls(root: Path) -> list[tuple[str, int]]:
+    """[(file, line)] for every raw-text occurrence of `datetime.now(timezone.utc)`
+    outside the one home. Unlike `_find_now_helpers`, this does not require the
+    expression to be a function's whole body — it catches the literal text
+    wherever it appears (a default, a log line, an inline call), which is what
+    let 71 call sites hide from the shape-based check above."""
+    found: list[tuple[str, int]] = []
+    for top in SEARCH_ROOTS:
+        top_dir = root / top
+        if not top_dir.is_dir():
+            continue
+        for path in sorted(top_dir.rglob("*.py")):
+            if "__pycache__" in str(path):
+                continue
+            rel = str(path.relative_to(root))
+            if rel == CANONICAL_FILE:
+                continue
+            for lineno, line in enumerate(
+                path.read_text(encoding="utf-8").splitlines(), start=1
+            ):
+                if _NOW_BODY in line:
+                    found.append((rel, lineno))
+    return found
+
+
+def test_no_inline_now_call_outside_the_one_home() -> None:
+    hits = _find_inline_now_calls(_REPO_ROOT)
+    assert not hits, "\n".join(
+        f"{f}:{n}: use now_utc() from {CANONICAL_FILE} instead of writing "
+        f"`{_NOW_BODY}` inline" for f, n in hits
+    )
+
+
+def test_the_scan_catches_a_planted_inline_call(tmp_path: Path) -> None:
+    """Pins the bug this guard exists to catch: a raw inline call, anywhere in
+    app/ or mcp_server/, that never went through a function the shape-based
+    check above could see."""
+    app_dir = tmp_path / "app"
+    app_dir.mkdir()
+    (app_dir / "_zz.py").write_text(
+        "from datetime import datetime, timezone\n\n\ndef f():\n    return datetime.now(timezone.utc)\n"
+    )
+    (tmp_path / "mcp_server").mkdir()
+    assert _find_inline_now_calls(tmp_path) == [("app/_zz.py", 5)]

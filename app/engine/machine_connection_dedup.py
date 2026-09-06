@@ -35,6 +35,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.aware_datetime import ensure_aware
 from app.models.connection import Connection, ConnectionStatus
 from app.models.connection_setup import ConnectionSetup
+from app.engine.turn_clock import now_utc
 
 # A machine seen this recently is treated as still in use; older than this with
 # no fresher sibling, it is an abandoned row safe to retire. Generous on purpose
@@ -97,7 +98,7 @@ async def dedupe_machine_connections(
     connect-page load and on every machine reconnect — it only ever soft-deletes
     machine rows (``mcp_connected_at IS NULL``), never an MCP sign-in connection.
     """
-    now = now or datetime.now(timezone.utc)
+    now = now or now_utc()
     stale_cutoff = now - STALE_AFTER
     new_cutoff = now - _NEW_GRACE
 

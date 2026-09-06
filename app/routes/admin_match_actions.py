@@ -12,7 +12,6 @@ module only orchestrates load + scope.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 
 from fastapi import HTTPException
 from fastapi.responses import StreamingResponse
@@ -32,6 +31,7 @@ from app.read_models.match_export import (
     build_json_export,
 )
 from app.schemas.admin import CreateGameRequest, GameRecord
+from app.engine.turn_clock import now_utc
 
 __all__ = [
     "build_game_record",
@@ -73,7 +73,7 @@ async def create_game_record(
     message. There used to be a second caller that wanted a 404 here; it was an
     exact duplicate of this one and was removed with the game-admin role.
     """
-    if body.scheduled_start <= datetime.now(timezone.utc):
+    if body.scheduled_start <= now_utc():
         raise HTTPException(400, detail="scheduled_start must be in the future.")
     try:
         module = get_game_module(game)

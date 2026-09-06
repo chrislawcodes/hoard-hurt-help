@@ -2,7 +2,6 @@
 
 import logging
 from typing import Annotated
-from datetime import datetime, timezone
 from urllib.parse import quote
 
 from fastapi import Depends, Header, HTTPException, Path, Query, Request, status
@@ -27,6 +26,7 @@ from app.models.connection_provider import ConnectionProvider as ConnectionProvi
 from app.models.connection_setup import ConnectionSetup
 from app.models.player import Player
 from app.models.user import User, UserRole
+from app.engine.turn_clock import now_utc
 
 logger = logging.getLogger(__name__)
 
@@ -278,7 +278,7 @@ async def require_connection(
             )
             await db.flush()
         setup.connection_id = connection.id
-        setup.completed_at = datetime.now(timezone.utc)
+        setup.completed_at = now_utc()
         connection = (
             await db.execute(
                 select(Connection)

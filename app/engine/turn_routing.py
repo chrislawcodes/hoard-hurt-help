@@ -11,12 +11,13 @@ here.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 from collections.abc import Mapping
 
 from app.aware_datetime import ensure_aware
 from app.engine.connection_health_badge import LIVE_WINDOW_SECONDS
 from app.models.connection import ConnectionProvider
+from app.engine.turn_clock import now_utc
 
 
 def _provider_value(provider: str | ConnectionProvider) -> str:
@@ -45,7 +46,7 @@ class TurnPin:
 
 def connection_is_dead(connection: ConnectionRouteState, *, now: datetime | None = None) -> bool:
     """Return True when the connection should be treated as dead for failover."""
-    now = now or datetime.now(timezone.utc)
+    now = now or now_utc()
     last_seen = connection.last_seen_at
     if connection.paused or connection.deleted:
         return True

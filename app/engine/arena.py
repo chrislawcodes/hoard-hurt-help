@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Awaitable, Callable
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 from sqlalchemy import func, select
 
@@ -44,6 +44,7 @@ from app.models.match import (
 )
 from app.models.player import Player
 from app.ops_events import log_ops_event
+from app.engine.turn_clock import now_utc
 
 logger = logging.getLogger(__name__)
 
@@ -158,7 +159,7 @@ def _auto_match_name(boundary: datetime) -> str:
 
 def _next_boundary() -> datetime:
     """Return the next AUTO_MATCH_INTERVAL_MINUTES clock boundary (UTC) from now."""
-    now = datetime.now(timezone.utc)
+    now = now_utc()
     # Snap down to the current interval boundary, then step one interval forward.
     current_slot_minute = (now.minute // AUTO_MATCH_INTERVAL_MINUTES) * AUTO_MATCH_INTERVAL_MINUTES
     floor = now.replace(minute=current_slot_minute, second=0, microsecond=0)
@@ -255,7 +256,7 @@ async def ensure_practice_arena(db: AsyncSession) -> None:
             and existing.max_players == PRACTICE_ARENA_MAX_PLAYERS
         ):
             return
-        mark_cancelled(existing, datetime.now(timezone.utc))
+        mark_cancelled(existing, now_utc())
         await db.commit()
 
     presets = bot_presets()
@@ -263,7 +264,7 @@ async def ensure_practice_arena(db: AsyncSession) -> None:
         logger.warning("No bot presets available — Practice Arena not created.")
         return
 
-    far_future = datetime.now(timezone.utc) + timedelta(days=365)
+    far_future = now_utc() + timedelta(days=365)
     arena = await create_match(
         db,
         game=DEFAULT_GAME_TYPE,
@@ -298,7 +299,7 @@ async def ensure_practice_arena(db: AsyncSession) -> None:
 
 async def ensure_auto_match(db: AsyncSession) -> None:
     """Create the next auto-match window if none is open. Idempotent."""
-    now = datetime.now(timezone.utc)
+    now = now_utc()
     existing = (
         await db.execute(
             select(Match).where(
@@ -342,7 +343,7 @@ async def fill_and_start_auto_matches(
     cycle. The caller (`scheduler.SchedulerRegistry._poll_due_loop`) already
     owns `start_game` and passes its own.
     """
-    now = datetime.now(timezone.utc)
+    now = now_utc()
     due_ids: list[str] = list(
         (
             await db.execute(

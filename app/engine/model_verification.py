@@ -10,7 +10,7 @@ bounds and scrubs CLI stderr before it is ever stored or shown.
 from __future__ import annotations
 
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -27,6 +27,7 @@ from app.models.agent import Agent
 from app.models.connection import Connection, ConnectionStatus
 from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
 from app.models.model_verification import ModelVerification, ModelVerificationStatus
+from app.engine.turn_clock import now_utc
 
 # After this many consecutive timeouts a model is stored as FAILED, so a
 # chronically-timing-out model never sits in a silent retry loop (FR-013).
@@ -49,7 +50,7 @@ async def compute_worklist(
     `Agent.preferred_model` values for the user that belong to that provider.
     A pair already verified within REFRESH_INTERVAL is skipped (FR-016).
     """
-    now = now or datetime.now(timezone.utc)
+    now = now or now_utc()
     enabled = (
         (
             await db.execute(
@@ -169,7 +170,7 @@ async def record_results(
     Each result is ``{"provider", "model", "outcome", "error_text"}``. Existing
     rows are updated in place; new ones are created. Caller commits.
     """
-    now = datetime.now(timezone.utc)
+    now = now_utc()
     for result in results:
         provider = str(result.get("provider") or "").lower()
         model = str(result.get("model") or "")
@@ -228,7 +229,7 @@ async def model_status_for(
     i.e. at least one connection reports failure and none reports verified/checking.
     ``now`` is injectable so the liveness-window boundary is deterministically testable.
     """
-    now = now or datetime.now(timezone.utc)
+    now = now or now_utc()
     rows = (
         await db.execute(
             select(ModelVerification.status, Connection.last_polled_at)

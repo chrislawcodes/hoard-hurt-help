@@ -6,7 +6,6 @@ PD-specific per-turn scoring moved to app/games/hoard_hurt_help/scoring.py.
 """
 
 from collections.abc import Mapping
-from datetime import datetime, timezone
 from typing import TypeVar
 
 from sqlalchemy import select
@@ -16,6 +15,7 @@ from app.engine.state_machine import assert_transition
 from app.models.match import Match, GameState
 from app.models.player import Player
 from app.models.turn import Turn, TurnMessage
+from app.engine.turn_clock import now_utc
 
 _Key = TypeVar("_Key")
 
@@ -54,7 +54,7 @@ async def finalize_talk_phase(db: AsyncSession, turn: Turn) -> None:
                 )
             )
     await db.flush()
-    turn.talk_resolved_at = datetime.now(timezone.utc)
+    turn.talk_resolved_at = now_utc()
     await db.commit()
 
 
@@ -148,7 +148,7 @@ async def finalize_game(db: AsyncSession, game: Match) -> None:
 
     assert_transition(game.state, GameState.COMPLETED)
     game.state = GameState.COMPLETED
-    game.completed_at = datetime.now(timezone.utc)
+    game.completed_at = now_utc()
     if winner is not None:
         game.winner_player_id = winner.id
 

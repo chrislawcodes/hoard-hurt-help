@@ -18,7 +18,6 @@ unique among the user's agents.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.agent import Agent, AgentKind, AgentStatus
 from app.models.agent_version import AgentVersion
 from app.models.user import User
+from app.engine.turn_clock import now_utc
 
 HUMAN_VERSION_MODEL = "human"
 
@@ -64,7 +64,7 @@ async def _ensure_frozen_version(db: AsyncSession, agent: Agent) -> AgentVersion
             version_no=1,
             model=HUMAN_VERSION_MODEL,
             strategy_text="",
-            frozen_at=datetime.now(timezone.utc),
+            frozen_at=now_utc(),
         )
         db.add(version)
         await db.flush()

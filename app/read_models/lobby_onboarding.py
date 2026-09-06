@@ -9,7 +9,6 @@ per-connection health computation for a user who can't see the banner anyway.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,6 +23,7 @@ from app.models.match import (
 )
 from app.models.player import Player
 from app.routes.agents_queries import owned_agent_filter
+from app.engine.turn_clock import now_utc
 
 
 async def user_has_warm_agent_without_match(db: AsyncSession, user_id: int) -> bool:
@@ -58,7 +58,7 @@ async def user_has_warm_agent_without_match(db: AsyncSession, user_id: int) -> b
         .scalars()
         .all()
     )
-    now = datetime.now(timezone.utc)
+    now = now_utc()
     has_warm_connection = False
     for connection in connections:
         # Cheap pre-filter before the per-connection health computation: LIVE

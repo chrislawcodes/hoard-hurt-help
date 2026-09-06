@@ -607,19 +607,21 @@ kind = "source"
 
 [[oversized]]
 file = "app/engine/arena.py"
-lines = 410
+lines = 411
 kind = "source"
-note = "PR S6: +7 lines — fill_and_start_auto_matches now takes start_game as a parameter instead of importing it, to untangle the arena<->scheduler import cycle."
+note = "PR S6: +7 lines — fill_and_start_auto_matches now takes start_game as a parameter instead of importing it, to untangle the arena<->scheduler import cycle. PR U1: +1 line — now_utc() import (inline datetime.now(timezone.utc) sweep)."
 
 [[oversized]]
 file = "app/engine/connection_activity.py"
-lines = 410
+lines = 411
 kind = "source"
+note = "PR U1: +1 line — now_utc() import (inline datetime.now(timezone.utc) sweep)."
 
 [[oversized]]
 file = "app/engine/provider_readiness.py"
-lines = 419
+lines = 420
 kind = "source"
+note = "PR U1: +1 line — now_utc() import (inline datetime.now(timezone.utc) sweep)."
 
 [[oversized]]
 file = "app/engine/scheduler.py"
@@ -679,13 +681,15 @@ kind = "source"
 
 [[oversized]]
 file = "app/routes/matches_user.py"
-lines = 452
+lines = 453
 kind = "source"
+note = "PR U1: +1 line — now_utc() import (inline datetime.now(timezone.utc) sweep)."
 
 [[oversized]]
 file = "app/routes/web_join.py"
-lines = 531
+lines = 532
 kind = "source"
+note = "PR U1: +1 line — now_utc() import (inline datetime.now(timezone.utc) sweep)."
 
 [[oversized]]
 file = "app/routes/web_viewer_context.py"

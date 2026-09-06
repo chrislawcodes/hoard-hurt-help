@@ -14,7 +14,7 @@ scheduler, which excludes rows with a non-NULL ``seat_reserved_until``.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -24,6 +24,7 @@ from app.db import SessionLocal
 from app.engine.provider_readiness import ProviderReadiness, provider_readiness, user_play_readiness
 from app.models.connection import ConnectionProvider
 from app.models.player import Player
+from app.engine.turn_clock import now_utc
 
 # How long a held seat is kept while the user brings their AI online. This is a
 # generous window, not a race: first-time setup (add the MCP server + sign in)
@@ -92,7 +93,7 @@ async def sweep_held_seats(session_factory: async_sessionmaker | None = None) ->
     """
     factory = session_factory or SessionLocal
     async with factory() as db:
-        now = datetime.now(timezone.utc)
+        now = now_utc()
         held = list(
             (
                 await db.execute(
