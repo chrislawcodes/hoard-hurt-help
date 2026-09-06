@@ -512,12 +512,6 @@ verdict = "leave"
 note = "client(app) is bound to a bespoke, router-scoped FastAPI test app (agents_setup/status/lifecycle + connections_setup/credentials/lifecycle), not app.main.app — a real difference from conftest's client, so it stays and is renamed scoped_client to say so"
 
 [[test_clients]]
-file = "tests/test_agent_next_turn_fanout.py"
-count = 1
-verdict = "leave"
-note = "client(app) is bound to a bespoke FastAPI test app (agent_api_router + agent_next_turn_router only), not app.main.app — renamed scoped_client"
-
-[[test_clients]]
 file = "tests/test_agent_pause_live_seat.py"
 count = 1
 verdict = "leave"
@@ -693,18 +687,8 @@ lines = 473
 kind = "source"
 
 [[oversized]]
-file = "tests/test_admin.py"
-lines = 1439
-kind = "test"
-
-[[oversized]]
 file = "tests/test_agent_detail_fixes.py"
 lines = 828
-kind = "test"
-
-[[oversized]]
-file = "tests/test_agent_next_turn_fanout.py"
-lines = 1739
 kind = "test"
 
 [[oversized]]

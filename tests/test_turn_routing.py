@@ -3,8 +3,8 @@
 Every rule here is asked through ``can_connection_claim_turn``, which is the one
 function the serving path actually calls (``agent_play_next_turn``). The pin
 itself is taken by a conditional UPDATE in SQL, so "only one claimant wins" is
-proven against the real database in ``tests/test_agent_next_turn_fanout.py``,
-not simulated here.
+proven against the real database in
+``tests/test_agent_next_turn_seat_routing.py``, not simulated here.
 """
 
 from __future__ import annotations

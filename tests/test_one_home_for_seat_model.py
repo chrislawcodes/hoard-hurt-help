@@ -94,7 +94,7 @@ async def test_editing_an_agent_does_not_change_what_a_finished_match_played(cli
     from app.models.match import GameState, Match
     from app.models.player import Player
     from app.models.user import User, UserRole
-    from tests.test_admin import _cookies
+    from tests.conftest import signed_in_cookies as _cookies
 
     async with reset_db() as db:
         admin = User(
@@ -161,7 +161,7 @@ async def test_a_seat_that_was_never_served_reports_no_model(client, reset_db):
     from app.models.match import GameState, Match
     from app.models.player import Player
     from app.models.user import User, UserRole
-    from tests.test_admin import _cookies
+    from tests.conftest import signed_in_cookies as _cookies
 
     async with reset_db() as db:
         admin = User(
@@ -249,7 +249,7 @@ async def test_the_export_carries_both_questions_separately(client, reset_db):
     from app.models.match import GameState, Match
     from app.models.player import Player
     from app.models.user import User, UserRole
-    from tests.test_admin import _cookies
+    from tests.conftest import signed_in_cookies as _cookies
 
     async with reset_db() as db:
         admin = User(
