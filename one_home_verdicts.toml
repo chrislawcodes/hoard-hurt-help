@@ -31,23 +31,9 @@
 #   unjudged = nobody has looked at this pair yet.
 
 [[function_names]]
-name = "_best_partner"
-files = ["app/engine/bots/strategies.py", "app/engine/bots/trust.py"]
-verdict = "unjudged"
-note = ""
-pr = "PR A"
-
-[[function_names]]
 name = "_build_rc_data"
 files = ["app/games/hoard_hurt_help/viewer.py", "app/games/liars_dice/viewer.py"]
 verdict = "protocol"
-note = ""
-pr = "PR A"
-
-[[function_names]]
-name = "_clamp"
-files = ["app/engine/bots/trust.py", "app/routes/matches_user.py"]
-verdict = "unjudged"
 note = ""
 pr = "PR A"
 
@@ -88,30 +74,30 @@ pr = "PR A"
 [[function_names]]
 name = "export_csv"
 files = ["app/routes/admin_api.py", "app/routes/match_export_api.py"]
-verdict = "unjudged"
-note = ""
-pr = "PR A"
+verdict = "leave"
+note = "admin_api's copy is a thin wrapper over export_match_csv, same as match_export_api's — differs only in auth dependency (require_platform_admin_or_key vs require_user) and viewer construction; still delegates since #551, confirmed"
+pr = "PR I"
 
 [[function_names]]
 name = "export_json"
 files = ["app/routes/admin_api.py", "app/routes/match_export_api.py"]
-verdict = "unjudged"
-note = ""
-pr = "PR A"
+verdict = "leave"
+note = "same shape as export_csv: both call export_match_json, differ only in auth dependency and viewer construction; still delegates since #551, confirmed"
+pr = "PR I"
 
 [[function_names]]
 name = "get_next_turn"
 files = ["app/engine/agent_play_next_turn.py", "mcp_server/mcp_tools.py"]
-verdict = "unjudged"
-note = ""
-pr = "PR A"
+verdict = "leave"
+note = "mcp_tools imports and calls the engine function (as play_get_next_turn), then runs its result through _lean_payload_for_mcp — route and MCP adapters over the same shared service; adapters differ on purpose"
+pr = "PR I"
 
 [[function_names]]
 name = "get_next_turns"
 files = ["app/engine/agent_play_next_turn.py", "mcp_server/mcp_tools.py"]
-verdict = "unjudged"
-note = ""
-pr = "PR A"
+verdict = "leave"
+note = "same shape as get_next_turn: mcp_tools calls the engine function (as play_get_next_turns) and leans the payload for MCP"
+pr = "PR I"
 
 [[function_names]]
 name = "make_game_rules_text"
@@ -123,16 +109,16 @@ pr = "PR A"
 [[function_names]]
 name = "submit_action"
 files = ["app/engine/agent_play.py", "mcp_server/mcp_tools.py"]
-verdict = "unjudged"
-note = ""
-pr = "PR A"
+verdict = "leave"
+note = "mcp_tools resolves the OAuth player/connection then calls the engine function (as play_submit_action) — route and MCP adapters over the same shared service; adapters differ on purpose"
+pr = "PR I"
 
 [[function_names]]
 name = "submit_talk"
 files = ["app/engine/agent_play.py", "mcp_server/mcp_tools.py"]
-verdict = "unjudged"
-note = ""
-pr = "PR A"
+verdict = "leave"
+note = "same shape as submit_action: mcp_tools resolves the OAuth player then calls the engine function (as play_submit_talk)"
+pr = "PR I"
 
 # --- scanner_hits ------------------------------------------------------------
 # check is one of: guard_gap | repeated_predicate

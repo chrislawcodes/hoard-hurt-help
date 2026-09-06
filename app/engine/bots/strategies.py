@@ -85,7 +85,7 @@ def choose_action_plan(
         profile,
         trust_map,
         signals,
-        best_partner=_best_partner,
+        best_partner=_seeded_best_partner,
         most_hostile=_most_hostile,
         probe_target=_probe_target,
         recent_helper=_recent_helper,
@@ -120,7 +120,7 @@ def _probe_target(
     )
 
 
-def _best_partner(
+def _seeded_best_partner(
     context: BotContext, profile: BotProfile, trust_map: dict[str, int], *, minimum: int
 ) -> str | None:
     candidates = [aid for aid, score in trust_map.items() if score >= minimum]

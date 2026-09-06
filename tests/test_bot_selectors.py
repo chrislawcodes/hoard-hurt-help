@@ -9,7 +9,7 @@ test_bots_engine.
 from __future__ import annotations
 
 from app.engine.bots.strategies import (
-    _best_partner,
+    _seeded_best_partner,
     _most_hostile,
     _probe_target,
 )
@@ -26,7 +26,7 @@ def _profile() -> BotProfile:
 def test_selectors_are_deterministic() -> None:
     ctx, prof = _context(), _profile()
     tmap = {"AI_2": 10, "AI_3": 10, "AI_10": 3}
-    assert _best_partner(ctx, prof, tmap, minimum=5) == _best_partner(ctx, prof, tmap, minimum=5)
+    assert _seeded_best_partner(ctx, prof, tmap, minimum=5) == _seeded_best_partner(ctx, prof, tmap, minimum=5)
     hostile = {"AI_2": -30, "AI_3": -25}
     assert _most_hostile(ctx, prof, hostile) == _most_hostile(ctx, prof, hostile)
     assert _probe_target(ctx, prof, {}) == _probe_target(ctx, prof, {})
@@ -35,9 +35,9 @@ def test_selectors_are_deterministic() -> None:
 def test_best_partner_prefers_highest_trust_above_minimum() -> None:
     ctx, prof = _context(), _profile()
     # AI_2 clearly highest; AI_10 below the minimum and excluded.
-    assert _best_partner(ctx, prof, {"AI_2": 30, "AI_3": 10, "AI_10": 2}, minimum=5) == "AI_2"
+    assert _seeded_best_partner(ctx, prof, {"AI_2": 30, "AI_3": 10, "AI_10": 2}, minimum=5) == "AI_2"
     # No one meets the minimum → None.
-    assert _best_partner(ctx, prof, {"AI_2": 1}, minimum=5) is None
+    assert _seeded_best_partner(ctx, prof, {"AI_2": 1}, minimum=5) is None
 
 
 def test_most_hostile_prefers_lowest_trust() -> None:

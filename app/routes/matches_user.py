@@ -67,7 +67,7 @@ _FALLBACK_ROUNDS = 5
 _FALLBACK_TURNS = 7
 
 
-def _clamp(value: int, low: int, high: int) -> int:
+def _clamp_form_default(value: int, low: int, high: int) -> int:
     return max(low, min(high, value))
 
 
@@ -83,15 +83,15 @@ def _form_defaults(module: GameModule) -> dict[str, int]:
     return {
         "min_players": cfg.min_players,
         "max_players": cfg.max_players,
-        "per_turn_deadline_seconds": _clamp(
+        "per_turn_deadline_seconds": _clamp_form_default(
             cfg.per_turn_deadline_seconds or _FALLBACK_DEADLINE,
             _MIN_DEADLINE,
             _MAX_DEADLINE,
         ),
-        "total_rounds": _clamp(
+        "total_rounds": _clamp_form_default(
             cfg.total_rounds or _FALLBACK_ROUNDS, _MIN_ROUNDS, _MAX_ROUNDS
         ),
-        "turns_per_round": _clamp(
+        "turns_per_round": _clamp_form_default(
             cfg.turns_per_round or _FALLBACK_TURNS, _MIN_TURNS, _MAX_TURNS
         ),
     }
