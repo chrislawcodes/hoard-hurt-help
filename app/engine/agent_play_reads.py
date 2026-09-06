@@ -312,17 +312,11 @@ async def load_match_players(
 async def load_open_turn(db: AsyncSession, match_id: str) -> Turn | None:
     """Return the latest open (unresolved) turn for a match, or None.
 
-    Orders by round, then turn, then id so a tie on (round, turn) resolves to the
-    most recently created row.
+    Delegates to :func:`load_open_turns` with a single-element list. Orders by
+    round, then turn, then id so a tie on (round, turn) resolves to the most
+    recently created row.
     """
-    return (
-        await db.execute(
-            select(Turn)
-            .where(Turn.match_id == match_id, Turn.resolved_at.is_(None))
-            .order_by(Turn.round.desc(), Turn.turn.desc(), Turn.id.desc())
-            .limit(1)
-        )
-    ).scalar_one_or_none()
+    return (await load_open_turns(db, [match_id])).get(match_id)
 
 
 async def load_turn_at(

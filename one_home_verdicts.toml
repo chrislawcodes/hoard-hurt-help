@@ -136,6 +136,27 @@ verdict = "leave"
 note = "same shape as submit_action: mcp_tools resolves the OAuth player then calls the engine function (as play_submit_talk)"
 pr = "PR I"
 
+[[function_names]]
+name = "_agent_count"
+files = ["app/read_models/matches.py"]
+verdict = "merged"
+note = "dead code (no callers anywhere) sitting next to its own batched sibling _agent_counts; deleted rather than merged into anything"
+pr = "PR U4"
+home = "app/read_models/matches.py"
+
+# load_open_turn/load_open_turns (app/engine/agent_play_reads.py) and
+# _count_agent_matches/_count_agent_matches_for_agents
+# (app/routes/agents_health_presenter.py) are the other two PR U4 singular/plural
+# pairs: the singular now delegates to the plural with a one-element list. They
+# have no entry here on purpose — this table's schema only fits
+# scripts/find_duplicate_rules.py's notion of a duplicate (the identical name
+# defined in 2+ files); a singular/plural pair never matches that (different
+# names), so it was never a scanner hit and adding a "merged" entry for either
+# would be wrong: the singular name is still live, as a one-line delegate, so
+# test_recorded_verdicts_have_not_gone_stale's merged-name check
+# (`_merged_name_problems`, which requires the name to be gone from the
+# codebase entirely) would immediately flag it as "a copy is back".
+
 # --- scanner_hits ------------------------------------------------------------
 # check is one of: guard_gap | repeated_predicate
 # key is the finding's header text exactly as scripts/find_duplicate_rules.py
@@ -602,8 +623,9 @@ kind = "source"
 
 [[oversized]]
 file = "app/engine/agent_play_reads.py"
-lines = 487
+lines = 481
 kind = "source"
+note = "PR U4: -6 lines — load_open_turn now delegates to load_open_turns(db, [match_id]).get(match_id) instead of its own query."
 
 [[oversized]]
 file = "app/engine/arena.py"
@@ -677,8 +699,9 @@ kind = "source"
 
 [[oversized]]
 file = "app/read_models/matches.py"
-lines = 531
+lines = 520
 kind = "source"
+note = "PR U4: -11 lines — deleted dead _agent_count (no callers; _agent_counts already covers every real use)."
 
 [[oversized]]
 file = "app/routes/matches_user.py"
