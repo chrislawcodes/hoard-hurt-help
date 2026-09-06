@@ -62,7 +62,7 @@ def published(monkeypatch):
     return events
 
 
-async def _make_game_with_players(db: AsyncSession, n: int) -> tuple[Match, list[Player]]:
+async def _make_two_phase_game_with_agents(db: AsyncSession, n: int) -> tuple[Match, list[Player]]:
     game = Match(
         id="G_TEST",
         name="test",
@@ -154,7 +154,7 @@ async def _load_messages(db: AsyncSession, turn_id: int) -> list[TurnMessage]:
 
 
 async def test_finalize_talk_phase_defaulted_rows_skip_left_players(db):
-    game, players = await _make_game_with_players(db, 3)
+    game, players = await _make_two_phase_game_with_agents(db, 3)
     a, b, c = players
     c.left_at = datetime.now(timezone.utc)
     await db.commit()
@@ -182,7 +182,7 @@ async def test_finalize_talk_phase_defaulted_rows_skip_left_players(db):
 
 
 async def test_all_messaged_requires_non_defaulted_messages_for_active_players(db):
-    game, players = await _make_game_with_players(db, 3)
+    game, players = await _make_two_phase_game_with_agents(db, 3)
     a, b, c = players
     c.left_at = datetime.now(timezone.utc)
     await db.commit()
@@ -210,7 +210,7 @@ async def test_all_messaged_requires_non_defaulted_messages_for_active_players(d
 async def test_two_phase_loop_fresh_turn_defaults_talk_then_resolves_act(
     db, published
 ):
-    game, players = await _make_game_with_players(db, 2)
+    game, players = await _make_two_phase_game_with_agents(db, 2)
     a, b = players
 
     turn = await _open_turn(db, game)
@@ -241,7 +241,7 @@ async def test_two_phase_loop_fresh_turn_defaults_talk_then_resolves_act(
 async def test_two_phase_loop_resume_after_talk_resolution_skips_defaulting(
     db, published
 ):
-    game, players = await _make_game_with_players(db, 2)
+    game, players = await _make_two_phase_game_with_agents(db, 2)
     a, _b = players
 
     turn = await _open_turn(db, game, phase="talk")
@@ -268,7 +268,7 @@ async def test_two_phase_loop_resume_after_talk_resolution_skips_defaulting(
 
 
 async def test_two_phase_loop_skips_already_resolved_turns(db, published):
-    game, players = await _make_game_with_players(db, 2)
+    game, players = await _make_two_phase_game_with_agents(db, 2)
     a, _ = players
 
     turn = await _open_turn(db, game, phase="act")

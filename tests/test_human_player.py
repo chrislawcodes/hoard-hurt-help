@@ -13,27 +13,14 @@ from app.models import (
     Agent,
     AgentKind,
     AgentVersion,
-    User,
 )
+from tests.factories import make_user
 
 GAME = "hoard-hurt-help"
 
 
-async def _make_user(db, i: int = 0) -> User:
-    user = User(
-        google_sub=f"sub-{i}",
-        email=f"u{i}@t.com",
-        handle=f"alice{i}",
-        handle_key=f"alice{i}",
-        name=f"Alice {i}",
-    )
-    db.add(user)
-    await db.flush()
-    return user
-
-
 async def test_creates_human_agent_with_frozen_version(db) -> None:
-    user = await _make_user(db)
+    user = await make_user(db)
 
     agent, version = await get_or_create_human_agent(db, user, GAME)
 
@@ -50,7 +37,7 @@ async def test_creates_human_agent_with_frozen_version(db) -> None:
 
 
 async def test_is_idempotent_per_user_and_game(db) -> None:
-    user = await _make_user(db)
+    user = await make_user(db)
 
     a1, v1 = await get_or_create_human_agent(db, user, GAME)
     a2, v2 = await get_or_create_human_agent(db, user, GAME)
@@ -69,7 +56,7 @@ async def test_is_idempotent_per_user_and_game(db) -> None:
 
 
 async def test_name_is_unique_against_existing_agents(db) -> None:
-    user = await _make_user(db)
+    user = await make_user(db)
     # An existing agent already owns the user's handle as its name.
     db.add(Agent(user_id=user.id, name=user.handle, kind=AgentKind.AI, game=GAME))
     await db.flush()
@@ -80,7 +67,7 @@ async def test_name_is_unique_against_existing_agents(db) -> None:
 
 
 async def test_separate_human_agent_per_game(db) -> None:
-    user = await _make_user(db)
+    user = await make_user(db)
 
     a_pd, _ = await get_or_create_human_agent(db, user, "hoard-hurt-help")
     a_ld, _ = await get_or_create_human_agent(db, user, "liars-dice")
@@ -91,7 +78,7 @@ async def test_separate_human_agent_per_game(db) -> None:
 
 async def test_human_excluded_from_ai_agent_query(db) -> None:
     """The AI-agent surfaces (capacity, routing, agent list) filter kind==AI."""
-    user = await _make_user(db)
+    user = await make_user(db)
     human, _ = await get_or_create_human_agent(db, user, GAME)
 
     ai_agent_ids = (

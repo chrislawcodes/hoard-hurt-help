@@ -357,18 +357,6 @@ note = "thin assembler re-exports on purpose"
 #              count can only fall from here.
 
 [[test_helpers]]
-name = "_make_connection"
-files = ["tests/test_agent_detail_fixes.py", "tests/test_mcp_key_auth.py"]
-verdict = "unjudged"
-note = ""
-
-[[test_helpers]]
-name = "_make_game_with_players"
-files = ["tests/test_resolver.py", "tests/test_two_phase_loop.py"]
-verdict = "unjudged"
-note = ""
-
-[[test_helpers]]
 name = "_make_match"
 files = [
     "tests/test_agent_detail_fixes.py",
@@ -384,24 +372,6 @@ files = [
 verdict = "merged"
 note = "8 copies (test_agent_detail_fixes, test_agent_versions, test_connection_management, test_coverage_health_and_join_gate, test_human_join, test_human_plus_agent_join, test_readiness_adoption, test_user_start_solo_match) already held an open db session, so they were deleted and call tests.factories.make_match directly; 1 renamed to _make_mutual_help_match (test_mutual_help_modes.py) because it needs the mutual_help_mode field make_match doesn't support and seats players a different way"
 home = "tests/factories.py"
-
-[[test_helpers]]
-name = "_make_turn"
-files = ["tests/test_connection_management.py", "tests/test_connector_fallback.py"]
-verdict = "unjudged"
-note = ""
-
-[[test_helpers]]
-name = "_make_user"
-files = ["tests/test_handle_gate.py", "tests/test_human_player.py", "tests/test_mcp_connection.py"]
-verdict = "unjudged"
-note = ""
-
-[[test_helpers]]
-name = "_seed_active_match"
-files = ["tests/test_admin.py", "tests/test_migrations.py"]
-verdict = "unjudged"
-note = ""
 
 [[test_helpers]]
 name = "_seed_agent"
@@ -435,26 +405,11 @@ verdict = "rename"
 note = "renamed from _seed_agent; seeds both a user and an agent in one call and returns their bare ids rather than model objects"
 
 [[test_helpers]]
-name = "_seed_completed_match"
-files = [
-    "tests/test_leaderboard.py",
-    "tests/test_leaderboard_cache.py",
-    "tests/test_leaderboard_placement.py",
-]
-verdict = "unjudged"
-note = ""
-
-[[test_helpers]]
-name = "_seed_connection"
-files = ["tests/test_bot_agents.py", "tests/test_connection_auth.py"]
-verdict = "unjudged"
-note = ""
-
-[[test_helpers]]
 name = "_seed_disabled_user"
 files = ["tests/test_account_disabled.py", "tests/test_contact_page.py", "tests/test_legal_pages.py"]
-verdict = "unjudged"
-note = ""
+verdict = "merged"
+note = "all 3 copies were byte-identical (make_user then set disabled_at=now); added tests.factories.seed_disabled_user and switched all 3 files to import it"
+home = "tests/factories.py"
 
 [[test_helpers]]
 name = "_seed_game"
@@ -513,12 +468,6 @@ verdict = "rename"
 note = "renamed from _seed_match; builds a full match history (users, players, turns, submissions) from round data, not just a Match row"
 
 [[test_helpers]]
-name = "_seed_turn"
-files = ["tests/test_agent_play_service.py", "tests/test_onboarding_states.py"]
-verdict = "unjudged"
-note = ""
-
-[[test_helpers]]
 name = "_seed_user"
 files = [
     "tests/test_admin.py",
@@ -543,14 +492,16 @@ note = "renamed from _seed_user; takes an open db session and, unlike make_user,
 [[test_helpers]]
 name = "make_connection"
 files = ["tests/test_agent_next_turn_fanout.py", "tests/test_connection_auth.py"]
-verdict = "unjudged"
-note = ""
+verdict = "merged"
+note = "both copies were byte-equivalent to tests.factories.make_connection (same key format via generate_connection_key/bot_key_lookup/bot_key_hint, same ConnectionProviderRow mirror row) except for the extra kwargs the factory already defaults, so both were deleted and now import the factory's make_connection"
+home = "tests/factories.py"
 
 [[test_helpers]]
 name = "make_user"
 files = ["tests/test_agent_next_turn_fanout.py", "tests/test_connection_auth.py"]
-verdict = "unjudged"
-note = ""
+verdict = "merged"
+note = "both copies were byte-equivalent to tests.factories.make_user's default (derived handle=agent{i}); neither ever passed the `handle` override, so both were deleted and now import the factory's make_user"
+home = "tests/factories.py"
 
 # --- test_clients (S3) ---
 
@@ -808,7 +759,7 @@ kind = "test"
 
 [[oversized]]
 file = "tests/test_agent_next_turn_fanout.py"
-lines = 1784
+lines = 1739
 kind = "test"
 
 [[oversized]]

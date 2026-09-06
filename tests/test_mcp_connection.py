@@ -26,7 +26,7 @@ async def db_session_factory(
     yield session_factory
 
 
-async def _make_user(db: AsyncSession, *, suffix: str = "0") -> User:
+async def _make_user_with_suffix(db: AsyncSession, *, suffix: str = "0") -> User:
     user = User(
         google_sub=f"sub-{suffix}",
         email=f"u{suffix}@example.com",
@@ -53,7 +53,7 @@ async def test_assert_connection_usable_raises_expected_errors(
     expected_code: str,
 ) -> None:
     async with db_session_factory() as db:
-        user = await _make_user(db)
+        user = await _make_user_with_suffix(db)
         connection = Connection(
             user=user,
             provider=None,
@@ -77,7 +77,7 @@ async def test_assert_connection_usable_rejects_disabled_account(
     db_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     async with db_session_factory() as db:
-        user = await _make_user(db)
+        user = await _make_user_with_suffix(db)
         user.disabled_at = datetime.now(timezone.utc)
         connection = Connection(
             user=user,
@@ -99,7 +99,7 @@ async def test_mcp_connection_for_concurrent_calls_create_one_row(
     db_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     async with db_session_factory() as db:
-        user = await _make_user(db)
+        user = await _make_user_with_suffix(db)
         user_id = user.id
         await db.commit()
 
@@ -157,7 +157,7 @@ async def test_mcp_connection_enables_only_the_connecting_provider(
     db_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     async with db_session_factory() as db:
-        user = await _make_user(db, suffix="prov")
+        user = await _make_user_with_suffix(db, suffix="prov")
         connection = await mcp_connection_for(
             db, user, provider=ConnectionProvider.CLAUDE
         )
@@ -182,7 +182,7 @@ async def test_mcp_connection_without_provider_creates_nothing(
     # so it returns None and creates nothing — the connection is born later, at the
     # MCP handshake, when the provider is known.
     async with db_session_factory() as db:
-        user = await _make_user(db, suffix="noprov")
+        user = await _make_user_with_suffix(db, suffix="noprov")
         connection = await mcp_connection_for(db, user)
         await db.commit()
         assert connection is None
@@ -200,7 +200,7 @@ async def test_mcp_connection_without_provider_reuses_single_existing(
     # When the user already has exactly one MCP connection, a provider-less call
     # (unidentified client) resolves to it rather than guessing or creating.
     async with db_session_factory() as db:
-        user = await _make_user(db, suffix="one")
+        user = await _make_user_with_suffix(db, suffix="one")
         made = await mcp_connection_for(db, user, provider=ConnectionProvider.CLAUDE)
         await db.commit()
         resolved = await mcp_connection_for(db, user)
@@ -213,7 +213,7 @@ async def test_mcp_connection_without_provider_is_none_when_ambiguous(
 ) -> None:
     # With several connections we cannot pick safely on an unidentified client.
     async with db_session_factory() as db:
-        user = await _make_user(db, suffix="many")
+        user = await _make_user_with_suffix(db, suffix="many")
         await mcp_connection_for(db, user, provider=ConnectionProvider.CLAUDE)
         await mcp_connection_for(db, user, provider=ConnectionProvider.GEMINI)
         await db.commit()
@@ -226,7 +226,7 @@ async def test_mcp_connection_one_per_provider(
     # Each provider the user signs in gets its OWN connection — never one
     # connection that accumulates several.
     async with db_session_factory() as db:
-        user = await _make_user(db, suffix="perprov")
+        user = await _make_user_with_suffix(db, suffix="perprov")
         gem = await mcp_connection_for(db, user, provider=ConnectionProvider.GEMINI)
         cla = await mcp_connection_for(db, user, provider=ConnectionProvider.CLAUDE)
         await db.commit()
@@ -260,7 +260,7 @@ async def test_mcp_connection_for_resurrects_soft_deleted_row(
     db_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     async with db_session_factory() as db:
-        user = await _make_user(db, suffix="1")
+        user = await _make_user_with_suffix(db, suffix="1")
         connection = await mcp_connection_for(
             db, user, provider=ConnectionProvider.CLAUDE
         )

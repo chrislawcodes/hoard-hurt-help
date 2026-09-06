@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import logging
 import secrets
 from collections.abc import AsyncIterator
@@ -17,10 +16,10 @@ from app.db import make_engine
 from app.engine.tokens import bot_key_lookup
 from app.models import Base
 from app.models.connection import Connection, ConnectionProvider, ConnectionStatus
-from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
 from app.models.connection_setup import ConnectionSetup
 from app.models.user import User
 from app.routes.agent_next_turn import router as agent_next_turn_router
+from tests.factories import make_connection, make_user
 
 
 @pytest.fixture
@@ -68,50 +67,6 @@ async def _seed_connection(
         connection, plain_key = await make_connection(db, user, status=status, key=key)
         await db.commit()
         return connection, plain_key
-
-
-async def make_user(db: AsyncSession, i: int = 0) -> User:
-    user = User(
-        google_sub=f"sub-{i}",
-        email=f"u{i}@t.com",
-        handle=f"agent{i}",
-        handle_key=f"agent{i}",
-    )
-    db.add(user)
-    await db.flush()
-    return user
-
-
-async def make_connection(
-    db: AsyncSession,
-    user: User,
-    *,
-    provider: ConnectionProvider = ConnectionProvider.CLAUDE,
-    nickname: str | None = None,
-    status: ConnectionStatus = ConnectionStatus.ACTIVE,
-    key: str | None = None,
-) -> tuple[Connection, str]:
-    plain_key = key or f"sk_conn_{secrets.token_hex(24)}"
-    connection = Connection(
-        user_id=user.id,
-        nickname=nickname,
-        provider=provider,
-        key_lookup=hashlib.sha256(plain_key.encode("utf-8")).hexdigest(),
-        key_hint=plain_key[-4:],
-        status=status,
-    )
-    db.add(connection)
-    await db.flush()
-    db.add(
-        ConnectionProviderRow(
-            connection_id=connection.id,
-            provider=provider,
-            enabled=True,
-            detected=False,
-        )
-    )
-    await db.flush()
-    return connection, plain_key
 
 
 async def make_connection_setup(

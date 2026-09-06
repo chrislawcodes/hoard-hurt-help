@@ -14,15 +14,13 @@ from app.models import (
     AgentKind,
     AgentVersion,
     Connection,
-    ConnectionProvider,
-    ConnectionStatus,
     GameState,
     Player,
     User,
 )
 from app.read_models.leaderboard import load_leaderboard_sections
 from app.schemas.agent import ScoreboardRow
-from tests.factories import make_match
+from tests.factories import make_connection, make_match
 
 
 async def _seed_user_with_handle(db, index: int, handle: str | None = None) -> User:
@@ -38,19 +36,6 @@ async def _seed_user_with_handle(db, index: int, handle: str | None = None) -> U
     db.add(user)
     await db.flush()
     return user
-
-
-async def _seed_connection(db, user: User) -> Connection:
-    connection = Connection(
-        user_id=user.id,
-        provider=ConnectionProvider.CLAUDE,
-        key_lookup=f"lookup-{user.id}",
-        key_hint="abcd",
-        status=ConnectionStatus.ACTIVE,
-    )
-    db.add(connection)
-    await db.flush()
-    return connection
 
 
 async def _seed_bot_agent(db, user: User, *, name: str, seed: int) -> Agent:
@@ -105,7 +90,7 @@ async def test_bot_agent_and_ai_agent_kinds(reset_db) -> None:
     async with reset_db() as db:
         bot_owner = await _seed_user_with_handle(db, 1, handle=None)
         ai_owner = await _seed_user_with_handle(db, 2, handle="agent2")
-        connection = await _seed_connection(db, ai_owner)
+        connection, _key = await make_connection(db, ai_owner)
         bot = await _seed_bot_agent(db, bot_owner, name="Bot Alpha", seed=17)
         ai, _ = await _seed_ai_agent(db, ai_owner, connection=connection, name="Alpha", model="claude-sonnet")
 
@@ -153,7 +138,7 @@ async def test_leaderboard_labels_ai_and_bot_rows_and_filters(reset_db) -> None:
     async with reset_db() as db:
         bot_owner = await _seed_user_with_handle(db, 1, handle=None)
         ai_owner = await _seed_user_with_handle(db, 2, handle="agent2")
-        connection = await _seed_connection(db, ai_owner)
+        connection, _key = await make_connection(db, ai_owner)
         bot_a = await _seed_bot_agent(db, bot_owner, name="Bot Alpha", seed=91)
         bot_b = await _seed_bot_agent(db, bot_owner, name="Bot Beta", seed=92)
         ai_a, version_a = await _seed_ai_agent(

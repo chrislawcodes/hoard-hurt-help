@@ -19,7 +19,7 @@ from app.read_models.leaderboard_cache import (
 from tests.factories import make_agent, make_user
 
 
-async def _seed_completed_match(reset_db, *, match_id: str, user_index: int) -> None:
+async def _seed_two_agent_match(reset_db, *, match_id: str, user_index: int) -> None:
     """Add one completed match with two agents (the leaderboard skips <2)."""
     async with reset_db() as db:
         match = Match(
@@ -57,14 +57,14 @@ def _row_count(sections) -> int:
 async def test_hit_within_ttl_serves_cached_copy(reset_db):
     """A second call inside the TTL returns the cached result, not fresh data."""
     clear_leaderboard_cache()
-    await _seed_completed_match(reset_db, match_id="M_c1", user_index=1)
+    await _seed_two_agent_match(reset_db, match_id="M_c1", user_index=1)
 
     first = await load_leaderboard_sections_cached(included="all")
     assert _row_count(first) == 2
 
     # Add a second match, then call again. Inside the TTL the cache still serves
     # the original computation — same object, stale row count.
-    await _seed_completed_match(reset_db, match_id="M_c2", user_index=2)
+    await _seed_two_agent_match(reset_db, match_id="M_c2", user_index=2)
     second = await load_leaderboard_sections_cached(included="all")
 
     assert second is first
@@ -74,10 +74,10 @@ async def test_hit_within_ttl_serves_cached_copy(reset_db):
 async def test_clear_forces_recompute(reset_db):
     """After clear_leaderboard_cache(), the next call reflects current data."""
     clear_leaderboard_cache()
-    await _seed_completed_match(reset_db, match_id="M_c1", user_index=1)
+    await _seed_two_agent_match(reset_db, match_id="M_c1", user_index=1)
     await load_leaderboard_sections_cached(included="all")
 
-    await _seed_completed_match(reset_db, match_id="M_c2", user_index=2)
+    await _seed_two_agent_match(reset_db, match_id="M_c2", user_index=2)
     clear_leaderboard_cache()
     fresh = await load_leaderboard_sections_cached(included="all")
 
@@ -87,7 +87,7 @@ async def test_clear_forces_recompute(reset_db):
 async def test_distinct_params_cached_separately(reset_db):
     """`included` is part of the key, so 'agents' and 'all' don't collide."""
     clear_leaderboard_cache()
-    await _seed_completed_match(reset_db, match_id="M_c1", user_index=1)
+    await _seed_two_agent_match(reset_db, match_id="M_c1", user_index=1)
 
     agents_view = await load_leaderboard_sections_cached(included="agents")
     all_view = await load_leaderboard_sections_cached(included="all")

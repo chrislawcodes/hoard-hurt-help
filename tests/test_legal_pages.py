@@ -19,16 +19,13 @@ accidental one.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-
 import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from app.models import User
 from app.routes.web_contact import CONTACT_EMAIL
 from app.routes.web_legal import LAST_UPDATED
-from tests.factories import make_user
+from tests.factories import seed_disabled_user
 from tests.conftest import signed_in_cookies as _signed_in
 
 LEGAL_PATHS = ("/privacy", "/terms")
@@ -44,15 +41,6 @@ def _prose(resp: object) -> str:
     sat there unchanged.
     """
     return " ".join(getattr(resp, "text").split()).lower()
-
-
-async def _seed_disabled_user(reset_db: async_sessionmaker) -> User:
-    async with reset_db() as db:
-        user = await make_user(db)
-        user.disabled_at = datetime.now(timezone.utc)
-        await db.commit()
-        await db.refresh(user)
-        return user
 
 
 @pytest.mark.parametrize("path", LEGAL_PATHS)
@@ -99,7 +87,7 @@ async def test_disabled_user_can_still_read_the_terms(
     client: AsyncClient, reset_db: async_sessionmaker
 ) -> None:
     """A locked-out user has to be able to read the terms they were disabled under."""
-    user = await _seed_disabled_user(reset_db)
+    user = await seed_disabled_user(reset_db)
     resp = await client.get(
         "/terms",
         cookies=_signed_in(user.id),

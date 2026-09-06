@@ -58,6 +58,20 @@ async def seed_user(reset_db, i: int = 0, *, role: UserRole | None = None) -> Us
         return user
 
 
+async def seed_disabled_user(reset_db, i: int = 0) -> User:
+    """Open a session, create a make_user() row, and disable it (disabled_at=now).
+
+    For tests of the account-disabled gate itself: HTML redirect, API 403, and
+    the public pages (/contact, /privacy, /terms) that stay reachable anyway.
+    """
+    async with reset_db() as db:
+        user = await make_user(db, i)
+        user.disabled_at = datetime.now(timezone.utc)
+        await db.commit()
+        await db.refresh(user)
+        return user
+
+
 async def seed_user_with_role(reset_db, i: int = 0) -> User:
     """Open a session, create a make_user() row, and set its role from
     settings.platform_admin_emails_set — mirrors the app's own admin gate.

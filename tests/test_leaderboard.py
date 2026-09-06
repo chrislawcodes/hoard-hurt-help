@@ -11,7 +11,7 @@ from app.read_models.leaderboard import load_leaderboard_sections
 from tests.factories import make_agent, make_user
 
 
-async def _seed_completed_match(reset_db) -> None:
+async def _seed_handle_credit_match(reset_db) -> None:
     """One completed match: an agent with a handle, an agent without, and a bot."""
     async with reset_db() as db:
         user_with = await make_user(db, 1)  # factory gives handle "agent1"
@@ -71,7 +71,7 @@ async def _seed_completed_match(reset_db) -> None:
 
 
 async def test_owner_handle_shown_for_agents_and_absent_for_bots(reset_db):
-    await _seed_completed_match(reset_db)
+    await _seed_handle_credit_match(reset_db)
     async with reset_db() as db:
         sections = await load_leaderboard_sections(db, included="all")
 
@@ -89,7 +89,7 @@ async def test_owner_handle_shown_for_agents_and_absent_for_bots(reset_db):
 
 
 async def test_agents_view_keeps_handles_and_excludes_bots(reset_db):
-    await _seed_completed_match(reset_db)
+    await _seed_handle_credit_match(reset_db)
     async with reset_db() as db:
         sections = await load_leaderboard_sections(db, included="agents")
 
@@ -103,7 +103,7 @@ async def test_agents_view_keeps_handles_and_excludes_bots(reset_db):
 
 
 async def test_leaderboard_page_renders_owner_credit(reset_db, client):
-    await _seed_completed_match(reset_db)
+    await _seed_handle_credit_match(reset_db)
     resp = await client.get("/leaderboard")
     assert resp.status_code == 200
     assert "AliceBot" in resp.text
