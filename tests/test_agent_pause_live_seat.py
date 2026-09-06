@@ -21,8 +21,6 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
-from app.db import make_engine
-from app.models import Base
 from app.models.agent import Agent, AgentStatus
 from app.models.match import GameState
 from app.routes.agents_detail import router as agents_detail_router
@@ -32,18 +30,11 @@ from tests.conftest import signed_in_cookies as _cookies
 from tests.factories import make_agent, make_match, make_user, seat_prebuilt_player
 
 
-# Kept under its conftest-shared name (rather than renamed): it carries the
-# schema-creation step conftest.py's own bare `engine` defers to `db`, and
-# tests/helpers in this file depend on that by requesting `engine`/
-# `session_factory` directly — pytest's fixture-override resolution means this
-# override also feeds conftest's own (otherwise-identical) `session_factory`.
 @pytest.fixture
-async def engine() -> AsyncIterator[AsyncEngine]:
-    eng = make_engine("sqlite+aiosqlite:///:memory:")
-    async with eng.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    yield eng
-    await eng.dispose()
+async def session_factory(db_factory: async_sessionmaker) -> async_sessionmaker:
+    """Alias for tests/conftest.py's db_factory, kept for this file's existing
+    session_factory-named call sites."""
+    return db_factory
 
 
 @pytest.fixture

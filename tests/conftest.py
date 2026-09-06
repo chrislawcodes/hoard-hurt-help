@@ -6,10 +6,12 @@
 
 Canonical home for the fixtures every DB/HTTP test reuses:
 ``reset_db`` (rebinds the app to a fresh in-memory SQLite), ``db`` (a bare
-session for direct-logic tests), ``client`` (an httpx client bound to the app),
-plus ``session_cookie`` / ``signed_in_cookies`` for signed-in requests, and
-``make_scoped_app`` for tests that need a router-scoped FastAPI app instead of
-the real one. Tests that need genuinely different setup (a file-backed DB,
+session for direct-logic tests), ``db_factory`` (a session factory over that
+same schema, for tests that need to open more than one session), ``client``
+(an httpx client bound to the app), plus ``session_cookie`` /
+``signed_in_cookies`` for signed-in requests, and ``make_scoped_app`` for
+tests that need a router-scoped FastAPI app instead of the real one. Tests
+that need genuinely different setup (a file-backed DB,
 extra monkeypatches, no DB rebind at all) keep their own independent local
 copy, with a comment explaining why it can't delegate here. Test files where
 every test just needs ``reset_db`` to run without asking for it by name (most
@@ -185,6 +187,23 @@ async def db(
         await conn.run_sync(Base.metadata.create_all)
     async with session_factory() as session:
         yield session
+
+
+@pytest.fixture
+async def db_factory(
+    engine: AsyncEngine,
+) -> async_sessionmaker:
+    """A session factory for tests that need to open more than one session.
+
+    Creates the schema on the fresh `engine`, same as `db`, but yields the
+    factory itself instead of one open session — for tests that need
+    independent sessions (e.g. one to write, one to read back) or that pass
+    the factory into a monkeypatched `app.db.SessionLocal`. Does NOT rebind
+    `app.db` — use `reset_db` for tests that drive route handlers.
+    """
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    return async_sessionmaker(engine, expire_on_commit=False)
 
 
 @pytest.fixture

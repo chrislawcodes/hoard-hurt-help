@@ -21,24 +21,21 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from sqlalchemy.ext.asyncio import AsyncEngine
-
 from app.config import Settings
 from app.engine import agent_idle
 from app.engine.agent_idle import POLL_IN_PLAY_SECONDS, IdleStatus, pace_idle
 from app.engine.connection_activity import mark_still_holding
 from app.engine.connection_health_badge import LOOP_RUNNING_WINDOW_SECONDS
-from app.models import Base
 from app.models.connection import Connection
 from tests.factories import make_connection, make_user
 
 
 @pytest.fixture
-async def session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
-    """Shadows conftest's factory to create the schema first."""
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    return async_sessionmaker(engine, expire_on_commit=False)
+async def session_factory(db_factory: async_sessionmaker[AsyncSession]) -> async_sessionmaker[AsyncSession]:
+    """Alias for tests/conftest.py's db_factory, kept for this file's existing
+    session_factory-named call sites."""
+    return db_factory
+
 
 # One IdleStatus per lane pace_idle distinguishes.
 _LIVE_GAME = IdleStatus(

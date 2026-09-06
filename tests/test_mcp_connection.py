@@ -1,29 +1,25 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
 from datetime import datetime, timezone
 
 import pytest
 from fastapi import HTTPException
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.engine.mcp_connection import mcp_connection_for
 from app.deps import assert_connection_usable
-from app.models import Base
 from app.models.connection import Connection, ConnectionProvider, ConnectionStatus
 from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
 from app.models.user import User
 
 
 @pytest.fixture
-async def db_session_factory(
-    engine: AsyncEngine, session_factory: async_sessionmaker[AsyncSession]
-) -> AsyncIterator[async_sessionmaker[AsyncSession]]:
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    yield session_factory
+async def db_session_factory(db_factory: async_sessionmaker[AsyncSession]) -> async_sessionmaker[AsyncSession]:
+    """Alias for tests/conftest.py's db_factory, kept for this file's existing
+    db_session_factory-named call sites."""
+    return db_factory
 
 
 async def _make_user_with_suffix(db: AsyncSession, *, suffix: str = "0") -> User:

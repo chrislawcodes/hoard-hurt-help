@@ -6,9 +6,8 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 
 import pytest
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.models import Base
 from app.models.agent import Agent, AgentKind, AgentStatus
 from app.models.agent_version import AgentVersion
 from app.models.connection import ConnectionProvider
@@ -18,11 +17,10 @@ from tests.factories import make_user
 
 
 @pytest.fixture
-async def session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
-    """Shadows conftest's factory to create the schema first."""
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    return async_sessionmaker(engine, expire_on_commit=False)
+async def session_factory(db_factory: async_sessionmaker[AsyncSession]) -> async_sessionmaker[AsyncSession]:
+    """Alias for tests/conftest.py's db_factory, kept for this file's existing
+    session_factory-named call sites."""
+    return db_factory
 
 
 def _fake_connection(user_id: int) -> SimpleNamespace:

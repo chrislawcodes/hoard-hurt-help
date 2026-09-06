@@ -8,15 +8,13 @@ from __future__ import annotations
 
 import base64
 import json
-from collections.abc import AsyncIterator
 from types import SimpleNamespace
 
 import pytest
 from fastmcp.server.dependencies import AccessToken
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.models import Base
 from app.models.connection import Connection, ConnectionProvider, ConnectionStatus
 from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
 from mcp_server import connection_identity, server, signin_middleware
@@ -38,12 +36,10 @@ def _token(*, sub: str = "sub-123", email: str = "agent@example.com") -> AccessT
 
 
 @pytest.fixture
-async def db_session_factory(
-    engine: AsyncEngine, session_factory: async_sessionmaker[AsyncSession]
-) -> AsyncIterator[async_sessionmaker[AsyncSession]]:
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    yield session_factory
+async def db_session_factory(db_factory: async_sessionmaker[AsyncSession]) -> async_sessionmaker[AsyncSession]:
+    """Alias for tests/conftest.py's db_factory, kept for this file's existing
+    db_session_factory-named call sites."""
+    return db_factory
 
 
 async def test_signin_creates_active_connection_without_counting_a_call(

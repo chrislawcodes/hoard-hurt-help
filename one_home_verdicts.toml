@@ -704,12 +704,12 @@ kind = "test"
 
 [[oversized]]
 file = "tests/test_agent_detail_fixes.py"
-lines = 822
+lines = 813
 kind = "test"
 
 [[oversized]]
 file = "tests/test_connection_management.py"
-lines = 1257
+lines = 1252
 kind = "test"
 
 [[oversized]]
@@ -729,7 +729,7 @@ kind = "test"
 
 [[oversized]]
 file = "tests/test_mcp.py"
-lines = 655
+lines = 643
 kind = "test"
 
 [[oversized]]
@@ -744,7 +744,7 @@ kind = "test"
 
 [[oversized]]
 file = "tests/test_readiness_adoption.py"
-lines = 762
+lines = 753
 kind = "test"
 
 [[oversized]]
@@ -831,14 +831,14 @@ note = "renamed to app_with_agent_and_connection_routes (mounts agents_setup/sta
 [[test_fixtures]]
 file = "tests/test_agent_detail_fixes.py"
 name = "engine"
-verdict = "leave"
-note = "kept under its conftest-shared name: carries the schema-creation step tests/conftest.py's own bare engine defers to db, and this file's session_factory/app/db_session depend on `engine` by that name — pytest's fixture-override resolution means this override also feeds conftest's own (otherwise-identical) downstream fixtures"
+verdict = "merged"
+note = "T5: the schema-creating engine override this file needed is now tests/conftest.py's own db_factory fixture, which creates the schema on the bare engine directly; deleted"
 
 [[test_fixtures]]
 file = "tests/test_agent_detail_fixes.py"
 name = "session_factory"
-verdict = "merged"
-note = "was byte-identical to tests/conftest.py's session_factory (modulo async def vs def); deleted"
+verdict = "leave"
+note = "T5: re-introduced as a one-line alias returning tests/conftest.py's db_factory, replacing the deleted engine override; kept under this name because this file's app/tests depend on `session_factory` by that name"
 
 [[test_fixtures]]
 file = "tests/test_agent_pause_live_seat.py"
@@ -849,14 +849,14 @@ note = "renamed to app_with_agent_lifecycle_and_detail_routes (mounts agents_lif
 [[test_fixtures]]
 file = "tests/test_agent_pause_live_seat.py"
 name = "engine"
-verdict = "leave"
-note = "kept under its conftest-shared name: carries the schema-creation step tests/conftest.py's own bare engine defers to db, and this file's session_factory/app/db_session depend on `engine` by that name — pytest's fixture-override resolution means this override also feeds conftest's own (otherwise-identical) downstream fixtures"
+verdict = "merged"
+note = "T5: the schema-creating engine override this file needed is now tests/conftest.py's own db_factory fixture, which creates the schema on the bare engine directly; deleted"
 
 [[test_fixtures]]
 file = "tests/test_agent_pause_live_seat.py"
 name = "session_factory"
-verdict = "merged"
-note = "was byte-identical to tests/conftest.py's session_factory (modulo async def vs def); deleted"
+verdict = "leave"
+note = "T5: re-introduced as a one-line alias returning tests/conftest.py's db_factory, replacing the deleted engine override; kept under this name because this file's app/tests depend on `session_factory` by that name"
 
 [[test_fixtures]]
 file = "tests/test_agent_preferred_model.py"
@@ -892,7 +892,7 @@ note = "was byte-identical to tests/conftest.py's engine (modulo the create_all 
 file = "tests/test_agent_versions.py"
 name = "session_factory"
 verdict = "leave"
-note = "kept under its conftest-shared name: carries the schema-creation step tests/conftest.py's own bare session_factory defers to db, and this file's app/tests depend on `session_factory` by that name — pytest's fixture-override resolution means this override also feeds conftest's own (otherwise-identical) `engine`"
+note = "T5: body replaced with a one-line alias to tests/conftest.py's new db_factory fixture (which now owns the schema-creation step); kept under this name because this file's app/tests depend on `session_factory` by that name — pytest's fixture-override resolution means this override also feeds conftest's own (otherwise-identical) `engine`"
 
 [[test_fixtures]]
 file = "tests/test_arena.py"
@@ -970,7 +970,7 @@ note = "was byte-identical to tests/conftest.py's engine (modulo the create_all 
 file = "tests/test_connection_auth.py"
 name = "session_factory"
 verdict = "leave"
-note = "kept under its conftest-shared name: carries the schema-creation step tests/conftest.py's own bare session_factory defers to db, and this file's app/tests depend on `session_factory` by that name — pytest's fixture-override resolution means this override also feeds conftest's own (otherwise-identical) `engine`"
+note = "T5: body replaced with a one-line alias to tests/conftest.py's new db_factory fixture (which now owns the schema-creation step); kept under this name because this file's app/tests depend on `session_factory` by that name"
 
 [[test_fixtures]]
 file = "tests/test_connection_management.py"
@@ -988,7 +988,7 @@ note = "was byte-identical to tests/conftest.py's engine (modulo the create_all 
 file = "tests/test_connection_management.py"
 name = "session_factory"
 verdict = "leave"
-note = "kept under its conftest-shared name: carries the schema-creation step tests/conftest.py's own bare session_factory defers to db, and this file's app/tests depend on `session_factory` by that name — pytest's fixture-override resolution means this override also feeds conftest's own (otherwise-identical) `engine`"
+note = "T5: body replaced with a one-line alias to tests/conftest.py's new db_factory fixture (which now owns the schema-creation step); kept under this name because this file's app/tests depend on `session_factory` by that name"
 
 [[test_fixtures]]
 file = "tests/test_connector_fallback.py"
@@ -1018,7 +1018,7 @@ note = "was a copy plus one line (monkeypatching settings.admin_emails); now an 
 file = "tests/test_hold_measurement_settings.py"
 name = "session_factory"
 verdict = "leave"
-note = "already documents itself ('Shadows conftest's factory to create the schema first'); no change needed"
+note = "T5: body replaced with a one-line alias to tests/conftest.py's new db_factory fixture, which now owns the schema-creation step this override used to shadow"
 
 [[test_fixtures]]
 file = "tests/test_human_play_routes.py"
@@ -1072,7 +1072,7 @@ note = "renamed to reset_db_file_backed — uses a file-backed DB (not :memory:)
 file = "tests/test_mcp_instructions.py"
 name = "session_factory"
 verdict = "leave"
-note = "simplified to depend on tests/conftest.py's own engine (dropped its private make_engine/dispose) but kept the create_all step, matching test_hold_measurement_settings.py's shape"
+note = "T5: body replaced with a one-line alias to tests/conftest.py's new db_factory fixture, which now owns the create_all step this override used to shadow"
 
 [[test_fixtures]]
 file = "tests/test_message_masking.py"
@@ -1149,14 +1149,14 @@ note = "was its own engine+session (schema created, no app.db rebind), duplicati
 [[test_fixtures]]
 file = "tests/test_readiness_adoption.py"
 name = "engine"
-verdict = "leave"
-note = "kept under its conftest-shared name: carries the schema-creation step tests/conftest.py's own bare engine defers to db, and this file's session_factory/app/db_session depend on `engine` by that name — pytest's fixture-override resolution means this override also feeds conftest's own (otherwise-identical) downstream fixtures"
+verdict = "merged"
+note = "T5: the schema-creating engine override this file needed is now tests/conftest.py's own db_factory fixture, which creates the schema on the bare engine directly; deleted"
 
 [[test_fixtures]]
 file = "tests/test_readiness_adoption.py"
 name = "session_factory"
-verdict = "merged"
-note = "was byte-identical to tests/conftest.py's session_factory (modulo async def vs def); deleted"
+verdict = "leave"
+note = "T5: re-introduced as a one-line alias returning tests/conftest.py's db_factory, replacing the deleted engine override; kept under this name because this file's app/tests depend on `session_factory` by that name"
 
 [[test_fixtures]]
 file = "tests/test_request_logging.py"
@@ -1222,7 +1222,7 @@ note = "was byte-identical to tests/conftest.py's engine (modulo the create_all 
 file = "tests/test_version_pinning.py"
 name = "session_factory"
 verdict = "leave"
-note = "kept under its conftest-shared name: carries the schema-creation step tests/conftest.py's own bare session_factory defers to db, and this file's app/tests depend on `session_factory` by that name — pytest's fixture-override resolution means this override also feeds conftest's own (otherwise-identical) `engine`"
+note = "T5: body replaced with a one-line alias to tests/conftest.py's new db_factory fixture (which now owns the schema-creation step); kept under this name because this file's app/tests depend on `session_factory` by that name"
 
 [[test_fixtures]]
 file = "tests/test_viewer_owner_credit.py"
