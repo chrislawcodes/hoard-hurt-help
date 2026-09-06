@@ -20,6 +20,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from app.cache_warmup import warm_homepage_caches
 from app.config import settings
 from app.db_bootstrap import prepare_database_for_upgrade, verify_required_tables
+from app.engine.overdue_sweeper import sweep_overdue_turns
 from app.engine.scheduler import registry as scheduler_registry
 from app.canonical_host import CanonicalHostMiddleware, canonical_host_of
 from app.identity.first_touch import FirstTouchMiddleware
@@ -220,7 +221,9 @@ def create_app() -> FastAPI:
         _check_platform_admin_config()
         await _upgrade_database()
         await scheduler_registry.resume_active_games_on_startup()
-        scheduler_registry.start_poller()  # auto-start games when their time comes
+        scheduler_registry.start_poller(
+            sweep_overdue_turns=sweep_overdue_turns
+        )  # auto-start games when their time comes
         # Pre-build the front page's caches in the background so the first
         # visitor after a deploy isn't the one who pays the full rebuild. Kept
         # off the startup path (a task, not an await) so it never delays the

@@ -7,7 +7,7 @@ now delegate here keep identical behavior.
 """
 from __future__ import annotations
 
-from app.engine.user_match_start import is_bot_kind
+from app.engine.bot_kind import is_bot_kind
 from app.models.agent import AgentKind
 
 

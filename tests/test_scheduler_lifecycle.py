@@ -7,6 +7,7 @@ import pytest
 from sqlalchemy import func, select
 
 from app.engine import scheduler
+from app.engine.overdue_sweeper import sweep_overdue_turns
 from app.engine.scheduler_turn_loop import _all_submitted, _wait_for_turn
 from app.engine.scheduler_turn_loop import _open_turn as _prod_open_turn
 from app.engine.tokens import generate_turn_token
@@ -424,7 +425,7 @@ async def test_poll_loop_syncs_managed_rules_before_starting_a_due_match(monkeyp
     monkeypatch.setattr(reg, "_run_subsystem", record)
 
     with pytest.raises(_StopLoop):
-        await reg._poll_due_loop(None)
+        await reg._poll_due_loop(None, sweep_overdue_turns)
 
     # Reached only if the sync ran first — the loop stops the moment fill runs.
     assert "sync_managed_match_rules" in order

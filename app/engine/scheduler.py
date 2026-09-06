@@ -185,11 +185,24 @@ class SchedulerRegistry:
                     )
         return started
 
-    def start_poller(self, session_factory: async_sessionmaker | None = None) -> None:
-        """Begin the background loop that auto-starts due games."""
+    def start_poller(
+        self,
+        session_factory: async_sessionmaker | None = None,
+        *,
+        sweep_overdue_turns: Callable[[async_sessionmaker | None], Awaitable[object]],
+    ) -> None:
+        """Begin the background loop that auto-starts due games.
+
+        ``sweep_overdue_turns`` is passed in (rather than imported from
+        `overdue_sweeper`) because that module reads `scheduler.publish` off
+        this module by attribute — importing it back here would close a
+        cycle. The caller (`app/main.py`) owns the import instead.
+        """
         if self._poller is not None and not self._poller.done():
             return
-        self._poller = asyncio.create_task(self._poll_due_loop(session_factory))
+        self._poller = asyncio.create_task(
+            self._poll_due_loop(session_factory, sweep_overdue_turns)
+        )
 
     def stop_poller(self) -> None:
         if self._poller is not None and not self._poller.done():
@@ -238,14 +251,17 @@ class SchedulerRegistry:
         else:
             self._subsystem_failures[name] = 0
 
-    async def _poll_due_loop(self, session_factory: async_sessionmaker | None) -> None:
+    async def _poll_due_loop(
+        self,
+        session_factory: async_sessionmaker | None,
+        sweep_overdue_turns: Callable[[async_sessionmaker | None], Awaitable[object]],
+    ) -> None:
         from app.engine.arena import (
             ensure_auto_match,
             ensure_practice_arena,
             fill_and_start_auto_matches,
             sync_managed_match_rules,
         )
-        from app.engine.overdue_sweeper import sweep_overdue_turns
         from app.engine.seat_hold import sweep_held_seats
 
         factory = session_factory or SessionLocal
@@ -268,7 +284,9 @@ class SchedulerRegistry:
             # evaluates player count — if reversed, auto-matches get cancelled.
             await self._run_subsystem(
                 "fill_and_start_auto_matches",
-                lambda: _with_db(fill_and_start_auto_matches),
+                lambda: _with_db(
+                    lambda db: fill_and_start_auto_matches(db, start_game)
+                ),
             )
 
             # 3rd: recreate Practice Arena if the last one ended.
