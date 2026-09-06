@@ -1,10 +1,11 @@
 """Provider-aware turn routing helpers.
 
 This module stays DB-free so the sticky routing rules can be unit tested in
-isolation. ``app.engine.agent_play_next_turn`` maps database rows into these
+isolation. ``app.engine.next_turn_candidates`` maps database rows into these
 snapshots and asks ``can_connection_claim_turn`` which of the user's connections
 may serve a seat; the pin itself is then taken with a conditional UPDATE
-(``_claim_pin``), so the atomic claim lives in SQL rather than here.
+(``next_turn_payload._claim_pin``), so the atomic claim lives in SQL rather than
+here.
 """
 
 from __future__ import annotations

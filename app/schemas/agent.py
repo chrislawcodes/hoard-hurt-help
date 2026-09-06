@@ -3,7 +3,7 @@
 These shapes are documented in SPEC.md §1.1 and contracts/api.yaml.
 
 The your-turn payload itself has no model here — `_build_turn_payload` in
-`app/engine/agent_play_next_turn.py` assembles it as a plain dict and the route
+`app/engine/next_turn_payload.py` assembles it as a plain dict and the route
 serves it with `response_model=None`. What lives here are the pieces that dict is
 built from (`ScoreboardRow`, `HistoryTurn`, `TalkMessage`, `CurrentTurn`), the
 request bodies, and the opt-in pull responses at the bottom of the file. A model

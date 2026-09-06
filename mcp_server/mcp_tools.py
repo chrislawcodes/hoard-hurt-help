@@ -33,11 +33,11 @@ from app.engine.agent_play import (
     submit_talk as play_submit_talk,
 )
 from app.engine.agent_play_next_turn import (
-    agent_identity_for,
     get_next_turn as play_get_next_turn,
     get_next_turns as play_get_next_turns,
 )
 from app.engine.agent_playability import playable_agent_filter
+from app.engine.next_turn_identity import agent_identity_for
 from app.games import get as get_game_module
 from app.models.agent import Agent
 from app.models.match import Match

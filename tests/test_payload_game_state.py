@@ -9,7 +9,7 @@ returns pact values for `your_private_state` and `{}` for `public_state`, so one
 served payload shows both halves of the gate at once.
 
 This is asserted against the served payload (`/api/agent/next-turn`, whose only
-builder is `agent_play_next_turn._build_turn_payload`), not against a response
+builder is `next_turn_payload._build_turn_payload`), not against a response
 model. It used to be checked through `YourTurnResponse`/`TurnStatic` in
 `app/schemas/agent.py`, which no route ever served — so those models drifted out
 of step with the builder (the last one still demanded a `rules` key the builder
