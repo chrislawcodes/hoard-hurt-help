@@ -2,24 +2,12 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from app.models import User
 from app.routes.web_contact import CONTACT_EMAIL
-from tests.factories import make_user
+from tests.factories import seed_disabled_user
 from tests.conftest import signed_in_cookies as _signed_in
-
-
-async def _seed_disabled_user(reset_db: async_sessionmaker) -> User:
-    async with reset_db() as db:
-        user = await make_user(db)
-        user.disabled_at = datetime.now(timezone.utc)
-        await db.commit()
-        await db.refresh(user)
-        return user
 
 
 async def test_contact_page_public(client: AsyncClient) -> None:
@@ -49,7 +37,7 @@ async def test_disabled_page_offers_a_way_to_get_in_touch(
     client: AsyncClient, reset_db: async_sessionmaker
 ) -> None:
     """A locked-out user can reach /contact — appealing is why that page exists."""
-    user = await _seed_disabled_user(reset_db)
+    user = await seed_disabled_user(reset_db)
     resp = await client.get(
         "/disabled",
         cookies=_signed_in(user.id),

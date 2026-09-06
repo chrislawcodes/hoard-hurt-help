@@ -10,28 +10,19 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import settings
 from app.engine.tokens import bot_key_lookup
-from app.models import ConnectionSetup, User
+from app.models import ConnectionSetup
 from app.models.user import UserRole
 from app.routes.auth import sync_google_user
 from app.schemas.auth import GoogleUserInfo
-from tests.factories import make_connection, make_user
+from tests.factories import make_connection, make_user, seed_disabled_user
 from tests.conftest import signed_in_cookies as _signed_in
-
-
-async def _seed_disabled_user(reset_db: async_sessionmaker) -> User:
-    async with reset_db() as db:
-        user = await make_user(db)
-        user.disabled_at = datetime.now(timezone.utc)
-        await db.commit()
-        await db.refresh(user)
-        return user
 
 
 async def test_disabled_user_html_redirect(
     client: AsyncClient, reset_db: async_sessionmaker
 ) -> None:
     """Disabled user on an HTML page gets 303 to /disabled."""
-    user = await _seed_disabled_user(reset_db)
+    user = await seed_disabled_user(reset_db)
     resp = await client.get(
         "/me/agents",
         cookies=_signed_in(user.id),
@@ -46,7 +37,7 @@ async def test_disabled_user_htmx_redirect(
     client: AsyncClient, reset_db: async_sessionmaker
 ) -> None:
     """Disabled user on HTMX request gets 200 + HX-Redirect header."""
-    user = await _seed_disabled_user(reset_db)
+    user = await seed_disabled_user(reset_db)
     resp = await client.get(
         "/me/agents",
         cookies=_signed_in(user.id),
@@ -61,7 +52,7 @@ async def test_disabled_page_loads_no_loop(
     client: AsyncClient, reset_db: async_sessionmaker
 ) -> None:
     """/disabled is accessible to a disabled (signed-in) user — no auth loop."""
-    user = await _seed_disabled_user(reset_db)
+    user = await seed_disabled_user(reset_db)
     resp = await client.get(
         "/disabled",
         cookies=_signed_in(user.id),

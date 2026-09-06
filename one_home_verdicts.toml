@@ -407,8 +407,9 @@ note = "renamed from _seed_agent; seeds both a user and an agent in one call and
 [[test_helpers]]
 name = "_seed_disabled_user"
 files = ["tests/test_account_disabled.py", "tests/test_contact_page.py", "tests/test_legal_pages.py"]
-verdict = "unjudged"
-note = ""
+verdict = "merged"
+note = "all 3 copies were byte-identical (make_user then set disabled_at=now); added tests.factories.seed_disabled_user and switched all 3 files to import it"
+home = "tests/factories.py"
 
 [[test_helpers]]
 name = "_seed_game"
