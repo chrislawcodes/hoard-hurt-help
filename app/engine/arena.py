@@ -15,6 +15,7 @@ background poller without creating duplicates.
 from __future__ import annotations
 
 import logging
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select
@@ -22,12 +23,12 @@ from sqlalchemy import func, select
 from app.game_types import DEFAULT_GAME_TYPE
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.engine.bot_kind import is_bot_kind
 from app.engine.bot_presets import allocate_default_bot_names, bot_presets
 from app.engine.match_creation import create_match
 from app.engine.bots.seating import BotSeatingError, add_bots_to_game
 from app.engine.match_cancellation import mark_cancelled
 from app.engine.player_counts import active_player_count
-from app.engine.user_match_start import is_bot_kind
 from app.games import get as get_game_module
 from app.games.hoard_hurt_help.rules import (
     DEFAULT_MUTUAL_HELP_MODE,
@@ -330,11 +331,17 @@ async def ensure_auto_match(db: AsyncSession) -> None:
     logger.info("Created auto-match %s scheduled at %s.", auto.id, boundary.isoformat())
 
 
-async def fill_and_start_auto_matches(db: AsyncSession) -> None:
-    """Fill and start due auto-matches only after an external agent joins."""
-    # Late import to avoid circular dependency: scheduler imports arena.
-    from app.engine.scheduler import start_game
+async def fill_and_start_auto_matches(
+    db: AsyncSession,
+    start_game: Callable[[AsyncSession, Match], Awaitable[None]],
+) -> None:
+    """Fill and start due auto-matches only after an external agent joins.
 
+    ``start_game`` is passed in (rather than imported from `scheduler`) because
+    `scheduler.py` imports this module — importing it back here would close a
+    cycle. The caller (`scheduler.SchedulerRegistry._poll_due_loop`) already
+    owns `start_game` and passes its own.
+    """
     now = datetime.now(timezone.utc)
     due_ids: list[str] = list(
         (

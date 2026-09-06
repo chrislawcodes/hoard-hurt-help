@@ -24,7 +24,8 @@ from dataclasses import dataclass
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.agent import Agent, AgentKind
+from app.engine.bot_kind import is_bot_kind
+from app.models.agent import Agent
 from app.models.match import GameState, Match
 from app.models.player import Player
 from app.models.user import User
@@ -39,15 +40,6 @@ class StartEligibility:
 
 
 _CANNOT_START = StartEligibility(can_start=False, bots_to_add=0)
-
-
-def is_bot_kind(kind: object) -> bool:
-    """True for a scripted bot seat (enum member or its raw string value).
-
-    The one value-level bot-kind predicate; the DB-level check in
-    `turn_drivers` and the inline check in `arena` both delegate here.
-    """
-    return kind in (AgentKind.BOT, AgentKind.BOT.value)
 
 
 async def viewer_start_eligibility(

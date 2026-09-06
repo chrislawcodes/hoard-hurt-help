@@ -602,8 +602,9 @@ kind = "source"
 
 [[oversized]]
 file = "app/engine/arena.py"
-lines = 403
+lines = 410
 kind = "source"
+note = "PR S6: +7 lines — fill_and_start_auto_matches now takes start_game as a parameter instead of importing it, to untangle the arena<->scheduler import cycle."
 
 [[oversized]]
 file = "app/engine/connection_activity.py"
@@ -617,8 +618,9 @@ kind = "source"
 
 [[oversized]]
 file = "app/engine/scheduler.py"
-lines = 466
+lines = 484
 kind = "source"
+note = "PR S6: +18 lines — start_poller/_poll_due_loop now take sweep_overdue_turns as a parameter instead of importing it, to untangle the overdue_sweeper<->scheduler import cycle."
 
 [[oversized]]
 file = "app/engine/scheduler_turn_loop.py"
@@ -761,25 +763,21 @@ kind = "test"
 modules = ["app.engine.action_vocab", "app.games", "app.games.hoard_hurt_help.board_signals", "app.games.hoard_hurt_help.game"]
 
 [[import_cycles]]
-modules = ["app.engine.arena", "app.engine.scheduler"]
-
-[[import_cycles]]
-modules = ["app.engine.arena", "app.engine.scheduler", "app.engine.user_match_start"]
-
-[[import_cycles]]
-modules = ["app.engine.arena", "app.engine.user_match_start"]
-
-[[import_cycles]]
-modules = ["app.engine.overdue_sweeper", "app.engine.scheduler"]
-
-[[import_cycles]]
-modules = ["app.engine.overdue_sweeper", "app.engine.scheduler", "app.engine.scheduler_turn_loop"]
-
-[[import_cycles]]
 modules = ["app.engine.scheduler", "app.engine.scheduler_turn_loop"]
-
-[[import_cycles]]
-modules = ["app.engine.scheduler", "app.engine.scheduler_turn_loop", "app.engine.turn_drivers", "app.engine.user_match_start"]
+note = """PR S6: left in place on purpose, not missed. scheduler.py imports
+_run_game/_wait_for_messages/_wait_for_turn from scheduler_turn_loop.py (so
+they exist as its own attributes), and scheduler_turn_loop.py reads them back
+via a lazy `from app.engine import scheduler` so the test suite's
+`scheduler.publish` etc. patches reach it (PR M's reexports verdict, same
+file, `_run_game` entry). Both halves of that mechanism are required; cutting
+either breaks the patch surface. Every OTHER cycle recorded here at PR M time
+that ran through these six modules (arena, scheduler, user_match_start,
+overdue_sweeper, scheduler_turn_loop, turn_drivers) was untangled instead:
+`is_bot_kind` moved to the new leaf module app/engine/bot_kind.py (it had no
+dependency on the rest of user_match_start.py), and scheduler.py's poll loop
+now takes `start_game` from its own module scope and `sweep_overdue_turns` as
+a parameter from app/main.py instead of importing arena.py/overdue_sweeper.py
+back into itself."""
 
 [[import_cycles]]
 modules = ["app.games", "app.games.hoard_hurt_help.game", "app.games.hoard_hurt_help.viewer"]

@@ -24,9 +24,9 @@ from typing import TYPE_CHECKING, Protocol
 from sqlalchemy import select
 
 from app.broadcast import publish
+from app.engine.bot_kind import is_bot_kind
 from app.engine.tokens import generate_turn_token
 from app.engine.turn_clock import SUBMIT_POLL_SECONDS, now_utc
-from app.engine.user_match_start import is_bot_kind
 from app.models.player import Player
 from app.models.turn import Turn
 

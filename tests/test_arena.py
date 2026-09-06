@@ -23,6 +23,8 @@ from app.engine.arena import (
 )
 from app.engine.bot_presets import HISTORICAL_BOT_NAME_POOL
 from app.engine.bots.seating import BotSeatingError
+from app.engine import scheduler
+from app.engine.scheduler import start_game
 from app.games.hoard_hurt_help.rules import DEFAULT_MUTUAL_HELP_MODE, MutualHelpMode
 from app.models import Base
 from app.models.match import GameState, Match, MatchKind
@@ -430,7 +432,7 @@ async def test_fill_and_start_auto_matches_fills_bots(db_session):
         await db.commit()
 
     async with db_session() as db:
-        await fill_and_start_auto_matches(db)
+        await fill_and_start_auto_matches(db, start_game)
 
     async with db_session() as db:
         m = (await db.execute(select(Match).where(Match.id == match_id))).scalar_one()
@@ -477,7 +479,7 @@ async def test_fill_and_start_auto_matches_zero_humans_cancels(db_session):
         await db.commit()
 
     async with db_session() as db:
-        await fill_and_start_auto_matches(db)
+        await fill_and_start_auto_matches(db, start_game)
 
     async with db_session() as db:
         m = (await db.execute(select(Match).where(Match.id == match_id))).scalar_one()
@@ -549,7 +551,7 @@ async def test_fill_and_start_seating_error_cancels_match_and_continues(db_sessi
         # Also patch start_game to avoid spinning up asyncio game tasks.
         with patch("app.engine.scheduler.start_game", new_callable=AsyncMock):
             async with db_session() as db:
-                await fill_and_start_auto_matches(db)
+                await fill_and_start_auto_matches(db, scheduler.start_game)
 
     async with db_session() as db:
         # The failing match must be CANCELLED with a timestamp.
