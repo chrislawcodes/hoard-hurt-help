@@ -193,6 +193,18 @@ async def client() -> AsyncIterator[AsyncClient]:
         yield c
 
 
+@pytest.fixture
+def reset_pull_rate_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Clear the agent-poll rate-limit state so a test's pulls aren't throttled by an earlier test."""
+    monkeypatch.setattr("app.routes.agent_api._last_pull", {})
+
+
+@pytest.fixture
+def admin_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Grant admin@test.com the admin role so a test can exercise admin-only routes."""
+    monkeypatch.setattr(settings, "admin_emails", "admin@test.com")
+
+
 _SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
 
 
