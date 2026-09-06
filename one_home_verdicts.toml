@@ -632,3 +632,341 @@ name = "make_user"
 files = ["tests/test_agent_next_turn_fanout.py", "tests/test_connection_auth.py"]
 verdict = "unjudged"
 note = ""
+
+# --- test_clients (S3) ---
+
+[[test_clients]]
+file = "tests/test_admin_add_bots.py"
+count = 1
+verdict = "unjudged"
+
+[[test_clients]]
+file = "tests/test_agent_api.py"
+count = 1
+verdict = "unjudged"
+
+[[test_clients]]
+file = "tests/test_agent_detail_fixes.py"
+count = 1
+verdict = "unjudged"
+
+[[test_clients]]
+file = "tests/test_agent_next_turn_fanout.py"
+count = 1
+verdict = "unjudged"
+
+[[test_clients]]
+file = "tests/test_agent_pause_live_seat.py"
+count = 1
+verdict = "unjudged"
+
+[[test_clients]]
+file = "tests/test_agent_two_phase.py"
+count = 1
+verdict = "unjudged"
+
+[[test_clients]]
+file = "tests/test_agent_versions.py"
+count = 1
+verdict = "unjudged"
+
+[[test_clients]]
+file = "tests/test_bot_form_validation.py"
+count = 1
+verdict = "unjudged"
+
+[[test_clients]]
+file = "tests/test_bot_name_validation.py"
+count = 1
+verdict = "unjudged"
+
+[[test_clients]]
+file = "tests/test_bot_onboarding.py"
+count = 1
+verdict = "unjudged"
+
+[[test_clients]]
+file = "tests/test_canonical_host.py"
+count = 1
+verdict = "unjudged"
+
+[[test_clients]]
+file = "tests/test_connection_auth.py"
+count = 1
+verdict = "unjudged"
+
+[[test_clients]]
+file = "tests/test_connection_management.py"
+count = 1
+verdict = "unjudged"
+
+[[test_clients]]
+file = "tests/test_cross_device.py"
+count = 2
+verdict = "unjudged"
+
+[[test_clients]]
+file = "tests/test_dev_login.py"
+count = 1
+verdict = "unjudged"
+
+[[test_clients]]
+file = "tests/test_hidden_state_isolation.py"
+count = 1
+verdict = "unjudged"
+
+[[test_clients]]
+file = "tests/test_human_plus_agent_join.py"
+count = 1
+verdict = "unjudged"
+
+[[test_clients]]
+file = "tests/test_key_rotation.py"
+count = 1
+verdict = "unjudged"
+
+[[test_clients]]
+file = "tests/test_liars_dice_driver.py"
+count = 1
+verdict = "unjudged"
+
+[[test_clients]]
+file = "tests/test_mcp.py"
+count = 1
+verdict = "unjudged"
+
+[[test_clients]]
+file = "tests/test_message_masking.py"
+count = 1
+verdict = "unjudged"
+
+[[test_clients]]
+file = "tests/test_oauth_dcr_compat.py"
+count = 1
+verdict = "unjudged"
+
+[[test_clients]]
+file = "tests/test_readiness_adoption.py"
+count = 1
+verdict = "unjudged"
+
+[[test_clients]]
+file = "tests/test_request_logging.py"
+count = 2
+verdict = "unjudged"
+
+[[test_clients]]
+file = "tests/test_runner_setup.py"
+count = 3
+verdict = "unjudged"
+
+[[test_clients]]
+file = "tests/test_two_phase_segregation.py"
+count = 1
+verdict = "unjudged"
+
+[[test_clients]]
+file = "tests/test_version_pinning.py"
+count = 1
+verdict = "unjudged"
+
+# --- oversized (S3) ---
+
+[[oversized]]
+file = "app/engine/agent_play.py"
+lines = 476
+kind = "source"
+
+[[oversized]]
+file = "app/engine/agent_play_next_turn.py"
+lines = 881
+kind = "source"
+
+[[oversized]]
+file = "app/engine/agent_play_reads.py"
+lines = 487
+kind = "source"
+
+[[oversized]]
+file = "app/engine/arena.py"
+lines = 403
+kind = "source"
+
+[[oversized]]
+file = "app/engine/connection_activity.py"
+lines = 410
+kind = "source"
+
+[[oversized]]
+file = "app/engine/provider_readiness.py"
+lines = 419
+kind = "source"
+
+[[oversized]]
+file = "app/engine/scheduler.py"
+lines = 469
+kind = "source"
+
+[[oversized]]
+file = "app/engine/scheduler_turn_loop.py"
+lines = 416
+kind = "source"
+
+[[oversized]]
+file = "app/engine/win_probability.py"
+lines = 417
+kind = "source"
+
+[[oversized]]
+file = "app/games/base.py"
+lines = 632
+kind = "source"
+
+[[oversized]]
+file = "app/games/hoard_hurt_help/game.py"
+lines = 432
+kind = "source"
+
+[[oversized]]
+file = "app/games/hoard_hurt_help/rules.py"
+lines = 478
+kind = "source"
+
+[[oversized]]
+file = "app/games/hoard_hurt_help/scoring.py"
+lines = 401
+kind = "source"
+
+[[oversized]]
+file = "app/games/hoard_hurt_help/viewer.py"
+lines = 556
+kind = "source"
+
+[[oversized]]
+file = "app/games/liars_dice/game.py"
+lines = 557
+kind = "source"
+
+[[oversized]]
+file = "app/read_models/leaderboard.py"
+lines = 490
+kind = "source"
+
+[[oversized]]
+file = "app/read_models/matches.py"
+lines = 531
+kind = "source"
+
+[[oversized]]
+file = "app/routes/matches_user.py"
+lines = 455
+kind = "source"
+
+[[oversized]]
+file = "app/routes/web_join.py"
+lines = 531
+kind = "source"
+
+[[oversized]]
+file = "app/routes/web_viewer_context.py"
+lines = 602
+kind = "source"
+
+[[oversized]]
+file = "mcp_server/mcp_tools.py"
+lines = 471
+kind = "source"
+
+[[oversized]]
+file = "tests/test_admin.py"
+lines = 1439
+kind = "test"
+
+[[oversized]]
+file = "tests/test_agent_detail_fixes.py"
+lines = 828
+kind = "test"
+
+[[oversized]]
+file = "tests/test_agent_next_turn_fanout.py"
+lines = 1784
+kind = "test"
+
+[[oversized]]
+file = "tests/test_connection_management.py"
+lines = 1258
+kind = "test"
+
+[[oversized]]
+file = "tests/test_connector_fallback.py"
+lines = 902
+kind = "test"
+
+[[oversized]]
+file = "tests/test_liars_dice_engine.py"
+lines = 746
+kind = "test"
+
+[[oversized]]
+file = "tests/test_lobby.py"
+lines = 742
+kind = "test"
+
+[[oversized]]
+file = "tests/test_mcp.py"
+lines = 658
+kind = "test"
+
+[[oversized]]
+file = "tests/test_migrations.py"
+lines = 1081
+kind = "test"
+
+[[oversized]]
+file = "tests/test_mutual_help_modes.py"
+lines = 842
+kind = "test"
+
+[[oversized]]
+file = "tests/test_readiness_adoption.py"
+lines = 770
+kind = "test"
+
+[[oversized]]
+file = "tests/test_resolver.py"
+lines = 837
+kind = "test"
+
+[[oversized]]
+file = "tests/test_role_simplification.py"
+lines = 1343
+kind = "test"
+
+# --- import_cycles (S3) ---
+
+[[import_cycles]]
+modules = ["app.engine.action_vocab", "app.games", "app.games.hoard_hurt_help.board_signals", "app.games.hoard_hurt_help.game"]
+
+[[import_cycles]]
+modules = ["app.engine.arena", "app.engine.scheduler"]
+
+[[import_cycles]]
+modules = ["app.engine.arena", "app.engine.scheduler", "app.engine.user_match_start"]
+
+[[import_cycles]]
+modules = ["app.engine.arena", "app.engine.user_match_start"]
+
+[[import_cycles]]
+modules = ["app.engine.overdue_sweeper", "app.engine.scheduler"]
+
+[[import_cycles]]
+modules = ["app.engine.overdue_sweeper", "app.engine.scheduler", "app.engine.scheduler_turn_loop"]
+
+[[import_cycles]]
+modules = ["app.engine.scheduler", "app.engine.scheduler_turn_loop"]
+
+[[import_cycles]]
+modules = ["app.engine.scheduler", "app.engine.scheduler_turn_loop", "app.engine.turn_drivers", "app.engine.user_match_start"]
+
+[[import_cycles]]
+modules = ["app.games", "app.games.hoard_hurt_help.game", "app.games.hoard_hurt_help.viewer"]
