@@ -177,10 +177,7 @@ class MatchEntry:
 
 
 async def _count_agent_matches(db: DbSession, agent_id: int) -> int:
-    count = await db.scalar(
-        select(func.count()).select_from(Player).where(Player.agent_id == agent_id)
-    )
-    return int(count or 0)
+    return (await _count_agent_matches_for_agents(db, [agent_id])).get(agent_id, 0)
 
 
 async def _count_agent_matches_for_agents(

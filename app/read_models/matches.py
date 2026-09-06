@@ -179,23 +179,12 @@ async def count_players_by_match(
     return {match_id: int(count) for match_id, count in rows}
 
 
-async def _agent_count(db: AsyncSession, match_id: str) -> int:
-    """Count non-SIM (real agent) players for a match."""
-    result = await db.scalar(
-        select(func.count())
-        .select_from(Player)
-        .join(Agent, Agent.id == Player.agent_id)
-        .where(Player.match_id == match_id, Agent.kind != AgentKind.BOT)
-    )
-    return int(result or 0)
-
-
 async def _agent_counts(db: AsyncSession, match_ids: Sequence[str]) -> dict[str, int]:
     """Non-SIM (real agent) player counts for many matches in one grouped query.
 
     Returns a {match_id: count} map; matches with no real agents are absent and
-    should be read as 0. Batched form of _agent_count to avoid an N+1 query when
-    rendering lists of finished matches.
+    should be read as 0. Counts all matches in one grouped query to avoid an
+    N+1 query when rendering lists of finished matches.
     """
     if not match_ids:
         return {}
