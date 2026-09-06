@@ -55,7 +55,7 @@ not start multiple Gemini calls at the same moment. Start them 30 seconds apart.
 All runner commands run from the repo root:
 
 ```bash
-python3 docs/workflow/operations/codex-skills/feature-factory/scripts/run_factory.py <command> --slug <slug>
+python3 tools/feature-factory/feature-factory/scripts/run_factory.py <command> --slug <slug>
 ```
 
 | Phase | What you do | Runner command |
@@ -117,7 +117,7 @@ For long-running commands (checkpoint, implement), emit a "starting X" message b
 
 When escalating:
 ```bash
-python3 docs/workflow/operations/codex-skills/feature-factory/scripts/run_factory.py \
+python3 tools/feature-factory/feature-factory/scripts/run_factory.py \
   block --slug <slug> --reason "<specific decision needed — not just 'blocked'"
 ```
 
@@ -192,13 +192,13 @@ When your session is ending or you have reached a natural stopping point:
 
 **Step 1:** Check current state:
 ```bash
-python3 docs/workflow/operations/codex-skills/feature-factory/scripts/run_factory.py \
+python3 tools/feature-factory/feature-factory/scripts/run_factory.py \
   status --slug <slug>
 ```
 
 **Step 2:** Record state for Claude:
 ```bash
-python3 docs/workflow/operations/codex-skills/feature-factory/scripts/run_factory.py \
+python3 tools/feature-factory/feature-factory/scripts/run_factory.py \
   block --slug <slug> \
   --reason "Codex session ending at <current phase>. Open decisions: <list any unresolved findings or escalated decisions>. Last completed: <last successfully checkpointed stage>."
 ```

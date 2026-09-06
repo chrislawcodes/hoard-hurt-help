@@ -6,9 +6,9 @@ reviewed code. It explains what FF is for, the problems it solves, the core idea
 and the high-level workflows. It is intentionally *not* the operating manual.
 
 **Related docs:**
-- `operations/codex-skills/feature-factory/SKILL.md` — the authoritative phase table, commands, and rules (the runbook).
-- `operations/codex-skills/feature-factory/CODEX-ORCHESTRATOR.md` — operational guide for Codex-driven runs.
-- `operations/codex-skills/feature-factory/feedback.md` — post-mortem feedback that shaped the current design.
+- `../../tools/feature-factory/feature-factory/SKILL.md` — the authoritative phase table, commands, and rules (the runbook).
+- `../../tools/feature-factory/feature-factory/CODEX-ORCHESTRATOR.md` — operational guide for Codex-driven runs.
+- `../../tools/feature-factory/feature-factory/feedback.md` — post-mortem feedback that shaped the current design.
 - `../../CLAUDE.md` — the project constitution (preflight gate, push/PR rules, Python standards).
 - The four Claude-facing stage skills live in `.claude/skills/feature-{spec,plan,tasks,implement}/`.
 
@@ -294,7 +294,7 @@ When in doubt about where a run stands, read `state.json` or run
 FF is split into a thin front door and a durable backend:
 
 - **Skills** (`.claude/skills/feature-{spec,plan,tasks,implement}/`) — short prompts that tell an agent how to drive the engine for each stage. They hold no workflow logic of their own.
-- **Engine** (`docs/workflow/operations/codex-skills/feature-factory/scripts/`) — `run_factory.py` plus ~30 command modules and a full test suite. This is where checkpoint manifests, review validation, diff writing, reconciliation, and the hard gates actually live.
+- **Engine** (`tools/feature-factory/feature-factory/scripts/`) — `run_factory.py` plus ~30 command modules and a full test suite. This is where checkpoint manifests, review validation, diff writing, reconciliation, and the hard gates actually live.
 
 The runner exposes a command surface (`init`, `status`, `doctor`, `discover`,
 `checkpoint`, `reconcile`, `parallel`, `implement`, `deliver`, `closeout`,
@@ -306,7 +306,7 @@ manual equivalent but keep the artifact structure intact.
 This engine is a **vendored fork** of the ValueRank project's workflow engine,
 and is being verified end-to-end in this repo (see `STATUS.md`). There is no
 automated upstream sync: this repo's copy under
-`docs/workflow/operations/codex-skills/` is the source of truth here, and
+`tools/feature-factory/` is the source of truth here, and
 upstream changes are ported by hand. `scripts/sync-codex-skills.py` is a
 deliberate no-op that records this fork status — it exists only so the engine's
 `ensure_sync()` hook keeps working; it does **not** pull from ValueRank.

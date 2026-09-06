@@ -162,7 +162,7 @@ def _experiment_log_gate(slug: str, state: dict, skip_reason: str) -> None:
 # Repo-relative tracker path; resolved against factory_state.REPO_ROOT at call
 # time so tests (which repoint REPO_ROOT at a tmp dir) never touch the live file.
 _PROPOSED_FIXES_REL_PATH = (
-    "docs/workflow/operations/codex-skills/feature-factory/proposed-fixes.md"
+    "tools/feature-factory/feature-factory/proposed-fixes.md"
 )
 
 # Heading like "## Proposed workflow changes (for human approval)" — postmortems

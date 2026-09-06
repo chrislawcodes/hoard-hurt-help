@@ -76,7 +76,7 @@ path is forgotten. A changed value with an unlisted consumer is an incomplete pl
 
 Author `tasks.md`. **One-shot is the default** — a single slice. Slice into
 multiple checkpoints only per the criteria in the engine guide's **"Keep Diffs
-Scoped"** section (`docs/workflow/operations/codex-skills/feature-factory/SKILL.md`):
+Scoped"** section (`tools/feature-factory/feature-factory/SKILL.md`):
 ordered steps, a diff clearly over ~300 changed lines, or data-critical gates.
 Reference those rules rather than duplicating them, and record the slicing
 decision (with its reason) at the top of `tasks.md`.

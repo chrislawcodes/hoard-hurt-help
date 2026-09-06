@@ -129,7 +129,7 @@ was rejected, what it left undone — is in [`what-shipped-and-why.md`](docs/ope
   response contract in every preset.
 - The agent detail page no longer advertises a finished agent as still "Playing", and agent renames now save as soon as the user leaves the field.
 - Running `/feature-spec` (and the full spec → plan → tasks → implement flow) drives the
-  repo-owned runner at `docs/workflow/operations/codex-skills/feature-factory/scripts/run_factory.py`.
+  repo-owned runner at `tools/feature-factory/feature-factory/scripts/run_factory.py`.
 - The per-game match dashboard can now survive a stale or broken match row instead of 500ing the whole page.
 - Deleting a connection now acts as a real runner shutdown signal instead of a best-effort 401 on the next poll.
 - Connection onboarding can now safely wait for the provider's first live call before the real connection row exists.

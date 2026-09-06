@@ -32,7 +32,7 @@ from factory_state import (  # noqa: E402
 )
 from factory_io import atomic_write_text, read_text  # noqa: E402
 
-REVIEW_SCRIPTS = REPO_ROOT / "docs" / "workflow" / "operations" / "codex-skills" / "review-lens" / "scripts"
+REVIEW_SCRIPTS = REPO_ROOT / "tools" / "feature-factory" / "review-lens" / "scripts"
 if str(REVIEW_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(REVIEW_SCRIPTS))
 

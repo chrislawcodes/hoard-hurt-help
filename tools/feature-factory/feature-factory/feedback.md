@@ -33,7 +33,7 @@ The feature shipped, but the workflow exposed several places where a future agen
    - That made it easy to stop too early or to ask whether implementation should begin.
 
 2. The repo-owned workflow runner was not immediately obvious from memory.
-   - I had to rediscover `docs/workflow/operations/codex-skills/feature-factory/scripts/run_factory.py`.
+   - I had to rediscover `tools/feature-factory/feature-factory/scripts/run_factory.py`.
    - The workflow would be easier to resume if the canonical command path were called out more loudly in the status output or a short quick-start note.
 
 3. The workflow status was useful, but it still required interpretation.

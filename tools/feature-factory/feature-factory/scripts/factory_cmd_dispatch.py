@@ -33,7 +33,7 @@ from factory_codex_runner import (  # noqa: E402
     run_codex,
 )
 
-_REVIEW_LENS_DIR = factory_state.REPO_ROOT / "docs/workflow/operations/codex-skills/review-lens/scripts"
+_REVIEW_LENS_DIR = factory_state.REPO_ROOT / "tools/feature-factory/review-lens/scripts"
 if str(_REVIEW_LENS_DIR) not in sys.path:
     sys.path.insert(0, str(_REVIEW_LENS_DIR))
 

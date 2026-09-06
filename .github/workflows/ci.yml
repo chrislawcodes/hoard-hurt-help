@@ -39,7 +39,7 @@ jobs:
         run: uv run pytest -q
 
       # The vendored Feature Factory / review-lens engine has its own test suite
-      # under docs/workflow/operations/codex-skills/. It is NOT covered by the
+      # under tools/feature-factory/. It is NOT covered by the
       # app's `pytest -q` (testpaths = ["tests"]). These tests import their sibling
       # scripts once (import-once), so the whole suite is order-independent and
       # runs in a single process. A guardrail test (test_no_sys_modules_reload)
@@ -60,7 +60,7 @@ jobs:
       # new test ever regresses that isolation and writes into the live repo tree.
       - name: Test (Feature Factory engine)
         run: |
-          ISO=docs/workflow/operations/codex-skills/feature-factory/scripts/check_workflow_isolation.py
+          ISO=tools/feature-factory/feature-factory/scripts/check_workflow_isolation.py
           uv run python "$ISO" --capture-baseline "$RUNNER_TEMP/ff-isolation-baseline.json"
-          uv run python -m pytest docs/workflow/operations/codex-skills -q -n0
+          uv run python -m pytest tools/feature-factory -q -n0
           uv run python "$ISO" --check --baseline "$RUNNER_TEMP/ff-isolation-baseline.json"

@@ -25,15 +25,15 @@ For anything bigger, ask the two routing questions the experiment log (`experime
 
 ## Read first
 
-- Engine guide (phase table + rules): `docs/workflow/operations/codex-skills/feature-factory/SKILL.md`
-- Codex orchestrator guide: `docs/workflow/operations/codex-skills/feature-factory/CODEX-ORCHESTRATOR.md`
+- Engine guide (phase table + rules): `tools/feature-factory/feature-factory/SKILL.md`
+- Codex orchestrator guide: `tools/feature-factory/feature-factory/CODEX-ORCHESTRATOR.md`
 
 ## How to start the spec stage
 
 Run from the repo root:
 
 ```bash
-RUN=docs/workflow/operations/codex-skills/feature-factory/scripts/run_factory.py
+RUN=tools/feature-factory/feature-factory/scripts/run_factory.py
 python3 $RUN status   --slug <slug>                         # always start here
 python3 $RUN init     --slug <slug> --path <scope-path>     # if not yet initialized (repeat --path per scope dir)
 python3 $RUN discover --slug <slug> ...                     # MANDATORY discovery before spec — see engine guide

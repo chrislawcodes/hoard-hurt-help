@@ -102,8 +102,8 @@ When Claude's tokens are exhausted mid-workflow:
 
 Use these scripts as the workflow backbone:
 
-- `docs/workflow/operations/codex-skills/feature-factory/scripts/run_factory.py`
-- `docs/workflow/operations/codex-skills/review-lens/scripts/*.py`
+- `tools/feature-factory/feature-factory/scripts/run_factory.py`
+- `tools/feature-factory/review-lens/scripts/*.py`
 
 `scripts/sync-codex-skills.py` is **not** a backbone script — the engine is a
 vendored fork of ValueRank with no automated sync, and this no-op exists only so
@@ -555,4 +555,4 @@ pytest -q
 - Do not advance a slice or deliver a PR until preflight is green.
 - Fix the root cause — never silence errors with `# type: ignore` or `# noqa` (see `CLAUDE.md` → Python Standards).
 - Default Codex model for implementation/review: `gpt-5.4-mini`. Gemini reviews: `gemini-3.1-flash-lite` by default, `gemini-3.1-pro-preview` on `--sensitive` checkpoints (run Gemini calls serially / staggered).
-- The engine's own scripts under `docs/workflow/operations/codex-skills/` are excluded from `ruff` in `pyproject.toml`; they are vendored operational tooling with their own test suite.
+- The engine's own scripts under `tools/feature-factory/` are excluded from `ruff` in `pyproject.toml`; they are vendored operational tooling with their own test suite.
