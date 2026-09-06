@@ -19,8 +19,8 @@ from app.games.hoard_hurt_help.rules import (
     hoard_share,
 )
 from app.games.hoard_hurt_help.scoring import resolve_turn
-from app.models import Match, GameState, Player, Turn, TurnSubmission, User
-from tests.factories import make_bot
+from app.models import Match, GameState, Player, Turn, TurnSubmission
+from tests.factories import make_match_with_seated_players
 
 # Every betrayal expectation below is derived from this, never spelled out. The
 # literals it replaced were stale from v6 (they still described a +4 bonus and a
@@ -41,36 +41,9 @@ async def _make_decay_game_with_bots(
     that quietly arrived on another rule would fail them for the wrong reason.
     Which rule a NEW match gets is tested in tests/test_mutual_help_modes.py.
     """
-    game = Match(
-        id="G_TEST",
-        name="test",
-        state=GameState.ACTIVE,
-        scheduled_start=datetime.now(timezone.utc),
-        started_at=datetime.now(timezone.utc),
-        per_turn_deadline_seconds=60,
-        mutual_help_mode=mutual_help_mode,
+    return await make_match_with_seated_players(
+        db, "G_TEST", n, mutual_help_mode=mutual_help_mode
     )
-    db.add(game)
-    await db.flush()
-
-    players = []
-    for i in range(n):
-        u = User(google_sub=f"sub-{i}", email=f"u{i}@test.com", name=f"u{i}")
-        db.add(u)
-        await db.flush()
-        agent, _ = await make_bot(db, u, name=f"AI_{i}")
-        p = Player(
-            match_id=game.id,
-            user_id=u.id,
-            agent_id=agent.id,
-            seat_name=f"AI_{i}",
-        )
-        db.add(p)
-        await db.flush()
-        players.append(p)
-
-    await db.commit()
-    return game, players
 
 
 async def _open_turn(db: AsyncSession, game: Match, round_num: int = 1, turn_num: int = 1) -> Turn:

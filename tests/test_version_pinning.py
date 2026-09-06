@@ -16,9 +16,7 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
-from starlette.middleware.sessions import SessionMiddleware
 
-from app.config import settings
 from app.engine.agent_play_next_turn import get_next_turn
 from app.engine.next_turn_identity import agent_identity_for
 from app.engine.scheduler import registry, start_game
@@ -29,6 +27,7 @@ from app.models.match import GameState, Match
 from app.models.player import Player
 from app.routes.agents_lifecycle import router as agents_lifecycle_router
 from app.routes.web_join import _seat_user_agent
+from tests.conftest import make_scoped_app
 from tests.conftest import signed_in_cookies as _signed_in_cookies
 from tests.factories import (
     make_agent,
@@ -61,16 +60,7 @@ async def app_with_agent_lifecycle_route(
 ) -> FastAPI:
     monkeypatch.setattr("app.db.SessionLocal", session_factory)
     monkeypatch.setattr("app.db.engine", engine)
-    test_app = FastAPI()
-    test_app.add_middleware(
-        SessionMiddleware,
-        secret_key=settings.session_secret,
-        same_site="lax",
-        https_only=False,
-        session_cookie="hhh_session",
-    )
-    test_app.include_router(agents_lifecycle_router, prefix="/me/agents")
-    return test_app
+    return make_scoped_app((agents_lifecycle_router, "/me/agents"))
 
 
 @pytest.fixture

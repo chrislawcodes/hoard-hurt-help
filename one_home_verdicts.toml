@@ -682,8 +682,13 @@ lines = 473
 kind = "source"
 
 [[oversized]]
+file = "tests/factories.py"
+lines = 652
+kind = "test"
+
+[[oversized]]
 file = "tests/test_agent_detail_fixes.py"
-lines = 830
+lines = 822
 kind = "test"
 
 [[oversized]]
@@ -693,7 +698,7 @@ kind = "test"
 
 [[oversized]]
 file = "tests/test_connector_fallback.py"
-lines = 889
+lines = 871
 kind = "test"
 
 [[oversized]]
@@ -723,12 +728,12 @@ kind = "test"
 
 [[oversized]]
 file = "tests/test_readiness_adoption.py"
-lines = 772
+lines = 762
 kind = "test"
 
 [[oversized]]
 file = "tests/test_resolver.py"
-lines = 837
+lines = 810
 kind = "test"
 
 [[oversized]]
@@ -805,7 +810,7 @@ note = "was a copy plus one line (monkeypatching agent_api._last_pull); now an a
 file = "tests/test_agent_detail_fixes.py"
 name = "app"
 verdict = "rename"
-note = "renamed to app_with_agent_and_connection_routes (mounts agents_setup/status/lifecycle + connections_setup/credentials/lifecycle) — there is no conftest.py `app` to copy; each file's router set is inherently its own"
+note = "renamed to app_with_agent_and_connection_routes (mounts agents_setup/status/lifecycle + connections_setup/credentials/lifecycle) — there is no conftest.py `app` to copy; each file's router set is inherently its own. The FastAPI-building part (middleware + include_router) now delegates to tests/conftest.py's make_scoped_app (T4); this fixture still exists on its own to name the router set and do the db-rebind monkeypatching"
 
 [[test_fixtures]]
 file = "tests/test_agent_detail_fixes.py"
@@ -823,7 +828,7 @@ note = "was byte-identical to tests/conftest.py's session_factory (modulo async 
 file = "tests/test_agent_pause_live_seat.py"
 name = "app"
 verdict = "rename"
-note = "renamed to app_with_agent_lifecycle_and_detail_routes (mounts agents_lifecycle + agents_detail) — there is no conftest.py `app` to copy; each file's router set is inherently its own"
+note = "renamed to app_with_agent_lifecycle_and_detail_routes (mounts agents_lifecycle + agents_detail) — there is no conftest.py `app` to copy; each file's router set is inherently its own. The FastAPI-building part (middleware + include_router) now delegates to tests/conftest.py's make_scoped_app (T4); this fixture still exists on its own to name the router set and do the db-rebind monkeypatching"
 
 [[test_fixtures]]
 file = "tests/test_agent_pause_live_seat.py"
@@ -859,7 +864,7 @@ note = "was a copy plus one line (monkeypatching agent_api._last_pull); now an a
 file = "tests/test_agent_versions.py"
 name = "app"
 verdict = "rename"
-note = "renamed to app_with_agent_and_connection_routes (mounts agents_setup/status/lifecycle + connections_setup/credentials/lifecycle) — there is no conftest.py `app` to copy; each file's router set is inherently its own"
+note = "renamed to app_with_agent_and_connection_routes (mounts agents_setup/status/lifecycle + connections_setup/credentials/lifecycle) — there is no conftest.py `app` to copy; each file's router set is inherently its own. The FastAPI-building part (middleware + include_router) now delegates to tests/conftest.py's make_scoped_app (T4); this fixture still exists on its own to name the router set and do the db-rebind monkeypatching"
 
 [[test_fixtures]]
 file = "tests/test_agent_versions.py"
@@ -937,7 +942,7 @@ note = "was byte-identical to tests/conftest.py's engine (modulo the create_all 
 file = "tests/test_connection_auth.py"
 name = "app"
 verdict = "rename"
-note = "renamed to app_with_agent_next_turn_route (mounts agent_next_turn only) — there is no conftest.py `app` to copy; each file's router set is inherently its own"
+note = "renamed to app_with_agent_next_turn_route (mounts agent_next_turn only) — still doesn't compose with tests/conftest.py's make_scoped_app (T4): this app carries no SessionMiddleware at all, since agent_next_turn is a header-keyed API route with no session cookie to sign"
 
 [[test_fixtures]]
 file = "tests/test_connection_auth.py"
@@ -955,7 +960,7 @@ note = "kept under its conftest-shared name: carries the schema-creation step te
 file = "tests/test_connection_management.py"
 name = "app"
 verdict = "rename"
-note = "renamed to app_with_agent_next_turn_and_connection_routes (mounts agent_next_turn + connections_setup/credentials/lifecycle) — there is no conftest.py `app` to copy; each file's router set is inherently its own"
+note = "renamed to app_with_agent_next_turn_and_connection_routes (mounts agent_next_turn + connections_setup/credentials/lifecycle) — still doesn't compose with tests/conftest.py's make_scoped_app (T4): this app signs its session cookie with a literal test secret (also reused by this file's own TimestampSigner, line ~91) instead of settings.session_secret, on purpose, so it stays independent"
 
 [[test_fixtures]]
 file = "tests/test_connection_management.py"
@@ -1117,7 +1122,7 @@ note = "was byte-identical to tests/conftest.py's engine (modulo the create_all 
 file = "tests/test_readiness_adoption.py"
 name = "app"
 verdict = "rename"
-note = "renamed to app_with_connections_setup_route (mounts connections_setup only) — there is no conftest.py `app` to copy; each file's router set is inherently its own"
+note = "renamed to app_with_connections_setup_route (mounts connections_setup only) — there is no conftest.py `app` to copy; each file's router set is inherently its own. The FastAPI-building part (middleware + include_router) now delegates to tests/conftest.py's make_scoped_app (T4); this fixture still exists on its own to name the router set and do the db-rebind monkeypatching"
 
 [[test_fixtures]]
 file = "tests/test_readiness_adoption.py"
@@ -1189,7 +1194,7 @@ note = "was a copy plus one line (monkeypatching agent_api._last_pull); now an a
 file = "tests/test_version_pinning.py"
 name = "app"
 verdict = "rename"
-note = "renamed to app_with_agent_lifecycle_route (mounts agents_lifecycle only) — there is no conftest.py `app` to copy; each file's router set is inherently its own"
+note = "renamed to app_with_agent_lifecycle_route (mounts agents_lifecycle only) — there is no conftest.py `app` to copy; each file's router set is inherently its own. The FastAPI-building part (middleware + include_router) now delegates to tests/conftest.py's make_scoped_app (T4); this fixture still exists on its own to name the router set and do the db-rebind monkeypatching"
 
 [[test_fixtures]]
 file = "tests/test_version_pinning.py"
@@ -1274,3 +1279,29 @@ file = "tests/test_two_phase_loop.py"
 name = "publish"
 verdict = "leave"
 note = "records events into a list the test asserts on (e.g. published[0][2][\"phase\"] == \"talk\"); quiet_scheduler's publish is a no-op with nothing to record"
+
+# --- copied_blocks (T4) ---
+# Any pair of tests/test_*.py files sharing >= 8 normalized 5-line windows
+# (import/blank/comment/decorator/docstring lines dropped, database-fixture
+# lines excluded) needs an entry here. file_a/file_b are alphabetically
+# ordered; windows is the shared-window count at the time this was recorded.
+#
+# Read by tests/test_copied_blocks_ratchet.py, which reimplements the same
+# scan. A new pair reaching 8 with no entry fails the build ("share the setup
+# through tests/factories.py"); a recorded pair whose count has since
+# dropped below 8 is stale and also fails — the ratchet only tightens.
+
+[[copied_blocks]]
+file_a = "tests/test_admin_match_lifecycle.py"
+file_b = "tests/test_viewer.py"
+windows = 12
+
+[[copied_blocks]]
+file_a = "tests/test_agent_detail_fixes.py"
+file_b = "tests/test_agent_versions.py"
+windows = 8
+
+[[copied_blocks]]
+file_a = "tests/test_agent_next_turn_pacing.py"
+file_b = "tests/test_agent_next_turn_payload.py"
+windows = 8

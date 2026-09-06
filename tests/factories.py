@@ -528,6 +528,91 @@ async def seat_prebuilt_player(
     return player
 
 
+async def make_match_with_seated_players(
+    db,
+    match_id: str,
+    n: int,
+    *,
+    total_rounds: int | None = None,
+    turns_per_round: int | None = None,
+    mutual_help_mode: str | None = None,
+) -> tuple[Match, list[Player]]:
+    """Create an ACTIVE match with `n` seated AI-agent players, each a fresh user.
+
+    Each seat is a full user + agent + version, named/seated "AI_{i}" — the
+    scenario test_resolver.py's `_make_decay_game_with_bots` and
+    test_two_phase_loop.py's `_make_two_phase_game_with_agents` each built by
+    hand with a bare `User(...)` and a bare `Player(...)` per seat, instead of
+    the shared `make_user` / `make_agent` / `seat_prebuilt_player`.
+
+    `mutual_help_mode` is resolver's own override (its payout tests are
+    written against decay's numbers); `total_rounds`/`turns_per_round` are
+    two_phase's (a single-round, single-turn match). Each is set on the row
+    only when given, so the caller that doesn't pass it gets the model's own
+    default either way.
+    """
+    now = datetime.now(timezone.utc)
+    match = await make_match(
+        db,
+        match_id,
+        state=GameState.ACTIVE,
+        scheduled_start=now,
+        started_at=now,
+        total_rounds=total_rounds,
+        turns_per_round=turns_per_round,
+    )
+    if mutual_help_mode is not None:
+        match.mutual_help_mode = mutual_help_mode
+        await db.flush()
+
+    players: list[Player] = []
+    for i in range(n):
+        user = await make_user(db, i)
+        agent, version = await make_agent(db, user, name=f"AI_{i}")
+        assert version is not None
+        player = await seat_prebuilt_player(
+            db, match=match, user=user, agent=agent, version=version, seat_name=f"AI_{i}"
+        )
+        players.append(player)
+
+    await db.commit()
+    return match, players
+
+
+async def seed_active_two_phase_match(
+    reset_db, match_id: str, *, name: str | None = None
+) -> tuple[Match, list[Player]]:
+    """Open a session, create a single-round/single-turn ACTIVE match with
+    two seat_player seats (full user + connection + agent + player each), and
+    return (match, players).
+
+    The reset_db-opening counterpart to make_match, for the scenario
+    test_agent_two_phase.py's `_seed_two_phase_match` and
+    test_connector_fallback.py's `_seed_active_game` each built independently
+    — one via make_match, the other a bare `Match(...)` literal, but ending
+    at the same shape. Neither file's callers ever ask for a different player
+    count, so this doesn't take one either.
+    """
+    async with reset_db() as db:
+        now = datetime.now(timezone.utc)
+        match = await make_match(
+            db,
+            match_id,
+            state=GameState.ACTIVE,
+            name=name,
+            scheduled_start=now,
+            started_at=now,
+            total_rounds=1,
+            turns_per_round=1,
+        )
+        players: list[Player] = []
+        for i in range(2):
+            player = await seat_player(db, match.id, f"AI_{i}", i=i)
+            players.append(player)
+        await db.commit()
+        return match, players
+
+
 async def make_bot(
     db,
     user: User,
