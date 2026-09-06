@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import enum
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 
 from fastapi import Request
 from sqlalchemy import func, select
@@ -39,6 +39,7 @@ from app.models.match import Match
 from app.models.user import User
 from app.routes.web_support import safe_internal_next
 from app.routes.agents_queries import owned_agent_filter
+from app.engine.turn_clock import now_utc
 
 
 # The games lobby anchor every "ready to play" path lands on (nav CTA, /play,
@@ -100,7 +101,7 @@ async def user_connection_count(db: AsyncSession, user_id: int) -> int:
 
 async def user_live_connection_count(db: AsyncSession, user_id: int) -> int:
     """Distinct providers with a live connection (seen within LIVE_WINDOW_SECONDS)."""
-    cutoff = datetime.now(timezone.utc) - timedelta(seconds=LIVE_WINDOW_SECONDS)
+    cutoff = now_utc() - timedelta(seconds=LIVE_WINDOW_SECONDS)
     stmt = (
         select(func.count(Connection.provider.distinct()))
         .select_from(Connection)

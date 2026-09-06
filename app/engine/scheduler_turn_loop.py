@@ -23,7 +23,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from typing import TYPE_CHECKING
 
 from sqlalchemy import func, select
@@ -225,7 +225,7 @@ async def _run_game(match_id: str) -> None:
         try:
             module = get_game_module(game.game)
         except GameError:
-            mark_cancelled(game, datetime.now(timezone.utc))
+            mark_cancelled(game, now_utc())
             await db.commit()
             log_ops_event(
                 scheduler.logger,

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Path, Query, status
@@ -19,6 +19,7 @@ from app.models.connection_setup import ConnectionSetup
 from app.models.user import User
 
 from app.routes.connections_queries import _load_owned_connection
+from app.engine.turn_clock import now_utc
 
 router = APIRouter()
 
@@ -37,7 +38,7 @@ async def _provider_covered_by_other_live(
     decide whether disabling a provider (or deleting a machine) would strand the
     agents that depend on it.
     """
-    now = now or datetime.now(timezone.utc)
+    now = now or now_utc()
     cutoff = now - timedelta(seconds=LIVE_WINDOW_SECONDS)
     count = await db.scalar(
         select(func.count())
@@ -82,7 +83,7 @@ async def pause_connection(
 ) -> RedirectResponse:
     connection = await _load_owned_connection(db, user, connection_id)
     connection.status = ConnectionStatus.PAUSED
-    connection.paused_at = datetime.now(timezone.utc)
+    connection.paused_at = now_utc()
     connection.paused_reason = "owner"
     await db.commit()
     return RedirectResponse(
@@ -116,7 +117,7 @@ async def delete_connection(
     # Deleting a connection must also stop the runner. Removing the connection
     # row marks it deleted, which makes the next runner check-in return a
     # dedicated shutdown response.
-    now = datetime.now(timezone.utc)
+    now = now_utc()
     connection.deleted_at = now
     connection.status = ConnectionStatus.PAUSED
     connection.paused_at = now

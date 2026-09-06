@@ -24,6 +24,7 @@ from app.games.hoard_hurt_help.rules import (
     mutual_help_legend,
 )
 from app.read_models.agent_display import strip_archive_suffix
+from app.engine.turn_clock import now_utc
 
 
 def _nav_cta_context(request: Request) -> dict[str, object]:
@@ -121,7 +122,7 @@ def reltime(value: object) -> str:
     if iso is None:
         return "unknown time"
     dt = datetime.fromisoformat(iso.replace("Z", "+00:00"))
-    now = datetime.now(timezone.utc)
+    now = now_utc()
     total_seconds = int((dt - now).total_seconds())
     if total_seconds < -3600:
         return f"{abs(total_seconds) // 3600}h ago"

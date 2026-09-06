@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -34,6 +34,7 @@ from app.engine.next_turn_candidates import _collect_candidates
 from app.engine.next_turn_payload import _build_turn_payload, _claim_pin
 from app.models.connection import Connection, ConnectionStatus
 from app.ops_events import log_ops_event
+from app.engine.turn_clock import now_utc
 
 logger = logging.getLogger(__name__)
 
@@ -119,7 +120,7 @@ async def get_next_turn(
     ``max_hold_seconds`` caps the long-poll hold (tests pass 0 to return at once
     instead of waiting out a real hold).
     """
-    now = datetime.now(timezone.utc)
+    now = now_utc()
     # The play-loop heartbeat: reaching here means the AI is actively polling for
     # turns. Stamp it (throttled) before serving so seating can tell a running loop
     # from a one-off sign-in. Its own commit, so the later rollbacks don't undo it.
@@ -194,7 +195,7 @@ async def get_next_turn(
             # for why this is not `mark_seen`.
             await mark_still_holding(check_db, fresh)
             served = await _serve_one_turn(
-                check_db, fresh, datetime.now(timezone.utc), agent_id=agent_id
+                check_db, fresh, now_utc(), agent_id=agent_id
             )
             if served is not None:
                 return served
@@ -225,7 +226,7 @@ async def get_next_turn(
 
 
 async def get_next_turns(db: AsyncSession, connection: Connection) -> dict[str, object]:
-    now = datetime.now(timezone.utc)
+    now = now_utc()
     # Play-loop heartbeat: calling get_next_turns is the AI actively polling for
     # work, exactly like get_next_turn. Stamp it (throttled) BEFORE collecting, so
     # an agent that only ever discovers turns through this fan-out endpoint — e.g.

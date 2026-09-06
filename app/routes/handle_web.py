@@ -8,7 +8,7 @@ form is pre-filled with a suggestion so picking one is near-zero friction.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Form, Request, status
@@ -26,6 +26,7 @@ from app.models.user import User
 from app.models.user_milestone import MilestoneKind
 from app.routes.web_support import _is_any_admin, safe_internal_next
 from app.templating import templates
+from app.engine.turn_clock import now_utc
 
 router = APIRouter()
 
@@ -48,7 +49,7 @@ def _cooldown_until(user: User) -> datetime | None:
         return None
     changed = ensure_aware(user.handle_changed_at)
     until = changed + timedelta(days=handle_mod.CHANGE_COOLDOWN_DAYS)
-    return until if datetime.now(timezone.utc) < until else None
+    return until if now_utc() < until else None
 
 
 def _render(
@@ -161,7 +162,7 @@ async def handle_submit(
 
     user.handle = display
     user.handle_key = key
-    user.handle_changed_at = datetime.now(timezone.utc)
+    user.handle_changed_at = now_utc()
     # Recorded on every save, not only the first: the unique constraint on the
     # milestone table keeps the earliest one, so a later handle change is a no-op.
     await record_milestone(db, user.id, MilestoneKind.PICKED_HANDLE)

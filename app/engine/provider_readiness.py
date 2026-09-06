@@ -9,7 +9,7 @@ join-gate-capacity layer builds on top of this.
 from __future__ import annotations
 
 import enum
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from typing import Any
 
 from sqlalchemy import select
@@ -24,6 +24,7 @@ from app.engine.connection_health_badge import (
 )
 from app.models.connection import Connection, ConnectionProvider, ConnectionStatus
 from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
+from app.engine.turn_clock import now_utc
 
 MCP_CONNECTION_VALID_DAYS = 90
 MCP_CONNECTION_PROVIDERS = frozenset(
@@ -89,7 +90,7 @@ async def provider_is_covered(
     - status != PAUSED
     - last_seen_at within LIVE_WINDOW_SECONDS of now
     """
-    now = datetime.now(timezone.utc)
+    now = now_utc()
     rows = (
         await db.execute(_provider_connections_query(user_id, provider, Connection))
     ).scalars().all()
@@ -129,7 +130,7 @@ async def provider_has_recent_mcp_connection(
     still be valid. A machine/header-style connection does not satisfy this
     check.
     """
-    cutoff = datetime.now(timezone.utc) - timedelta(days=MCP_CONNECTION_VALID_DAYS)
+    cutoff = now_utc() - timedelta(days=MCP_CONNECTION_VALID_DAYS)
     rows = (
         (
             await db.execute(
@@ -231,7 +232,7 @@ async def provider_loop_running(
     This is the gate for confirming a seat: a seat only auto-confirms when an AI is
     genuinely looping; otherwise it's held while the user starts their AI.
     """
-    now = datetime.now(timezone.utc)
+    now = now_utc()
     query = _provider_connections_query(
         user_id,
         provider,

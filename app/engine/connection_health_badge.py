@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import enum
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,6 +23,7 @@ from app.models.connection import Connection, ConnectionStatus
 from app.models.match import GameState, Match
 from app.models.player import Player
 from app.models.turn import Turn, TurnSubmission
+from app.engine.turn_clock import now_utc
 
 LIVE_WINDOW_SECONDS = 90
 _HEARTBEAT_THROTTLE_SECONDS = 10
@@ -225,7 +226,7 @@ async def compute_connection_health(
     reports how many of the user's active AI agents this machine *covers* (their
     provider is enabled here).
     """
-    now = now or datetime.now(timezone.utc)
+    now = now or now_utc()
     warm = within_window(connection.last_seen_at, now, LIVE_WINDOW_SECONDS)
     last_connected = connection.last_seen_at or connection.first_connected_at
     never_connected = last_connected is None

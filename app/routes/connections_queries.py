@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -34,6 +34,7 @@ from app.models.user import User
 from app.provider_labels import provider_label
 from app.routes.agents_queries import user_agents_select
 from app.routes.connections_connect_guide import _play_prompt, _provider_label
+from app.engine.turn_clock import now_utc
 
 
 @dataclass(frozen=True)
@@ -82,7 +83,7 @@ async def _load_stranded_agents(db: DbSession, user_id: int) -> list[AgentRow]:
     Agents are provider-agnostic, so "stranded" is now all-or-nothing: if the
     user has ANY live connection, nothing is stranded; if they have none, every
     active agent is waiting for one."""
-    cutoff = datetime.now(timezone.utc) - timedelta(seconds=LIVE_WINDOW_SECONDS)
+    cutoff = now_utc() - timedelta(seconds=LIVE_WINDOW_SECONDS)
     has_live_connection = (
         await db.execute(
             select(Connection.id)

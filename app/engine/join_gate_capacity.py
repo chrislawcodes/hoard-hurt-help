@@ -8,7 +8,6 @@ another game right now, or is the join gate blocked?".
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,6 +23,7 @@ from app.models.match import (
     Match,
 )
 from app.models.player import Player
+from app.engine.turn_clock import now_utc
 
 
 async def active_matches_for_provider(
@@ -58,7 +58,7 @@ async def live_provider_capacity(
     Any live connection counts — an MCP sign-in or a machine connection (the
     always-on connector / paste-in loop), since both can serve the provider.
     """
-    now = datetime.now(timezone.utc)
+    now = now_utc()
     query = _provider_connections_query(user_id, provider, Connection)
     rows = (await db.execute(query)).scalars().all()
     return sum(c.max_concurrent_games for c in rows if _connection_is_live(c, now))
@@ -105,7 +105,7 @@ async def live_user_capacity(db: AsyncSession, user_id: int) -> int:
 
     Each connection is counted once. Returns 0 when none are live (join blocked).
     """
-    now = datetime.now(timezone.utc)
+    now = now_utc()
     rows = (
         await db.execute(
             select(Connection).where(

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import asdict
-from datetime import datetime, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Request, status
@@ -25,6 +24,7 @@ from app.routes.web_support import (
     _load_owned_player_match_or_404,
 )
 from app.templating import templates
+from app.engine.turn_clock import now_utc
 
 router = APIRouter(tags=["web"])
 
@@ -211,6 +211,6 @@ async def web_leave(
     player, game = await _load_owned_player_match_or_404(db, player_id, user.id)
     if game.state not in (GameState.SCHEDULED, GameState.REGISTERING):
         raise HTTPException(409, detail="Cannot leave after start.")
-    player.left_at = datetime.now(timezone.utc)
+    player.left_at = now_utc()
     await db.commit()
     return RedirectResponse(url="/me/matches", status_code=status.HTTP_303_SEE_OTHER)

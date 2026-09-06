@@ -18,7 +18,6 @@ there.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
 
 from fastapi import status
 from sqlalchemy import select
@@ -70,6 +69,7 @@ from app.schemas.agent import (
     TalkWindowClosedResponse,
     TurnDetailResponse,
 )
+from app.engine.turn_clock import now_utc
 
 logger = logging.getLogger(__name__)
 
@@ -118,7 +118,7 @@ async def submit_talk(
     existing = await _existing_message_for_player(db, turn, player)
     if existing is not None and not existing.was_defaulted:
         return MessageResponse(
-            received_at=existing.submitted_at or datetime.now(timezone.utc),
+            received_at=existing.submitted_at or now_utc(),
         )
 
     module = get_game_module(game.game)
@@ -147,7 +147,7 @@ async def submit_talk(
     await db.commit()
 
     return MessageResponse(
-        received_at=datetime.now(timezone.utc),
+        received_at=now_utc(),
     )
 
 
@@ -210,7 +210,7 @@ async def submit_action(
     existing = await _existing_submission_for_player(db, turn, player)
     if existing is not None and not existing.was_defaulted:
         return SubmitResponse(
-            received_at=existing.submitted_at or datetime.now(timezone.utc),
+            received_at=existing.submitted_at or now_utc(),
         )
 
     module = get_game_module(game.game)
@@ -296,7 +296,7 @@ async def submit_action(
     await mark_first_move(db, player.agent_id)
 
     return SubmitResponse(
-        received_at=datetime.now(timezone.utc),
+        received_at=now_utc(),
     )
 
 
@@ -352,7 +352,7 @@ async def leave_match(
             "Cannot leave a game that has already started.",
             status.HTTP_409_CONFLICT,
         )
-    player.left_at = datetime.now(timezone.utc)
+    player.left_at = now_utc()
     await db.commit()
     return LeaveResponse(game_state=game.state.value, effective_at=player.left_at)
 

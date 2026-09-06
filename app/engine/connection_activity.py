@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import enum
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Sequence
 
 from sqlalchemy import select, update
@@ -39,6 +39,7 @@ from app.models.connection import Connection, ConnectionStatus
 from app.models.match import Match, GameState
 from app.models.player import Player
 from app.models.turn import TurnSubmission
+from app.engine.turn_clock import now_utc
 
 # A "bot" here is the user's AI Connection (runner/MCP login). Aliased so the
 # onboarding/health signatures read in bot terms while keeping the real type.
@@ -124,7 +125,7 @@ async def mark_seen(
         health badge reads to tell "alive now" from "connected once". Also
         credential-blind.
     """
-    now = now or datetime.now(timezone.utc)
+    now = now or now_utc()
     first = bot.first_connected_at is None
     cutover = (
         presented_key_hash is not None
@@ -184,7 +185,7 @@ async def mark_polled(
     signal used to gate seating. Throttled and absolute (no ``col + 1``), so a
     later commit in the same request can't double-write — one cheap UPDATE.
     """
-    now = now or datetime.now(timezone.utc)
+    now = now or now_utc()
     last = connection.last_polled_at
     if (
         last is not None
@@ -215,7 +216,7 @@ async def mark_still_holding(
     per-inference cost signal. One held poll is one paid inference however many
     times we re-check inside it, so counting the re-checks would inflate it.
     """
-    now = now or datetime.now(timezone.utc)
+    now = now or now_utc()
     last = connection.last_seen_at
     if (
         last is not None
@@ -365,7 +366,7 @@ async def compute_bot_health(
     ``last_seen_at`` prevents a one-off sign-in handshake from making a
     non-running connection appear "ready".
     """
-    now = now or datetime.now(timezone.utc)
+    now = now or now_utc()
     warm = within_window(bot.last_polled_at, now, LOOP_RUNNING_WINDOW_SECONDS)
     last_connected = bot.last_seen_at or bot.first_connected_at
     never = last_connected is None

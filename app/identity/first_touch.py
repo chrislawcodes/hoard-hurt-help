@@ -25,7 +25,6 @@ the ``SessionMiddleware`` call in ``app/main.py``. Registered after, there is no
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -34,6 +33,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from app.config import settings
+from app.engine.turn_clock import now_utc
 
 logger = logging.getLogger(__name__)
 
@@ -124,7 +124,7 @@ def build_first_touch(request: Request) -> dict[str, Any]:
             "referrer_host",
         ),
         "landing_path": _clip(request.url.path, "landing_path"),
-        "at": datetime.now(timezone.utc).isoformat(),
+        "at": now_utc().isoformat(),
     }
     # "direct" only when we looked and found nothing to attribute.
     captured["channel"] = (

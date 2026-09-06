@@ -5,7 +5,6 @@ Relocated verbatim from app/engine/resolver.py; the math is unchanged.
 Read it with spec.md §5 alongside.
 """
 
-from datetime import datetime, timezone
 
 from collections.abc import Iterable, Mapping
 from typing import Any
@@ -29,6 +28,7 @@ from app.games.hoard_hurt_help.rules import (
 from app.models.match import Match
 from app.models.player import Player
 from app.models.turn import Turn, TurnSubmission
+from app.engine.turn_clock import now_utc
 
 
 def mutual_help_counts(
@@ -320,7 +320,7 @@ async def resolve_turn(db: AsyncSession, turn: Turn) -> None:
         s.points_delta = actual_delta
         s.round_score_after = new_score
 
-    turn.resolved_at = datetime.now(timezone.utc)
+    turn.resolved_at = now_utc()
     await db.commit()
 
 

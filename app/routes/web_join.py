@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Annotated
 from urllib.parse import quote
 
@@ -47,6 +47,7 @@ from app.routes.web_support import (
     require_can_view_game,
 )
 from app.templating import templates
+from app.engine.turn_clock import now_utc
 
 router = APIRouter(tags=["web"])
 
@@ -343,7 +344,7 @@ async def _seat_user_agent(
     readiness = await provider_readiness(db, user.id, ConnectionProvider(chosen_provider))
     reserved_until: datetime | None = None
     if readiness != ProviderReadiness.LIVE:
-        reserved_until = hold_deadline(datetime.now(timezone.utc))
+        reserved_until = hold_deadline(now_utc())
     seat_name = _seat_name(selected_agent.name, existing_seats)
     existing_seats.add(seat_name)
     return Player(

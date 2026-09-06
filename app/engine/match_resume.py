@@ -29,7 +29,7 @@ scored by today's rules, which is correct.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -38,6 +38,7 @@ from app.engine.match_creation import allocate_match_id
 from app.models.match import GameState, Match, MatchKind
 from app.models.player import Player
 from app.models.turn import Turn, TurnMessage, TurnSubmission
+from app.engine.turn_clock import now_utc
 
 __all__ = ["ResumePoint", "ResumeError", "resume_match_from"]
 
@@ -109,7 +110,7 @@ async def resume_match_from(
             f"R{at.round}T{at.turn} is incomplete"
         )
 
-    now = datetime.now(timezone.utc)
+    now = now_utc()
     # `allocate_match_id`, not a row count. Counting rows was a second answer to
     # "what is the next match id?" and a wrong one: matches get deleted, so on
     # production the count sat far below the highest id and the generated id

@@ -12,7 +12,6 @@ revision before applying the normal upgrade path.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
 
 from alembic import command
 from alembic.config import Config
@@ -21,6 +20,7 @@ from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, inspect, text
 
 from app.ops_events import log_ops_event
+from app.engine.turn_clock import now_utc
 
 logger = logging.getLogger(__name__)
 
@@ -101,7 +101,7 @@ def _cancel_active_games_if_schema_pending(config: Config, database_url: str) ->
                     "UPDATE matches SET state = 'cancelled', cancelled_at = :now"
                     " WHERE state = 'active'"
                 ),
-                {"now": datetime.now(timezone.utc).isoformat()},
+                {"now": now_utc().isoformat()},
             )
             conn.commit()
         # Loud and specific: a pending migration may be destructive (e.g. it

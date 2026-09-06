@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from typing import Annotated
 from urllib.parse import quote
 
@@ -29,6 +28,7 @@ from app.routes.web_support import (
     _load_owned_player_match_or_404,
 )
 from app.templating import templates
+from app.engine.turn_clock import now_utc
 
 router = APIRouter(tags=["web"])
 
@@ -148,7 +148,7 @@ async def seat_connect_status(
         await db.commit()
         return _hx_redirect(match_url)
 
-    now = datetime.now(timezone.utc)
+    now = now_utc()
     if ensure_aware(player.seat_reserved_until) <= now:
         # Deadline passed and still not live — release the seat now.
         await db.delete(player)

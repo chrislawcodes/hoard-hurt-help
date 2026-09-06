@@ -12,7 +12,6 @@ Each helper:
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
@@ -21,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.models.admin_audit_log import AdminAction, AdminAuditLog
 from app.models.user import User, UserRole
+from app.engine.turn_clock import now_utc
 
 
 def _is_floor_admin(user: User) -> bool:
@@ -72,7 +72,7 @@ async def disable_user(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Cannot disable a platform-admin-floor user.",
         )
-    target.disabled_at = datetime.now(timezone.utc)
+    target.disabled_at = now_utc()
     _write_audit(db, actor=actor, target=target, action=AdminAction.disable, reason=reason)
 
 

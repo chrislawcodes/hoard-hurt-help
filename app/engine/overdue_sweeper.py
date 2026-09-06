@@ -40,7 +40,7 @@ frozen until the code fix ships (the pre-sweeper status quo, minus the silence).
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from typing import TYPE_CHECKING
 
 from sqlalchemy import select
@@ -56,6 +56,7 @@ from app.models.match import Match, GameState
 from app.models.turn import Turn
 from app.ops_events import log_ops_event
 from app.request_logging import record_background_incident
+from app.engine.turn_clock import now_utc
 
 if TYPE_CHECKING:
     from app.engine.scheduler import SchedulerRegistry
@@ -125,7 +126,7 @@ async def _find_frozen_turns(
     naive-datetime storage (SQLite tests) and aware storage compare identically.
     The unresolved-turns-of-active-matches set is tiny, so this is cheap.
     """
-    cutoff = datetime.now(timezone.utc) - timedelta(
+    cutoff = now_utc() - timedelta(
         seconds=OVERDUE_TURN_GRACE_SECONDS
     )
     frozen: list[tuple[str, int, int]] = []
@@ -245,7 +246,7 @@ async def _load_frozen_state(
     turn = await load_turn_at(db, match_id, round_num, turn_num)
     if turn is None or turn.resolved_at is not None:
         return None
-    cutoff = datetime.now(timezone.utc) - timedelta(
+    cutoff = now_utc() - timedelta(
         seconds=OVERDUE_TURN_GRACE_SECONDS
     )
     if ensure_aware(turn.deadline_at) > cutoff:

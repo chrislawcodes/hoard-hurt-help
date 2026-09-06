@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, OperationalError
@@ -16,6 +16,7 @@ from app.models.user_milestone import MilestoneKind
 from app.models.connection import Connection, ConnectionProvider, ConnectionStatus
 from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
 from app.models.user import User
+from app.engine.turn_clock import now_utc
 
 _MAX_ATTEMPTS = 3
 # Serializes one user's bootstrap path inside this process; the partial unique
@@ -264,7 +265,7 @@ async def mcp_connection_for(
     Safe to call from concurrent OAuth callbacks: a partial unique index keeps
     one live row per (user, provider); retryable races re-read and converge.
     """
-    resolved_now = now or datetime.now(timezone.utc)
+    resolved_now = now or now_utc()
     user_id = user.id
     lock = _USER_LOCKS.setdefault(user_id, asyncio.Lock())
     async with lock:

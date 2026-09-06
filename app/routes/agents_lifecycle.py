@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Path, Query, status
@@ -23,6 +22,7 @@ from app.read_models.matches import (
 from app.routes.agents_queries import load_owned_agent, version_has_rated_history
 from app.routes.agents_create import clean_agent_blurb, clean_agent_name
 from app.routes.web_support import safe_internal_next
+from app.engine.turn_clock import now_utc
 
 router = APIRouter()
 
@@ -86,7 +86,7 @@ async def _apply_version_edit(
         current.note = note
         return current
     if current.frozen_at is None and current_has_rated_history:
-        current.frozen_at = datetime.now(timezone.utc)
+        current.frozen_at = now_utc()
     return await _fork_version(db, agent=agent, strategy_text=strategy_text, note=note)
 
 
@@ -181,7 +181,7 @@ async def delete_agent(
         await db.execute(select(Player.id).where(Player.agent_id == agent.id).limit(1))
     ).first() is not None
     if has_history:
-        agent.archived_at = datetime.now(timezone.utc)
+        agent.archived_at = now_utc()
         agent.status = AgentStatus.PAUSED
     else:
         # No game history, so no Player rows reference this agent or its

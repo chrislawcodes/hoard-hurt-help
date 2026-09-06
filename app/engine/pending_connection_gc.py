@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import cast
 
 from sqlalchemy import delete
@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.connection import Connection, ConnectionStatus
 from app.models.connection_setup import ConnectionSetup
+from app.engine.turn_clock import now_utc
 
 _PENDING_MAX_AGE = timedelta(hours=24)
 
@@ -19,7 +20,7 @@ async def gc_pending_connections(
     db: AsyncSession, *, now: datetime | None = None
 ) -> int:
     """Delete stale pending setup drafts and legacy pending connections."""
-    now = now or datetime.now(timezone.utc)
+    now = now or now_utc()
     cutoff = now - _PENDING_MAX_AGE
     setup_result = await db.execute(
         delete(ConnectionSetup).where(
