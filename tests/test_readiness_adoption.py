@@ -26,11 +26,9 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
-from app.db import make_engine
 from app.engine.connection_health_badge import ConnectionHealth
 from app.engine.provider_readiness import ProviderReadiness, provider_readiness
 from app.engine.seat_hold import confirm_seat_if_live
-from app.models import Base
 from app.models.agent import Agent, AgentKind, AgentStatus
 from app.models.agent_version import AgentVersion
 from app.models.connection import Connection, ConnectionProvider, ConnectionStatus
@@ -77,25 +75,18 @@ def _mcp_recent() -> datetime:
 # ---------------------------------------------------------------------------
 
 
-# Kept under its conftest-shared name (rather than renamed): it carries the
-# schema-creation step conftest.py's own bare `engine` defers to `db`, and
-# `db_session`/`app` in this file depend on that by requesting `engine`
-# directly — pytest's fixture-override resolution means this override also
-# feeds conftest's own (otherwise-identical) `session_factory` and `db`.
-@pytest.fixture
-async def engine() -> AsyncIterator[AsyncEngine]:
-    eng = make_engine("sqlite+aiosqlite:///:memory:")
-    async with eng.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    yield eng
-    await eng.dispose()
-
-
 @pytest.fixture
 async def db_session(db: AsyncSession) -> AsyncSession:
     """Alias for tests/conftest.py's db, kept for this file's existing
     db_session-named call sites."""
     return db
+
+
+@pytest.fixture
+async def session_factory(db_factory: async_sessionmaker) -> async_sessionmaker:
+    """Alias for tests/conftest.py's db_factory, kept for this file's existing
+    session_factory-named call sites."""
+    return db_factory
 
 
 @pytest.fixture

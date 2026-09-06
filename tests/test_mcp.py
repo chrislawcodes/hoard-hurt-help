@@ -2,14 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
 from types import SimpleNamespace
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
-from app.models.base import Base
 from fastmcp.server.dependencies import AccessToken
 
 
@@ -28,15 +25,6 @@ def _token(*, sub: str = "sub-123", email: str = "agent@example.com") -> AccessT
             "email_verified": True,
         },
     )
-
-
-@pytest.fixture
-async def db_session_factory(
-    engine: AsyncEngine,
-) -> AsyncIterator[async_sessionmaker[AsyncSession]]:
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    yield async_sessionmaker(engine, expire_on_commit=False)
 
 
 async def test_mcp_tools_registered() -> None:

@@ -43,16 +43,11 @@ from tests.factories import (
 NOW = datetime(2026, 6, 6, 12, 0, tzinfo=timezone.utc)
 
 
-# Kept under its conftest-shared name (rather than renamed): conftest.py's own
-# bare `session_factory` doesn't create the schema (it defers that to `db`),
-# and tests/helpers in this file depend on `session_factory` directly — pytest's
-# fixture-override resolution means this override also feeds conftest's own
-# (otherwise-identical) `engine`.
 @pytest.fixture
-async def session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    return async_sessionmaker(engine, expire_on_commit=False)
+async def session_factory(db_factory: async_sessionmaker[AsyncSession]) -> async_sessionmaker[AsyncSession]:
+    """Alias for tests/conftest.py's db_factory, kept for this file's existing
+    session_factory-named call sites."""
+    return db_factory
 
 
 @pytest.fixture
