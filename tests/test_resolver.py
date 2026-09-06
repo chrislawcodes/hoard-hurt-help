@@ -31,7 +31,7 @@ BETRAYAL_PAYOUT = HELP_POINTS + BETRAYAL_BONUS
 # --- Fixtures ---
 
 
-async def _make_game_with_players(
+async def _make_decay_game_with_bots(
     db: AsyncSession, n: int, *, mutual_help_mode: str = "decay"
 ) -> tuple[Match, list[Player]]:
     """Create a game in ACTIVE state with n players, current_round_score=0.
@@ -113,7 +113,7 @@ async def _submit(
 
 
 async def test_single_hoard(db):
-    game, [p0] = await _make_game_with_players(db, 1)
+    game, [p0] = await _make_decay_game_with_bots(db, 1)
     turn = await _open_turn(db, game)
     await _submit(db, turn, p0, "HOARD")
     await resolve_turn(db, turn)
@@ -123,7 +123,7 @@ async def test_single_hoard(db):
 
 async def test_single_help(db):
     """A Helps B → A gets 0, B gets the help plus the pot it hoarded alone."""
-    game, [a, b] = await _make_game_with_players(db, 2)
+    game, [a, b] = await _make_decay_game_with_bots(db, 2)
     turn = await _open_turn(db, game)
     await _submit(db, turn, a, "HELP", target=b)
     await _submit(db, turn, b, "HOARD")  # B Hoards to keep test simple
@@ -140,7 +140,7 @@ async def test_single_hurt(db):
     At v9 a HURT pays the attacker off what the TARGET was doing, so attacking a
     hoarder is no longer free of charge to nobody — it pays HURT_TAKE_HOARDER.
     """
-    game, [a, b] = await _make_game_with_players(db, 2)
+    game, [a, b] = await _make_decay_game_with_bots(db, 2)
     turn = await _open_turn(db, game)
     await _submit(db, turn, a, "HURT", target=b)
     await _submit(db, turn, b, "HOARD")
@@ -154,7 +154,7 @@ async def test_single_hurt(db):
 
 async def test_help_stacks(db):
     """5 helps on one target → +20 to target."""
-    game, players = await _make_game_with_players(db, 6)
+    game, players = await _make_decay_game_with_bots(db, 6)
     target = players[0]
     helpers = players[1:]
     turn = await _open_turn(db, game)
@@ -169,7 +169,7 @@ async def test_help_stacks(db):
 
 async def test_hurt_stacks_with_floor(db):
     """5 hurts on one target → floored at 0."""
-    game, players = await _make_game_with_players(db, 6)
+    game, players = await _make_decay_game_with_bots(db, 6)
     target = players[0]
     attackers = players[1:]
     turn = await _open_turn(db, game)
@@ -184,7 +184,7 @@ async def test_hurt_stacks_with_floor(db):
 
 async def test_mutual_help_bonus(db):
     """A Helps B and B Helps A → each ends +8."""
-    game, [a, b] = await _make_game_with_players(db, 2)
+    game, [a, b] = await _make_decay_game_with_bots(db, 2)
     turn = await _open_turn(db, game)
     await _submit(db, turn, a, "HELP", target=b)
     await _submit(db, turn, b, "HELP", target=a)
@@ -202,7 +202,7 @@ async def test_mutual_bonus_does_not_double(db):
     B receives: +4 from A (base) + +4 mutual = 8
     C receives: 0 (nobody Helped C back)
     """
-    game, [a, b, c] = await _make_game_with_players(db, 3)
+    game, [a, b, c] = await _make_decay_game_with_bots(db, 3)
     turn = await _open_turn(db, game)
     await _submit(db, turn, a, "HELP", target=b)
     await _submit(db, turn, b, "HELP", target=a)
@@ -224,7 +224,7 @@ async def test_score_floor_on_final_delta(db):
     pot the raw total is 3 + 12 + 4 - 16 = 3, above the floor, so this asserts the
     computed value rather than a hard-coded 0.
     """
-    game, [target, h1, h2, helper] = await _make_game_with_players(db, 4)
+    game, [target, h1, h2, helper] = await _make_decay_game_with_bots(db, 4)
     target.current_round_score = 3
     await db.commit()
 
@@ -247,7 +247,7 @@ async def test_hurt_against_zero_target(db):
     landed — so a swing at someone already near zero is never wasted on your
     side. The rules text says so explicitly; this pins it.
     """
-    game, [a, b] = await _make_game_with_players(db, 2)
+    game, [a, b] = await _make_decay_game_with_bots(db, 2)
     # B starts at 0.
     turn = await _open_turn(db, game)
     await _submit(db, turn, a, "HURT", target=b)
@@ -265,7 +265,7 @@ async def test_betraying_a_helper_pays_help_plus_the_bonus(db):
     B HELPs A. A HURTs B → betrays the helper: A keeps B's help AND gains the
     bonus. B takes the normal HURT_POINTS off a starting 10.
     """
-    game, [a, b] = await _make_game_with_players(db, 2)
+    game, [a, b] = await _make_decay_game_with_bots(db, 2)
     b.current_round_score = 10
     await db.commit()
     turn = await _open_turn(db, game)
@@ -285,7 +285,7 @@ async def test_hurt_non_helper_takes_the_plain_hurt(db):
     longer nothing either: A takes HURT_TAKE_HOARDER, the smallest tier, because
     a hoarder had the least on the table.
     """
-    game, [a, b] = await _make_game_with_players(db, 2)
+    game, [a, b] = await _make_decay_game_with_bots(db, 2)
     b.current_round_score = 10
     await db.commit()
     turn = await _open_turn(db, game)
@@ -304,7 +304,7 @@ async def test_betrayal_bonus_only_for_the_helped_attacker(db):
     B HELPs A. A HURTs B (a betrayal). C HURTs B (normal — C gets nothing).
     B takes BOTH hurts off a starting 20.
     """
-    game, [a, b, c] = await _make_game_with_players(db, 3)
+    game, [a, b, c] = await _make_decay_game_with_bots(db, 3)
     b.current_round_score = 20
     await db.commit()
     turn = await _open_turn(db, game)
@@ -331,7 +331,7 @@ async def test_betrayal_victim_floored_at_zero(db):
     HURT_POINTS, so the delta goes negative and clips. The floor is on the FINAL
     delta; the attacker's gain never floors.
     """
-    game, [a, b] = await _make_game_with_players(db, 2)
+    game, [a, b] = await _make_decay_game_with_bots(db, 2)
     b.current_round_score = 3
     await db.commit()
     turn = await _open_turn(db, game)
@@ -351,7 +351,7 @@ async def test_betrayer_bonus_is_inside_summed_floor_no_floor(db):
     that DROPPED the bonus would leave A short by exactly BETRAYAL_BONUS, so the
     derived expectation below is what proves the bonus is summed in.
     """
-    game, [a, b, c] = await _make_game_with_players(db, 3)
+    game, [a, b, c] = await _make_decay_game_with_bots(db, 3)
     a.current_round_score = 6
     await db.commit()
     turn = await _open_turn(db, game)
@@ -376,7 +376,7 @@ async def test_betrayer_floors_on_summed_delta(db):
     attackers were enough while the bonus was 6 and silently stopped being enough
     at 14, so the guard below pins the premise instead of trusting it.
     """
-    game, [a, b, c, d, e] = await _make_game_with_players(db, 5)
+    game, [a, b, c, d, e] = await _make_decay_game_with_bots(db, 5)
     a.current_round_score = 0
     attackers = [c, d, e]
     assert BETRAYAL_PAYOUT - HURT_POINTS * len(attackers) < 0, (
@@ -395,7 +395,7 @@ async def test_betrayer_floors_on_summed_delta(db):
 
 async def test_missed_turn_defaults_to_hoard(db):
     """A player with no submission gets defaulted to Hoard with canonical message."""
-    game, [a, b] = await _make_game_with_players(db, 2)
+    game, [a, b] = await _make_decay_game_with_bots(db, 2)
     turn = await _open_turn(db, game)
     await _submit(db, turn, a, "HOARD")
     # B does not submit.
@@ -422,7 +422,7 @@ async def test_missed_turn_defaults_to_hoard(db):
 
 
 async def test_round_award_single_winner(db):
-    game, [a, b, c] = await _make_game_with_players(db, 3)
+    game, [a, b, c] = await _make_decay_game_with_bots(db, 3)
     a.current_round_score = 10
     b.current_round_score = 6
     c.current_round_score = 4
@@ -440,7 +440,7 @@ async def test_round_award_single_winner(db):
 
 
 async def test_round_award_three_way_tie(db):
-    game, [a, b, c] = await _make_game_with_players(db, 3)
+    game, [a, b, c] = await _make_decay_game_with_bots(db, 3)
     a.current_round_score = 8
     b.current_round_score = 8
     c.current_round_score = 8
@@ -457,7 +457,7 @@ async def test_round_award_three_way_tie(db):
 async def test_round_award_is_idempotent(db):
     """Awarding the same round twice (a mid-game restart re-entering the loop at
     an already-finished round) must NOT double-count wins or scores."""
-    game, [a, b, c] = await _make_game_with_players(db, 3)
+    game, [a, b, c] = await _make_decay_game_with_bots(db, 3)
     a.current_round_score = 10
     b.current_round_score = 6
     c.current_round_score = 4
@@ -481,7 +481,7 @@ async def test_round_award_is_idempotent(db):
 
 async def test_round_award_accumulates_across_rounds(db):
     """Consecutive rounds each award once and advance rounds_awarded."""
-    game, [a, b] = await _make_game_with_players(db, 2)
+    game, [a, b] = await _make_decay_game_with_bots(db, 2)
     a.current_round_score = 5  # a wins round 1
     b.current_round_score = 3
     await db.commit()
@@ -504,7 +504,7 @@ async def test_round_award_accumulates_across_rounds(db):
 
 async def test_finalize_game_with_tiebreaker(db):
     """Two players tie on round wins; tiebreaker is total in-round score."""
-    game, [a, b] = await _make_game_with_players(db, 2)
+    game, [a, b] = await _make_decay_game_with_bots(db, 2)
     a.total_round_wins = 5
     a.total_round_score = 120
     b.total_round_wins = 5
@@ -581,7 +581,7 @@ async def test_finalize_game_winner_matches_final_placement_on_full_tie(db):
     """
     from app.games.hoard_hurt_help.game import HoardHurtHelp
 
-    game, [a, b] = await _make_game_with_players(db, 2)
+    game, [a, b] = await _make_decay_game_with_bots(db, 2)
     a.total_round_wins = 3
     a.total_round_score = 50
     b.total_round_wins = 3
@@ -629,7 +629,7 @@ async def test_mutual_help_decays_to_floor(db):
     k is re-derived from the persisted prior turns on every resolve, so this also
     exercises the resume-safe path (no in-memory state to lose).
     """
-    game, [a, b] = await _make_game_with_players(db, 2)
+    game, [a, b] = await _make_decay_game_with_bots(db, 2)
     prev = 0
     for i, expected in enumerate([8, 7, 6, 5, 4, 3, 2, 2]):
         turn = await _open_turn(db, game, round_num=1, turn_num=i + 1)
@@ -643,7 +643,7 @@ async def test_mutual_help_decays_to_floor(db):
 
 async def test_decay_persists_across_rounds(db):
     """k counts prior mutual-help turns match-wide — it does NOT reset each round."""
-    game, [a, b] = await _make_game_with_players(db, 2)
+    game, [a, b] = await _make_decay_game_with_bots(db, 2)
     t1 = await _open_turn(db, game, round_num=1, turn_num=1)
     await _submit(db, t1, a, "HELP", target=b)
     await _submit(db, t1, b, "HELP", target=a)
@@ -662,7 +662,7 @@ async def test_decay_persists_across_rounds(db):
 
 async def test_fresh_partner_resets_decay(db):
     """A farmed pact decays, but a brand-new partner starts fresh at +8."""
-    game, [a, b, c] = await _make_game_with_players(db, 3)
+    game, [a, b, c] = await _make_decay_game_with_bots(db, 3)
     t1 = await _open_turn(db, game, round_num=1, turn_num=1)
     await _submit(db, t1, a, "HELP", target=b)
     await _submit(db, t1, b, "HELP", target=a)
@@ -682,7 +682,7 @@ async def test_fresh_partner_resets_decay(db):
 
 async def test_decay_is_per_pair_independent(db):
     """Two pacts at the same table decay on their own counters."""
-    game, [a, b, c, d] = await _make_game_with_players(db, 4)
+    game, [a, b, c, d] = await _make_decay_game_with_bots(db, 4)
     for turn_num, expected in [(1, 8), (2, 7)]:
         turn = await _open_turn(db, game, round_num=1, turn_num=turn_num)
         await _submit(db, turn, a, "HELP", target=b)
@@ -699,7 +699,7 @@ async def test_decay_is_per_pair_independent(db):
 
 async def test_prior_hoard_turn_does_not_count_toward_k(db):
     """A prior non-mutual (HOARD/defaulted) turn leaves k=0 — first pact still pays 8."""
-    game, [a, b] = await _make_game_with_players(db, 2)
+    game, [a, b] = await _make_decay_game_with_bots(db, 2)
     t1 = await _open_turn(db, game, round_num=1, turn_num=1)
     await _submit(db, t1, a, "HOARD")
     # b never submits → defaulted to HOARD
@@ -723,7 +723,7 @@ async def test_current_pact_values_fresh_pair_shows_8(db):
     """A pair with no resolved turns yet shows the un-decayed +8 value."""
     from app.games.hoard_hurt_help.scoring import current_pact_values
 
-    game, [a, b] = await _make_game_with_players(db, 2)
+    game, [a, b] = await _make_decay_game_with_bots(db, 2)
     values = await current_pact_values(db, game.id, a.id, [b.id], mode="decay")
     assert values == {b.id: 8}
 
@@ -732,7 +732,7 @@ async def test_current_pact_values_after_one_mutual_help_shows_7(db):
     """After one resolved mutual help (k=1), the pair's live value drops to 7."""
     from app.games.hoard_hurt_help.scoring import current_pact_values
 
-    game, [a, b] = await _make_game_with_players(db, 2)
+    game, [a, b] = await _make_decay_game_with_bots(db, 2)
     t1 = await _open_turn(db, game, round_num=1, turn_num=1)
     await _submit(db, t1, a, "HELP", target=b)
     await _submit(db, t1, b, "HELP", target=a)
@@ -748,7 +748,7 @@ async def test_current_pact_values_floors_at_2(db):
     """After enough repeats the pair's live value floors at MUTUAL_HELP_FLOOR (2)."""
     from app.games.hoard_hurt_help.scoring import current_pact_values
 
-    game, [a, b] = await _make_game_with_players(db, 2)
+    game, [a, b] = await _make_decay_game_with_bots(db, 2)
     for i in range(8):  # k will reach 8, well past the floor
         turn = await _open_turn(db, game, round_num=1, turn_num=i + 1)
         await _submit(db, turn, a, "HELP", target=b)
@@ -762,7 +762,7 @@ async def test_current_pact_values_unaffected_pair_stays_8(db):
     """A↔B farms their pact; C↔D's fresh pair still shows the un-decayed 8."""
     from app.games.hoard_hurt_help.scoring import current_pact_values
 
-    game, [a, b, c, d] = await _make_game_with_players(db, 4)
+    game, [a, b, c, d] = await _make_decay_game_with_bots(db, 4)
     t1 = await _open_turn(db, game, round_num=1, turn_num=1)
     await _submit(db, t1, a, "HELP", target=b)
     await _submit(db, t1, b, "HELP", target=a)
@@ -788,7 +788,7 @@ async def test_hurt_pays_off_what_the_target_was_doing(db):
     E HURTs F (F HOARDs)       -> the hoarder tier
     G HURTs H and H HURTs G    -> blocked: no damage, no take, either way
     """
-    game, players = await _make_game_with_players(db, 8)
+    game, players = await _make_decay_game_with_bots(db, 8)
     a, b, c, d, e, f, g, h = players
     turn = await _open_turn(db, game)
     await _submit(db, turn, b, "HELP", target=a)
@@ -819,7 +819,7 @@ async def test_several_attackers_split_the_take_but_not_a_betrayal(db):
     and is excluded from the split — C and D share one helper-tier take between
     them, rather than three ways.
     """
-    game, players = await _make_game_with_players(db, 4)
+    game, players = await _make_decay_game_with_bots(db, 4)
     a, b, c, d = players
     b.current_round_score = 40
     await db.commit()
