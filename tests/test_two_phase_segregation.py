@@ -8,7 +8,6 @@ import json
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
@@ -16,7 +15,6 @@ from app.engine.resolver import finalize_talk_phase
 from app.games.hoard_hurt_help.scoring import resolve_turn
 from app.engine.scheduler_turn_loop import _begin_act_phase
 from app.engine.tokens import generate_turn_token
-from app.main import app
 from app.models import Base, Match, GameState, Player, Turn, TurnMessage, TurnSubmission
 from tests.factories import seat_player
 
@@ -41,13 +39,6 @@ async def reset_db(monkeypatch):
     yield test_factory
 
     await test_engine.dispose()
-
-
-@pytest.fixture
-async def client():
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as c:
-        yield c
 
 
 async def _seed_two_phase_game(

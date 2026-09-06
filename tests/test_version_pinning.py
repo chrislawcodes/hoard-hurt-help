@@ -76,7 +76,7 @@ async def app(
 
 
 @pytest.fixture
-async def client(app: FastAPI) -> AsyncIterator[AsyncClient]:
+async def scoped_client(app: FastAPI) -> AsyncIterator[AsyncClient]:
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         yield c
@@ -171,7 +171,7 @@ async def test_match_start_restamps_pin_and_serves_forked_version(
 
 
 async def test_midmatch_restore_does_not_change_what_the_match_is_served(
-    client: AsyncClient,
+    scoped_client: AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """Restoring an old version mid-match moves the agent's current pointer, but
@@ -206,7 +206,7 @@ async def test_midmatch_restore_does_not_change_what_the_match_is_served(
         await make_turn(db, match.id, phase="act", resolved=False)
         await db.commit()
 
-    resp = await client.post(
+    resp = await scoped_client.post(
         f"/me/agents/{agent.id}/restore-version/{v1.id}",
         cookies=_signed_in_cookies(user.id),
         follow_redirects=False,

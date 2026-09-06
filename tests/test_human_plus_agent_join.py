@@ -10,11 +10,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-import pytest
-from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 
-from app.main import app
 from app.models import GameState, Match, Player
 from app.models.agent import Agent, AgentKind
 from app.models.connection import ConnectionProvider
@@ -24,13 +21,6 @@ from tests.conftest import signed_in_cookies as _cookies
 
 GAME = "hoard-hurt-help"
 JOIN_URL = f"/games/{GAME}/matches/M_0001/join"
-
-
-@pytest.fixture
-async def client():
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as c:
-        yield c
 
 
 async def _add_agent(db, user, *, name: str = "Hawk", live: bool = True) -> Agent:

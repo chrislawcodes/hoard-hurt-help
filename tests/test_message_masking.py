@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 import pytest
-from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from app.main import app
 from app.models import Base, TurnSubmission
 from tests.test_two_phase_segregation import _seed_two_phase_game
 
@@ -28,13 +26,6 @@ async def reset_db(monkeypatch):
     monkeypatch.setattr("app.routes.agent_api._last_pull", {})
     yield test_factory
     await test_engine.dispose()
-
-
-@pytest.fixture
-async def client():
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as c:
-        yield c
 
 
 async def test_submit_masks_bad_words_in_public_text(reset_db, client):

@@ -8,7 +8,6 @@ correct first paint.
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 
 from app.engine.connection_health_badge import ConnectionHealth, compute_connection_health
@@ -18,7 +17,6 @@ from app.engine.connection_activity import (
     mark_seen,
 )
 from app.engine.tokens import generate_turn_token
-from app.main import app
 from app.models import Base, Match, GameState, Player, Turn, TurnSubmission, User
 from app.models.agent import Agent
 from app.models.connection import Connection, ConnectionStatus
@@ -49,13 +47,6 @@ async def reset_db(monkeypatch):
 
     yield test_factory
     await test_engine.dispose()
-
-
-@pytest.fixture
-async def client():
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as c:
-        yield c
 
 
 @pytest.fixture

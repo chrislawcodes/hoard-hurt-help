@@ -506,52 +506,31 @@ home = "tests/factories.py"
 # --- test_clients (S3) ---
 
 [[test_clients]]
-file = "tests/test_admin_add_bots.py"
-count = 1
-verdict = "unjudged"
-
-[[test_clients]]
-file = "tests/test_agent_api.py"
-count = 1
-verdict = "unjudged"
-
-[[test_clients]]
 file = "tests/test_agent_detail_fixes.py"
 count = 1
-verdict = "unjudged"
+verdict = "leave"
+note = "client(app) is bound to a bespoke, router-scoped FastAPI test app (agents_setup/status/lifecycle + connections_setup/credentials/lifecycle), not app.main.app — a real difference from conftest's client, so it stays and is renamed scoped_client to say so"
 
 [[test_clients]]
 file = "tests/test_agent_next_turn_fanout.py"
 count = 1
-verdict = "unjudged"
+verdict = "leave"
+note = "client(app) is bound to a bespoke FastAPI test app (agent_api_router + agent_next_turn_router only), not app.main.app — renamed scoped_client"
 
 [[test_clients]]
 file = "tests/test_agent_pause_live_seat.py"
 count = 1
-verdict = "unjudged"
-
-[[test_clients]]
-file = "tests/test_agent_two_phase.py"
-count = 1
-verdict = "unjudged"
+verdict = "leave"
+note = "client(app) is bound to a bespoke FastAPI test app (agents_lifecycle_router + agents_detail_router only), not app.main.app — renamed scoped_client"
 
 [[test_clients]]
 file = "tests/test_agent_versions.py"
 count = 1
-verdict = "unjudged"
-
-[[test_clients]]
-file = "tests/test_bot_form_validation.py"
-count = 1
-verdict = "unjudged"
+verdict = "leave"
+note = "client(app) is bound to a bespoke, router-scoped FastAPI test app, not app.main.app — renamed scoped_client"
 
 [[test_clients]]
 file = "tests/test_bot_name_validation.py"
-count = 1
-verdict = "unjudged"
-
-[[test_clients]]
-file = "tests/test_bot_onboarding.py"
 count = 1
 verdict = "unjudged"
 
@@ -563,12 +542,14 @@ verdict = "unjudged"
 [[test_clients]]
 file = "tests/test_connection_auth.py"
 count = 1
-verdict = "unjudged"
+verdict = "leave"
+note = "client(app) is bound to a bespoke FastAPI test app (agent_next_turn_router only), not app.main.app — renamed scoped_client"
 
 [[test_clients]]
 file = "tests/test_connection_management.py"
 count = 1
-verdict = "unjudged"
+verdict = "leave"
+note = "client(app) is bound to a bespoke, router-scoped FastAPI test app, not app.main.app — renamed scoped_client"
 
 [[test_clients]]
 file = "tests/test_cross_device.py"
@@ -586,27 +567,12 @@ count = 1
 verdict = "unjudged"
 
 [[test_clients]]
-file = "tests/test_human_plus_agent_join.py"
-count = 1
-verdict = "unjudged"
-
-[[test_clients]]
-file = "tests/test_key_rotation.py"
-count = 1
-verdict = "unjudged"
-
-[[test_clients]]
 file = "tests/test_liars_dice_driver.py"
 count = 1
 verdict = "unjudged"
 
 [[test_clients]]
 file = "tests/test_mcp.py"
-count = 1
-verdict = "unjudged"
-
-[[test_clients]]
-file = "tests/test_message_masking.py"
 count = 1
 verdict = "unjudged"
 
@@ -618,12 +584,14 @@ verdict = "unjudged"
 [[test_clients]]
 file = "tests/test_readiness_adoption.py"
 count = 1
-verdict = "unjudged"
+verdict = "leave"
+note = "client(app) is bound to a bespoke FastAPI test app (connections_setup_router only) with follow_redirects=False, not app.main.app — renamed scoped_client"
 
 [[test_clients]]
 file = "tests/test_request_logging.py"
-count = 2
-verdict = "unjudged"
+count = 1
+verdict = "leave"
+note = "the local client() fixture duplicated conftest's and was deleted; the remaining AsyncClient( construction is a bespoke inline client bound to a one-off trace_app built inside a single test to exercise request-logging middleware in isolation, not the shared client fixture"
 
 [[test_clients]]
 file = "tests/test_runner_setup.py"
@@ -631,14 +599,10 @@ count = 3
 verdict = "unjudged"
 
 [[test_clients]]
-file = "tests/test_two_phase_segregation.py"
-count = 1
-verdict = "unjudged"
-
-[[test_clients]]
 file = "tests/test_version_pinning.py"
 count = 1
-verdict = "unjudged"
+verdict = "leave"
+note = "client(app) is bound to a bespoke FastAPI test app (agents_lifecycle_router only), not app.main.app — renamed scoped_client"
 
 # --- oversized (S3) ---
 

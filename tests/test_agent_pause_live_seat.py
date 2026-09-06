@@ -72,7 +72,7 @@ async def app(
 
 
 @pytest.fixture
-async def client(app: FastAPI) -> AsyncIterator[AsyncClient]:
+async def scoped_client(app: FastAPI) -> AsyncIterator[AsyncClient]:
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         yield c
@@ -89,7 +89,7 @@ async def _stored_status(
 
 
 async def test_pause_with_no_live_seat_pauses_immediately(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    scoped_client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     """The common case keeps zero friction: no seat, one click, paused."""
     async with session_factory() as db:
@@ -98,7 +98,7 @@ async def test_pause_with_no_live_seat_pauses_immediately(
         await db.commit()
         user_id, agent_id = user.id, agent.id
 
-    r = await client.post(f"/me/agents/{agent_id}/pause", cookies=_cookies(user_id))
+    r = await scoped_client.post(f"/me/agents/{agent_id}/pause", cookies=_cookies(user_id))
 
     assert r.status_code == 303
     assert r.headers["location"] == f"/me/agents/{agent_id}"
@@ -107,7 +107,7 @@ async def test_pause_with_no_live_seat_pauses_immediately(
 
 
 async def test_pause_with_live_seat_warns_and_does_not_pause(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    scoped_client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     """Seated in a live match: the first request only warns, and the rendered
     page names the count and the real consequence."""
@@ -129,14 +129,14 @@ async def test_pause_with_live_seat_warns_and_does_not_pause(
         await db.commit()
         user_id, agent_id = user.id, agent.id
 
-    r = await client.post(f"/me/agents/{agent_id}/pause", cookies=_cookies(user_id))
+    r = await scoped_client.post(f"/me/agents/{agent_id}/pause", cookies=_cookies(user_id))
 
     assert r.status_code == 303
     assert r.headers["location"] == f"/me/agents/{agent_id}?pause_live_seats=1"
     # The whole point: nothing changed yet.
     assert await _stored_status(session_factory, agent_id) is AgentStatus.ACTIVE
 
-    page = await client.get(r.headers["location"], cookies=_cookies(user_id))
+    page = await scoped_client.get(r.headers["location"], cookies=_cookies(user_id))
     assert page.status_code == 200
     body = page.text
     assert "Pause this agent?" in body
@@ -149,7 +149,7 @@ async def test_pause_with_live_seat_warns_and_does_not_pause(
 
 
 async def test_confirmed_pause_goes_through(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    scoped_client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     """Confirming pauses the agent even though the seat is still live."""
     async with session_factory() as db:
@@ -170,7 +170,7 @@ async def test_confirmed_pause_goes_through(
         await db.commit()
         user_id, agent_id = user.id, agent.id
 
-    r = await client.post(
+    r = await scoped_client.post(
         f"/me/agents/{agent_id}/pause?confirm=true", cookies=_cookies(user_id)
     )
 
@@ -180,7 +180,7 @@ async def test_confirmed_pause_goes_through(
 
 
 async def test_seat_count_covers_every_unfinished_state_and_ignores_the_rest(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    scoped_client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     """Three unfinished matches count; a finished one and a seat already left
     do not. A SCHEDULED or REGISTERING seat is exposed to the same damage as an
@@ -213,19 +213,19 @@ async def test_seat_count_covers_every_unfinished_state_and_ignores_the_rest(
         await db.commit()
         user_id, agent_id = user.id, agent.id
 
-    r = await client.post(f"/me/agents/{agent_id}/pause", cookies=_cookies(user_id))
+    r = await scoped_client.post(f"/me/agents/{agent_id}/pause", cookies=_cookies(user_id))
 
     assert r.status_code == 303
     assert r.headers["location"] == f"/me/agents/{agent_id}?pause_live_seats=3"
     assert await _stored_status(session_factory, agent_id) is AgentStatus.ACTIVE
 
-    page = await client.get(r.headers["location"], cookies=_cookies(user_id))
+    page = await scoped_client.get(r.headers["location"], cookies=_cookies(user_id))
     assert page.status_code == 200
     assert "3 matches that haven't finished" in page.text
 
 
 async def test_detail_page_has_no_warning_without_the_redirect(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+    scoped_client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     """The warning belongs to the pause round trip only — a seated agent's page
     must not nag on every normal visit."""
@@ -247,7 +247,7 @@ async def test_detail_page_has_no_warning_without_the_redirect(
         await db.commit()
         user_id, agent_id = user.id, agent.id
 
-    page = await client.get(f"/me/agents/{agent_id}", cookies=_cookies(user_id))
+    page = await scoped_client.get(f"/me/agents/{agent_id}", cookies=_cookies(user_id))
 
     assert page.status_code == 200
     assert "Pause this agent?" not in page.text
