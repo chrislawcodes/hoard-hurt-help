@@ -585,11 +585,6 @@ lines = 467
 kind = "source"
 
 [[oversized]]
-file = "app/engine/agent_play_next_turn.py"
-lines = 881
-kind = "source"
-
-[[oversized]]
 file = "app/engine/agent_play_reads.py"
 lines = 487
 kind = "source"

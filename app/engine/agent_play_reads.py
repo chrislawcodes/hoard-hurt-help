@@ -208,7 +208,7 @@ def build_turn_static_dict(
 ) -> dict[str, object]:
     """The "static" (rules + identity) block of the your-turn payload.
 
-    The connection fan-out (``agent_play_next_turn._build_turn_payload``) embeds
+    The connection fan-out (``next_turn_payload._build_turn_payload``) embeds
     this dict as-is on the wire — its key order and conditional ``coach_note``
     are wire-frozen for the operator connector. It is a standalone builder so the
     projection stays testable apart from the fan-out's claim/pin machinery.
