@@ -543,14 +543,16 @@ note = "renamed from _seed_user; takes an open db session and, unlike make_user,
 [[test_helpers]]
 name = "make_connection"
 files = ["tests/test_agent_next_turn_fanout.py", "tests/test_connection_auth.py"]
-verdict = "unjudged"
-note = ""
+verdict = "merged"
+note = "both copies were byte-equivalent to tests.factories.make_connection (same key format via generate_connection_key/bot_key_lookup/bot_key_hint, same ConnectionProviderRow mirror row) except for the extra kwargs the factory already defaults, so both were deleted and now import the factory's make_connection"
+home = "tests/factories.py"
 
 [[test_helpers]]
 name = "make_user"
 files = ["tests/test_agent_next_turn_fanout.py", "tests/test_connection_auth.py"]
-verdict = "unjudged"
-note = ""
+verdict = "merged"
+note = "both copies were byte-equivalent to tests.factories.make_user's default (derived handle=agent{i}); neither ever passed the `handle` override, so both were deleted and now import the factory's make_user"
+home = "tests/factories.py"
 
 # --- test_clients (S3) ---
 

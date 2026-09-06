@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
-import secrets
 from collections.abc import AsyncIterator
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -28,6 +26,7 @@ from app.models.player import Player
 from app.models.turn import Turn, TurnMessage, TurnSubmission
 from app.models.user import User
 from app.routes.agent_api import router as agent_api_router
+from tests.factories import make_connection, make_user
 from app.routes.agent_next_turn import router as agent_next_turn_router
 
 
@@ -86,50 +85,6 @@ async def client(app: FastAPI) -> AsyncIterator[AsyncClient]:
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         yield c
-
-
-async def make_user(db: AsyncSession, i: int = 0) -> User:
-    user = User(
-        google_sub=f"sub-{i}",
-        email=f"u{i}@t.com",
-        handle=f"agent{i}",
-        handle_key=f"agent{i}",
-    )
-    db.add(user)
-    await db.flush()
-    return user
-
-
-async def make_connection(
-    db: AsyncSession,
-    user: User,
-    *,
-    provider: ConnectionProvider = ConnectionProvider.CLAUDE,
-    nickname: str | None = None,
-    status: ConnectionStatus = ConnectionStatus.ACTIVE,
-    key: str | None = None,
-) -> tuple[Connection, str]:
-    plain_key = key or f"sk_conn_{secrets.token_hex(24)}"
-    connection = Connection(
-        user_id=user.id,
-        nickname=nickname,
-        provider=provider,
-        key_lookup=hashlib.sha256(plain_key.encode("utf-8")).hexdigest(),
-        key_hint=plain_key[-4:],
-        status=status,
-    )
-    db.add(connection)
-    await db.flush()
-    db.add(
-        ConnectionProviderRow(
-            connection_id=connection.id,
-            provider=provider,
-            enabled=True,
-            detected=False,
-        )
-    )
-    await db.flush()
-    return connection, plain_key
 
 
 async def make_agent(
