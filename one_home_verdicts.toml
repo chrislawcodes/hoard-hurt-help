@@ -639,12 +639,12 @@ kind = "source"
 
 [[oversized]]
 file = "app/games/hoard_hurt_help/game.py"
-lines = 428
+lines = 414
 kind = "source"
 
 [[oversized]]
 file = "app/games/hoard_hurt_help/rules.py"
-lines = 478
+lines = 501
 kind = "source"
 
 [[oversized]]
@@ -654,7 +654,7 @@ kind = "source"
 
 [[oversized]]
 file = "app/games/hoard_hurt_help/viewer.py"
-lines = 556
+lines = 540
 kind = "source"
 
 [[oversized]]
@@ -760,9 +760,6 @@ kind = "test"
 # --- import_cycles (S3) ---
 
 [[import_cycles]]
-modules = ["app.engine.action_vocab", "app.games", "app.games.hoard_hurt_help.board_signals", "app.games.hoard_hurt_help.game"]
-
-[[import_cycles]]
 modules = ["app.engine.scheduler", "app.engine.scheduler_turn_loop"]
 note = """PR S6: left in place on purpose, not missed. scheduler.py imports
 _run_game/_wait_for_messages/_wait_for_turn from scheduler_turn_loop.py (so
@@ -778,6 +775,3 @@ dependency on the rest of user_match_start.py), and scheduler.py's poll loop
 now takes `start_game` from its own module scope and `sweep_overdue_turns` as
 a parameter from app/main.py instead of importing arena.py/overdue_sweeper.py
 back into itself."""
-
-[[import_cycles]]
-modules = ["app.games", "app.games.hoard_hurt_help.game", "app.games.hoard_hurt_help.viewer"]
