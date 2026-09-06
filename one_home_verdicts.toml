@@ -754,3 +754,380 @@ dependency on the rest of user_match_start.py), and scheduler.py's poll loop
 now takes `start_game` from its own module scope and `sweep_overdue_turns` as
 a parameter from app/main.py instead of importing arena.py/overdue_sweeper.py
 back into itself."""
+
+# --- test_fixtures (T1) ---
+# tests/conftest.py is the declared home for `reset_db`, `engine`,
+# `session_factory`, `db`, `client`, `db_session`, and `app` — plus
+# `reset_pull_rate_limit` / `admin_settings` for the two one-line
+# monkeypatches several test files used to copy the whole `reset_db`
+# fixture just to add. A `def`/`async def` under a tests/test_*.py file
+# decorated `@pytest.fixture` whose name matches one of the first seven
+# names above is checked against the [[test_fixtures]] table below.
+#
+# This PR (T1) only lands the baseline — every hit that exists today,
+# all unjudged. It removes no copies itself; later PRs in this cleanup
+# migrate individual files to the shared conftest fixtures (or the two
+# new compose-in ones) and flip their verdict to "merged", or record
+# "leave" for a fixture that only looks like the shared one.
+#
+# Read by tests/test_fixtures_have_one_home.py, which fails the build
+# when a new (file, fixture name) copy appears with no matching entry
+# here, when a "merged" entry's copy has come back, or when a recorded
+# "unjudged"/"leave" entry's fixture is gone from that file.
+#
+# verdict is one of: leave | merged | unjudged
+#   leave    = looked at, kept as its own definition on purpose.
+#   merged   = it used to be a copy; the merge landed, so this (file,
+#              name) pair should NOT be found by the test any more.
+#   unjudged = nobody has looked at this one yet — today's baseline
+#              (T1), so the count can only fall from here.
+
+[[test_fixtures]]
+file = "tests/test_admin_add_bots.py"
+name = "reset_db"
+verdict = "unjudged"
+
+[[test_fixtures]]
+file = "tests/test_agent_api.py"
+name = "reset_db"
+verdict = "unjudged"
+
+[[test_fixtures]]
+file = "tests/test_agent_detail_fixes.py"
+name = "app"
+verdict = "unjudged"
+
+[[test_fixtures]]
+file = "tests/test_agent_detail_fixes.py"
+name = "engine"
+verdict = "unjudged"
+
+[[test_fixtures]]
+file = "tests/test_agent_detail_fixes.py"
+name = "session_factory"
+verdict = "unjudged"
+
+[[test_fixtures]]
+file = "tests/test_agent_pause_live_seat.py"
+name = "app"
+verdict = "unjudged"
+
+[[test_fixtures]]
+file = "tests/test_agent_pause_live_seat.py"
+name = "engine"
+verdict = "unjudged"
+
+[[test_fixtures]]
+file = "tests/test_agent_pause_live_seat.py"
+name = "session_factory"
+verdict = "unjudged"
+
+[[test_fixtures]]
+file = "tests/test_agent_preferred_model.py"
+name = "db_session"
+verdict = "unjudged"
+
+[[test_fixtures]]
+file = "tests/test_agent_preferred_model.py"
+name = "engine"
+verdict = "unjudged"
+
+[[test_fixtures]]
+file = "tests/test_agent_two_phase.py"
+name = "reset_db"
+verdict = "unjudged"
+
+[[test_fixtures]]
+file = "tests/test_agent_versions.py"
+name = "app"
+verdict = "unjudged"
+
+[[test_fixtures]]
+file = "tests/test_agent_versions.py"
+name = "engine"
+verdict = "unjudged"
+
+[[test_fixtures]]
+file = "tests/test_agent_versions.py"
+name = "session_factory"
+verdict = "unjudged"
+
+[[test_fixtures]]
+file = "tests/test_arena.py"
+name = "db_session"
+verdict = "unjudged"
+
+[[test_fixtures]]
+file = "tests/test_bot_form_validation.py"
+name = "reset_db"
+verdict = "unjudged"
+
+[[test_fixtures]]
+file = "tests/test_bot_onboarding.py"
+name = "reset_db"
+verdict = "unjudged"
+
+[[test_fixtures]]
+file = "tests/test_bot_profile_validation.py"
+name = "reset_db"
+verdict = "unjudged"
+
+[[test_fixtures]]
+file = "tests/test_bot_soft_delete.py"
+name = "reset_db"
+verdict = "unjudged"
+
+[[test_fixtures]]
+file = "tests/test_bots_model.py"
+name = "reset_db"
+verdict = "unjudged"
+
+[[test_fixtures]]
+file = "tests/test_bots_scheduler.py"
+name = "db"
+verdict = "unjudged"
+
+[[test_fixtures]]
+file = "tests/test_bots_scheduler.py"
+name = "reset_db"
+verdict = "unjudged"
+
+[[test_fixtures]]
+file = "tests/test_clear_legacy_agent_model.py"
+name = "db_session"
+verdict = "unjudged"
+
+[[test_fixtures]]
+file = "tests/test_clear_legacy_agent_model.py"
+name = "engine"
+verdict = "unjudged"
+
+[[test_fixtures]]
+file = "tests/test_connection_auth.py"
+name = "app"
+verdict = "unjudged"
+
+[[test_fixtures]]
+file = "tests/test_connection_auth.py"
+name = "engine"
+verdict = "unjudged"
+
+[[test_fixtures]]
+file = "tests/test_connection_auth.py"
+name = "session_factory"
+verdict = "unjudged"
+
+[[test_fixtures]]
+file = "tests/test_connection_management.py"
+name = "app"
+verdict = "unjudged"
+
+[[test_fixtures]]
+file = "tests/test_connection_management.py"
+name = "engine"
+verdict = "unjudged"
+
+[[test_fixtures]]
+file = "tests/test_connection_management.py"
+name = "session_factory"
+verdict = "unjudged"
+
+[[test_fixtures]]
+file = "tests/test_connector_fallback.py"
+name = "reset_db"
+verdict = "unjudged"
+
+[[test_fixtures]]
+file = "tests/test_coverage_health_and_join_gate.py"
+name = "db_session"
+verdict = "unjudged"
+
+[[test_fixtures]]
+file = "tests/test_coverage_health_and_join_gate.py"
+name = "engine"
+verdict = "unjudged"
+
+[[test_fixtures]]
+file = "tests/test_handle_safety.py"
+name = "reset_db"
+verdict = "unjudged"
+
+[[test_fixtures]]
+file = "tests/test_hold_measurement_settings.py"
+name = "session_factory"
+verdict = "unjudged"
+
+[[test_fixtures]]
+file = "tests/test_human_play_routes.py"
+name = "reset_db"
+verdict = "unjudged"
+
+[[test_fixtures]]
+file = "tests/test_join_lineup.py"
+name = "reset_db"
+verdict = "unjudged"
+
+[[test_fixtures]]
+file = "tests/test_key_rotation.py"
+name = "reset_db"
+verdict = "unjudged"
+
+[[test_fixtures]]
+file = "tests/test_liars_dice_driver.py"
+name = "reset_db"
+verdict = "unjudged"
+
+[[test_fixtures]]
+file = "tests/test_liars_dice_module.py"
+name = "reset_db"
+verdict = "unjudged"
+
+[[test_fixtures]]
+file = "tests/test_lobby.py"
+name = "reset_db"
+verdict = "unjudged"
+
+[[test_fixtures]]
+file = "tests/test_lobby_join_and_stacking.py"
+name = "reset_db"
+verdict = "unjudged"
+
+[[test_fixtures]]
+file = "tests/test_match_resume.py"
+name = "reset_db"
+verdict = "unjudged"
+
+[[test_fixtures]]
+file = "tests/test_mcp_instructions.py"
+name = "session_factory"
+verdict = "unjudged"
+
+[[test_fixtures]]
+file = "tests/test_message_masking.py"
+name = "reset_db"
+verdict = "unjudged"
+
+[[test_fixtures]]
+file = "tests/test_model_verification.py"
+name = "db_session"
+verdict = "unjudged"
+
+[[test_fixtures]]
+file = "tests/test_model_verification.py"
+name = "engine"
+verdict = "unjudged"
+
+[[test_fixtures]]
+file = "tests/test_nav_cta.py"
+name = "reset_db"
+verdict = "unjudged"
+
+[[test_fixtures]]
+file = "tests/test_nav_unified_menu.py"
+name = "reset_db"
+verdict = "unjudged"
+
+[[test_fixtures]]
+file = "tests/test_per_game_strategy.py"
+name = "reset_db"
+verdict = "unjudged"
+
+[[test_fixtures]]
+file = "tests/test_play_setup_state.py"
+name = "db_session"
+verdict = "unjudged"
+
+[[test_fixtures]]
+file = "tests/test_play_setup_state.py"
+name = "engine"
+verdict = "unjudged"
+
+[[test_fixtures]]
+file = "tests/test_provider_readiness.py"
+name = "db_session"
+verdict = "unjudged"
+
+[[test_fixtures]]
+file = "tests/test_provider_readiness.py"
+name = "engine"
+verdict = "unjudged"
+
+[[test_fixtures]]
+file = "tests/test_readiness_adoption.py"
+name = "app"
+verdict = "unjudged"
+
+[[test_fixtures]]
+file = "tests/test_readiness_adoption.py"
+name = "db_session"
+verdict = "unjudged"
+
+[[test_fixtures]]
+file = "tests/test_readiness_adoption.py"
+name = "engine"
+verdict = "unjudged"
+
+[[test_fixtures]]
+file = "tests/test_readiness_adoption.py"
+name = "session_factory"
+verdict = "unjudged"
+
+[[test_fixtures]]
+file = "tests/test_request_logging.py"
+name = "reset_db"
+verdict = "unjudged"
+
+[[test_fixtures]]
+file = "tests/test_role_simplification.py"
+name = "reset_db"
+verdict = "unjudged"
+
+[[test_fixtures]]
+file = "tests/test_runner_setup.py"
+name = "reset_db"
+verdict = "unjudged"
+
+[[test_fixtures]]
+file = "tests/test_smart_join_flow.py"
+name = "reset_db"
+verdict = "unjudged"
+
+[[test_fixtures]]
+file = "tests/test_strategy_first_onboarding.py"
+name = "reset_db"
+verdict = "unjudged"
+
+[[test_fixtures]]
+file = "tests/test_two_phase_loop.py"
+name = "db"
+verdict = "unjudged"
+
+[[test_fixtures]]
+file = "tests/test_two_phase_loop.py"
+name = "reset_db"
+verdict = "unjudged"
+
+[[test_fixtures]]
+file = "tests/test_two_phase_segregation.py"
+name = "reset_db"
+verdict = "unjudged"
+
+[[test_fixtures]]
+file = "tests/test_version_pinning.py"
+name = "app"
+verdict = "unjudged"
+
+[[test_fixtures]]
+file = "tests/test_version_pinning.py"
+name = "engine"
+verdict = "unjudged"
+
+[[test_fixtures]]
+file = "tests/test_version_pinning.py"
+name = "session_factory"
+verdict = "unjudged"
+
+[[test_fixtures]]
+file = "tests/test_viewer_owner_credit.py"
+name = "reset_db"
+verdict = "unjudged"
