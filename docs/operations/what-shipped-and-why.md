@@ -17,6 +17,16 @@ header promising "what shipped and what is now unblocked".
 
 ---
 
+## Three more CI ratchets: test clients, oversized files, import cycles
+
+- **Three more CI ratchets** (2026-09-06, branch `three-ratchets`, Direct Path, [PR #770](https://github.com/chrislawcodes/hoard-hurt-help/pull/770)) — PR S3 of the "Simpler, Kept" plan. Each records today's state in `one_home_verdicts.toml` and fails only when it gets worse; no cleanup happened in this PR.
+
+  - `tests/test_test_clients_have_one_home.py` — 27 test files build their own `AsyncClient(`/`TestClient(` instead of using the `client` fixture in `tests/conftest.py`. Recorded per file with a count and `verdict = "unjudged"`, so someone can triage them later the way `[[test_helpers]]` gets triaged.
+  - `tests/test_file_size_ratchet.py` — 21 `app/`/`mcp_server/` files over 400 lines, 13 `tests/` files over 600. A file can grow up to its recorded ceiling; past that it fails with "split it, or raise the ceiling with a note saying why."
+  - `tests/test_import_cycles_ratchet.py` — builds app/'s own import graph from `ast` (both top-of-file imports and the deferred, function-body ones used to dodge Python's circular-import crash — a real cycle can only exist in a working codebase because of one of those) and records every simple cycle of 2-4 modules.
+
+  The spec for this PR asserted the import-cycle baseline was seven, all among eleven named modules. Hand-checking every `from`/`import` line in those modules found nine, not seven — same eleven modules, no extras, just two more overlapping cycles counted separately (e.g. both the direct pair `{arena, scheduler}` and the 3-module cycle `{arena, scheduler, user_match_start}` that contains it). Recorded nine, since that's what the checker — verified against the actual import graph — finds; flagged the discrepancy on the PR rather than forcing a number to match. Two implementation bugs surfaced and got fixed before landing: the cycle checker was double-counting a bare package alongside its real submodule on `from . import x`-style relative imports (invented four phantom cycles in `app.engine.bots.*`), and the test-client scanner was matching its own regex pattern's text as a hit on itself.
+
 ## One-off scripts removed
 
 - `scripts/backfill_played_model.py` (removed 2026-09-05, Direct Path) — wrote `Player.played_model` onto the eleven matches that predated that column, for PR #737. It already ran against prod; keeping it around risked someone re-running it by accident. Its only test, `tests/test_backfill_played_model.py`, is removed with it. Still readable at commit `f954cf3c`.
