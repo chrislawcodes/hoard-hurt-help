@@ -20,6 +20,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import app.db as db_module
+from app.clamp import clamp
 from app.engine.agent_idle import (
     LONG_POLL_INTERVAL_SECONDS,
     IdleStatus,
@@ -169,7 +170,7 @@ async def get_next_turn(
     async with db_module.SessionLocal() as check_db:
         while loop.time() < deadline:
             await asyncio.sleep(
-                max(0.0, min(LONG_POLL_INTERVAL_SECONDS, deadline - loop.time()))
+                clamp(deadline - loop.time(), 0.0, LONG_POLL_INTERVAL_SECONDS)
             )
             fresh = (
                 await check_db.execute(

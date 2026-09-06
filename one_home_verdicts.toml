@@ -38,6 +38,22 @@ note = ""
 pr = "PR A"
 
 [[function_names]]
+name = "_clamp_form_default"
+files = ["app/routes/matches_user.py"]
+verdict = "merged"
+note = "was max(low, min(high, value)); one home in app/clamp.py's clamp() (a third inline copy, on floats, at app/engine/agent_play_next_turn.py was folded in too; guarded by tests/test_clamp_has_one_home.py)"
+pr = "PR #TBD"
+home = "app/clamp.py"
+
+[[function_names]]
+name = "_clamp_trust"
+files = ["app/engine/bots/trust.py"]
+verdict = "merged"
+note = "was max(-100, min(100, value)); one home in app/clamp.py's clamp()"
+pr = "PR #TBD"
+home = "app/clamp.py"
+
+[[function_names]]
 name = "_game_display_name"
 files = ["app/read_models/leaderboard.py", "app/routes/web_games_catalog.py"]
 verdict = "merged"
@@ -663,7 +679,7 @@ kind = "source"
 
 [[oversized]]
 file = "app/routes/matches_user.py"
-lines = 455
+lines = 452
 kind = "source"
 
 [[oversized]]
