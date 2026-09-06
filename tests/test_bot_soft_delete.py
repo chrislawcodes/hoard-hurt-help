@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from app.engine.bot_presets import bot_presets
 from app.models import Base, Agent, AgentKind, AgentStatus, Connection, Match, GameState, Player, User
 from app.models.agent_version import AgentVersion
-from tests.factories import make_agent, make_connection, make_user, seed_match
+from tests.factories import make_agent, make_connection, seed_match, seed_user
 from tests.conftest import signed_in_cookies as _signed_in_cookies
 
 
@@ -26,15 +26,7 @@ async def reset_db(reset_db: async_sessionmaker) -> async_sessionmaker:
     return reset_db
 
 
-async def _seed_user(reset_db: async_sessionmaker) -> User:
-    async with reset_db() as db:
-        u = await make_user(db)
-        await db.commit()
-        await db.refresh(u)
-        return u
-
-
-async def _seed_agent(
+async def _seed_agent_with_connection(
     reset_db: async_sessionmaker, user: User, name: str = "Atlas"
 ) -> tuple[Agent, str, Connection]:
     async with reset_db() as db:
@@ -71,8 +63,8 @@ async def _get_agent(reset_db: async_sessionmaker, agent_id: int) -> Agent | Non
 
 async def test_delete_without_history_hard_deletes(client, reset_db):
     """An agent that never played is removed entirely."""
-    user = await _seed_user(reset_db)
-    agent, _key, _connection = await _seed_agent(reset_db, user)
+    user = await seed_user(reset_db)
+    agent, _key, _connection = await _seed_agent_with_connection(reset_db, user)
 
     r = await client.post(
         f"/me/agents/{agent.id}/delete",
@@ -112,8 +104,8 @@ async def test_hard_delete_with_foreign_keys_enforced(client, monkeypatch):
     monkeypatch.setattr("app.db.engine", test_engine)
 
     try:
-        user = await _seed_user(test_factory)
-        agent, _key, _connection = await _seed_agent(test_factory, user)
+        user = await seed_user(test_factory)
+        agent, _key, _connection = await _seed_agent_with_connection(test_factory, user)
 
         r = await client.post(
             f"/me/agents/{agent.id}/delete",
@@ -136,8 +128,8 @@ async def test_hard_delete_with_foreign_keys_enforced(client, monkeypatch):
 
 async def test_delete_with_history_archives_instead(client, reset_db):
     """An agent with game history is archived + paused, not removed."""
-    user = await _seed_user(reset_db)
-    agent, _key, connection = await _seed_agent(reset_db, user)
+    user = await seed_user(reset_db)
+    agent, _key, connection = await _seed_agent_with_connection(reset_db, user)
     await _give_history(reset_db, user, agent.id)
 
     r = await client.post(
@@ -156,8 +148,8 @@ async def test_delete_with_history_archives_instead(client, reset_db):
 
 async def test_archived_bot_hidden_from_my_bots(client, reset_db):
     """An archived agent no longer appears in the owner's agent list."""
-    user = await _seed_user(reset_db)
-    agent, _key, _connection = await _seed_agent(reset_db, user, name="Ghost")
+    user = await seed_user(reset_db)
+    agent, _key, _connection = await _seed_agent_with_connection(reset_db, user, name="Ghost")
     await _give_history(reset_db, user, agent.id)
     await client.post(
         f"/me/agents/{agent.id}/delete", cookies=_signed_in_cookies(user.id)
@@ -170,8 +162,8 @@ async def test_archived_bot_hidden_from_my_bots(client, reset_db):
 
 async def test_archived_bot_key_stops_authenticating(client, reset_db):
     """Once archived, the agent's key is rejected like an unknown key."""
-    user = await _seed_user(reset_db)
-    agent, key, _connection = await _seed_agent(reset_db, user)
+    user = await seed_user(reset_db)
+    agent, key, _connection = await _seed_agent_with_connection(reset_db, user)
     await _give_history(reset_db, user, agent.id)  # seats the agent in G_001
 
     # Sanity: the key works before deletion (a per-match agent endpoint that
@@ -190,8 +182,8 @@ async def test_archived_bot_key_stops_authenticating(client, reset_db):
 
 async def test_archived_bot_cannot_join_new_game(client, reset_db):
     """A crafted join POST naming an archived bot is rejected."""
-    user = await _seed_user(reset_db)
-    agent, _key, _connection = await _seed_agent(reset_db, user)
+    user = await seed_user(reset_db)
+    agent, _key, _connection = await _seed_agent_with_connection(reset_db, user)
     await _give_history(reset_db, user, agent.id)
     await client.post(
         f"/me/agents/{agent.id}/delete", cookies=_signed_in_cookies(user.id)
@@ -209,8 +201,8 @@ async def test_archived_bot_cannot_join_new_game(client, reset_db):
 
 async def test_archived_agent_keeps_its_name_and_can_be_replaced(client, reset_db):
     """Archived agents keep their stored name, and a new distinct agent can still be created."""
-    user = await _seed_user(reset_db)
-    agent, _key, _connection = await _seed_agent(reset_db, user, name="Atlas")
+    user = await seed_user(reset_db)
+    agent, _key, _connection = await _seed_agent_with_connection(reset_db, user, name="Atlas")
     await _give_history(reset_db, user, agent.id)
     await client.post(
         f"/me/agents/{agent.id}/delete", cookies=_signed_in_cookies(user.id)
@@ -230,9 +222,9 @@ async def test_archived_agent_keeps_its_name_and_can_be_replaced(client, reset_d
 
 async def test_archived_name_fits_120_char_column(client, reset_db):
     """A max-length (120-char) name still fits after archive."""
-    user = await _seed_user(reset_db)
+    user = await seed_user(reset_db)
     long_name = "B" * 120
-    agent, _key, _connection = await _seed_agent(reset_db, user, name=long_name)
+    agent, _key, _connection = await _seed_agent_with_connection(reset_db, user, name=long_name)
     await _give_history(reset_db, user, agent.id)
     await client.post(
         f"/me/agents/{agent.id}/delete", cookies=_signed_in_cookies(user.id)
@@ -245,7 +237,7 @@ async def test_archived_name_fits_120_char_column(client, reset_db):
 
 
 async def test_archived_agent_keeps_profile_metadata(client, reset_db):
-    user = await _seed_user(reset_db)
+    user = await seed_user(reset_db)
     cookies = _signed_in_cookies(user.id)
 
     presets = bot_presets()

@@ -1,10 +1,11 @@
 """Join and seating semantics: entering agents into games, duplicate blocking,
 admin/non-admin stacking, busy-AI rules, and bot rename.
 
-Split out of test_lobby.py, which keeps the lobby-rendering tests. The
-`_seed_*` helpers are duplicated from there (both halves need them). `reset_db`
-is a thin autouse override of tests/conftest.py's non-autouse `reset_db` (both
-halves need every test here to touch the DB without asking for it by name).
+Split out of test_lobby.py, which keeps the lobby-rendering tests. Both halves
+seed users/agents through tests.factories now; `_seed_agent_busy_in_active_match`
+below is the one seeding helper still local to this file. `reset_db` is a thin
+autouse override of tests/conftest.py's non-autouse `reset_db` (both halves
+need every test here to touch the DB without asking for it by name).
 """
 
 from datetime import datetime, timedelta, timezone
@@ -20,8 +21,13 @@ from app.engine.tokens import bot_key_lookup
 from app.routes.web_join import _build_ai_options
 from app.models import Agent, AgentKind, Connection, Match, GameState, Player, User
 from app.models.connection import ConnectionProvider
-from app.models.user import UserRole
-from tests.factories import make_agent, make_connection, make_user, seed_match
+from tests.factories import (
+    make_agent,
+    make_connection,
+    seed_connected_agent,
+    seed_match,
+    seed_user_with_role,
+)
 from tests.conftest import signed_in_cookies as _signed_in_cookies
 
 
@@ -31,52 +37,8 @@ async def reset_db(reset_db: async_sessionmaker) -> async_sessionmaker:
     return reset_db
 
 
-async def _seed_user(reset_db: async_sessionmaker) -> User:
-    async with reset_db() as db:
-        u = await make_user(db)
-        u.role = (
-            UserRole.ADMIN
-            if u.email.lower() in settings.platform_admin_emails_set
-            else UserRole.USER
-        )
-        await db.commit()
-        await db.refresh(u)
-        return u
-
-
-async def _seed_agent(
-    reset_db: async_sessionmaker,
-    user: User,
-    key: str | None = None,
-    name: str = "Atlas",
-    provider: ConnectionProvider = ConnectionProvider.CLAUDE,
-) -> tuple[Agent, str, int]:
-    async with reset_db() as db:
-        u = (await db.execute(select(User).where(User.id == user.id))).scalar_one()
-        connection, k = await make_connection(db, u, key=key, provider=provider)
-        agent, _ = await make_agent(db, u, connection=connection, name=name)
-        now = datetime.now(timezone.utc)
-        existing_mcp = await db.scalar(
-            select(Connection.id)
-            .where(
-                Connection.user_id == u.id,
-                Connection.provider == connection.provider,
-                Connection.mcp_connected_at.is_not(None),
-                Connection.deleted_at.is_(None),
-            )
-            .limit(1)
-        )
-        if existing_mcp is None:
-            connection.mcp_connected_at = now
-        connection.first_connected_at = now
-        connection.last_seen_at = now
-        connection.last_polled_at = now  # AI is running the play loop → seats confirm
-        await db.commit()
-        return agent, k, connection.id
-
-
 async def test_create_bot_shows_bot_profile(client, reset_db):
-    user = await _seed_user(reset_db)
+    user = await seed_user_with_role(reset_db)
     choice = next(
         choice
         for choice in pack_profile_choices(include_hidden=False)
@@ -108,9 +70,9 @@ async def test_create_bot_shows_bot_profile(client, reset_db):
 
 async def test_bot_detail_does_not_rotate_key(client, reset_db):
     """Regression: visiting the connection page must not change the key."""
-    user = await _seed_user(reset_db)
+    user = await seed_user_with_role(reset_db)
     key = "sk_conn_" + "a" * 48
-    agent, _returned_key, connection_id = await _seed_agent(reset_db, user, key=key)
+    agent, _returned_key, connection_id = await seed_connected_agent(reset_db, user, key=key)
     for _ in range(2):
         r = await client.get(
             f"/me/connections/{connection_id}", cookies=_signed_in_cookies(user.id)
@@ -126,10 +88,10 @@ async def test_bot_detail_does_not_rotate_key(client, reset_db):
 
 async def test_rotate_invalidates_old_key_anytime(client, reset_db):
     """Rotate is the deliberate path that changes the key — allowed any time."""
-    user = await _seed_user(reset_db)
+    user = await seed_user_with_role(reset_db)
     game = await seed_match(reset_db, "G_001", state=GameState.ACTIVE, name="Test Match")  # even mid-game
     key = "sk_conn_" + "b" * 48
-    agent, _returned_key, connection_id = await _seed_agent(reset_db, user, key=key)
+    agent, _returned_key, connection_id = await seed_connected_agent(reset_db, user, key=key)
     # The agent is in the active game.
     async with reset_db() as db:
         db.add(
@@ -156,9 +118,9 @@ async def test_rotate_invalidates_old_key_anytime(client, reset_db):
 
 
 async def test_enter_bot_into_game(client, reset_db):
-    user = await _seed_user(reset_db)
+    user = await seed_user_with_role(reset_db)
     await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
-    agent, _returned_key, _connection_id = await _seed_agent(reset_db, user)
+    agent, _returned_key, _connection_id = await seed_connected_agent(reset_db, user)
     r = await client.post(
         "/games/hoard-hurt-help/matches/G_001/join",
         data={"chosen_provider": "claude", "agent_id": agent.id, "display_name": "AI_qa"},
@@ -179,9 +141,9 @@ async def test_enter_bot_into_game(client, reset_db):
 
 async def test_join_ignores_bad_display_name(client, reset_db):
     """The posted display name no longer controls the public seat name."""
-    user = await _seed_user(reset_db)
+    user = await seed_user_with_role(reset_db)
     await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
-    agent, _returned_key, _connection_id = await _seed_agent(reset_db, user)
+    agent, _returned_key, _connection_id = await seed_connected_agent(reset_db, user)
     r = await client.post(
         "/games/hoard-hurt-help/matches/G_001/join",
         data={"chosen_provider": "claude", "agent_id": agent.id, "display_name": "fuckwit"},
@@ -197,9 +159,9 @@ async def test_join_ignores_bad_display_name(client, reset_db):
 
 
 async def test_duplicate_bot_entry_blocked(client, reset_db):
-    user = await _seed_user(reset_db)
+    user = await seed_user_with_role(reset_db)
     await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
-    agent, _returned_key, _connection_id = await _seed_agent(reset_db, user)
+    agent, _returned_key, _connection_id = await seed_connected_agent(reset_db, user)
     cookies = _signed_in_cookies(user.id)
     await client.post(
         "/games/hoard-hurt-help/matches/G_001/join",
@@ -220,10 +182,10 @@ async def test_duplicate_bot_entry_blocked(client, reset_db):
 async def test_two_bots_one_game(client, reset_db):
     """A user fields multiple agents in one game by giving each a different AI
     (one AI plays one seat at a time)."""
-    user = await _seed_user(reset_db)
+    user = await seed_user_with_role(reset_db)
     await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
-    a1, _k1, _c1 = await _seed_agent(reset_db, user, name="One")
-    a2, _k2, _c2 = await _seed_agent(
+    a1, _k1, _c1 = await seed_connected_agent(reset_db, user, name="One")
+    a2, _k2, _c2 = await seed_connected_agent(
         reset_db, user, name="Two", provider=ConnectionProvider.GEMINI
     )
     cookies = _signed_in_cookies(user.id)
@@ -247,10 +209,10 @@ async def test_two_bots_one_game(client, reset_db):
 async def test_admin_stacks_multiple_agents_in_one_submit(client, reset_db, monkeypatch):
     """An admin can tick several of their own agents and seat them in one POST."""
     monkeypatch.setattr(settings, "platform_admin_emails", "u0@t.com")
-    user = await _seed_user(reset_db)  # make_user → u0@t.com
+    user = await seed_user_with_role(reset_db)  # make_user → u0@t.com
     await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
-    a1, _k1, _c1 = await _seed_agent(reset_db, user, name="One")
-    a2, _k2, _c2 = await _seed_agent(reset_db, user, name="Two")
+    a1, _k1, _c1 = await seed_connected_agent(reset_db, user, name="One")
+    a2, _k2, _c2 = await seed_connected_agent(reset_db, user, name="Two")
     # The join form lists each agent with its own Join button (grouped by
     # provider). Admins can still stack several via repeated agent_id POSTs.
     form = await client.get(
@@ -286,10 +248,10 @@ async def test_admin_stacks_multiple_agents_in_one_submit(client, reset_db, monk
 
 async def test_join_form_shows_already_seated_agents(client, reset_db):
     """Re-entering the join form keeps every agent visible and marks seated ones."""
-    user = await _seed_user(reset_db)
+    user = await seed_user_with_role(reset_db)
     await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
-    a1, _k1, _c1 = await _seed_agent(reset_db, user, name="One")
-    a2, _k2, _c2 = await _seed_agent(reset_db, user, name="Two")
+    a1, _k1, _c1 = await seed_connected_agent(reset_db, user, name="One")
+    a2, _k2, _c2 = await seed_connected_agent(reset_db, user, name="Two")
     cookies = _signed_in_cookies(user.id)
     await client.post(
         "/games/hoard-hurt-help/matches/G_001/join",
@@ -313,9 +275,9 @@ async def test_join_form_shows_already_seated_agents(client, reset_db):
 
 async def test_match_page_shows_add_agent_affordance(client, reset_db):
     """The match page links back to the join form while registration is open."""
-    user = await _seed_user(reset_db)
+    user = await seed_user_with_role(reset_db)
     await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
-    agent, _k, _c = await _seed_agent(reset_db, user, name="One")
+    agent, _k, _c = await seed_connected_agent(reset_db, user, name="One")
     cookies = _signed_in_cookies(user.id)
     # Before joining: a signed-in viewer sees a "Join" call to action.
     page = await client.get("/games/hoard-hurt-help/matches/G_001", cookies=cookies)
@@ -334,10 +296,10 @@ async def test_match_page_shows_add_agent_affordance(client, reset_db):
 
 async def test_non_admin_stacks_agents_with_distinct_ais(client, reset_db):
     """A regular user may send several agents in one submit — each on a different AI."""
-    user = await _seed_user(reset_db)  # not in the admin allowlist
+    user = await seed_user_with_role(reset_db)  # not in the admin allowlist
     await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
-    a1, _k1, _c1 = await _seed_agent(reset_db, user, name="One")  # Claude (live)
-    a2, _k2, _c2 = await _seed_agent(
+    a1, _k1, _c1 = await seed_connected_agent(reset_db, user, name="One")  # Claude (live)
+    a2, _k2, _c2 = await seed_connected_agent(
         reset_db, user, name="Two", provider=ConnectionProvider.GEMINI
     )  # Gemini (live)
     r = await client.post(
@@ -371,10 +333,10 @@ async def test_one_ai_can_play_several_agents_in_one_game(client, reset_db):
     one play loop per agent_id, so the seats move in parallel. Covers both post
     shapes: an explicit duplicate, and the one-provider-for-all shorthand.
     """
-    user = await _seed_user(reset_db)  # not in the admin allowlist
+    user = await seed_user_with_role(reset_db)  # not in the admin allowlist
     await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
-    a1, _k1, _c1 = await _seed_agent(reset_db, user, name="One")
-    a2, _k2, _c2 = await _seed_agent(reset_db, user, name="Two")
+    a1, _k1, _c1 = await seed_connected_agent(reset_db, user, name="One")
+    a2, _k2, _c2 = await seed_connected_agent(reset_db, user, name="Two")
     cookies = _signed_in_cookies(user.id)
     # Check the form while both agents are still unseated — a seated agent renders as
     # taken and drops its picker, so this has to come before the joins below.
@@ -451,7 +413,7 @@ async def _seed_agent_busy_in_active_match(reset_db, user) -> int:
 async def test_admin_can_seat_agent_already_busy_at_capacity(client, reset_db, monkeypatch):
     """An admin can add an agent that is already in another match, past the cap."""
     monkeypatch.setattr(settings, "platform_admin_emails", "u0@t.com")
-    user = await _seed_user(reset_db)  # u0@t.com
+    user = await seed_user_with_role(reset_db)  # u0@t.com
     agent_id = await _seed_agent_busy_in_active_match(reset_db, user)
     r = await client.post(
         "/games/hoard-hurt-help/matches/G_B/join",
@@ -473,7 +435,7 @@ async def test_non_admin_can_reuse_an_ai_already_in_another_game(client, reset_d
     The old rule refused this for everyone but admins. Turn routing is per-seat, so
     an AI holding a seat elsewhere is a workload heads-up, not a conflict.
     """
-    user = await _seed_user(reset_db)  # not an admin
+    user = await seed_user_with_role(reset_db)  # not an admin
     agent_id = await _seed_agent_busy_in_active_match(reset_db, user)
     r = await client.post(
         "/games/hoard-hurt-help/matches/G_B/join",
@@ -490,10 +452,10 @@ async def test_non_admin_can_reuse_an_ai_already_in_another_game(client, reset_d
 
 
 async def test_duplicate_display_name_does_not_block_join(client, reset_db):
-    user = await _seed_user(reset_db)
+    user = await seed_user_with_role(reset_db)
     await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
-    a1, _k1, _c1 = await _seed_agent(reset_db, user, name="One")
-    a2, _k2, _c2 = await _seed_agent(
+    a1, _k1, _c1 = await seed_connected_agent(reset_db, user, name="One")
+    a2, _k2, _c2 = await seed_connected_agent(
         reset_db, user, name="Two", provider=ConnectionProvider.GEMINI
     )
     cookies = _signed_in_cookies(user.id)
@@ -520,8 +482,8 @@ async def test_duplicate_display_name_does_not_block_join(client, reset_db):
 
 
 async def test_rename_bot(client, reset_db):
-    user = await _seed_user(reset_db)
-    agent, _returned_key, _connection_id = await _seed_agent(reset_db, user, name="OldName")
+    user = await seed_user_with_role(reset_db)
+    agent, _returned_key, _connection_id = await seed_connected_agent(reset_db, user, name="OldName")
     r = await client.post(
         f"/me/agents/{agent.id}/rename",
         data={"name": "NewName"},
@@ -535,9 +497,9 @@ async def test_rename_bot(client, reset_db):
 
 
 async def test_rename_duplicate_blocked(client, reset_db):
-    user = await _seed_user(reset_db)
-    await _seed_agent(reset_db, user, name="Taken")
-    agent, _returned_key, _connection_id = await _seed_agent(reset_db, user, name="Mine")
+    user = await seed_user_with_role(reset_db)
+    await seed_connected_agent(reset_db, user, name="Taken")
+    agent, _returned_key, _connection_id = await seed_connected_agent(reset_db, user, name="Mine")
     r = await client.post(
         f"/me/agents/{agent.id}/rename",
         data={"name": "Taken"},
@@ -558,7 +520,7 @@ async def test_join_form_keeps_an_ai_already_in_another_game_pickable_and_silent
     reader has to process under a countdown for no decision it can change. The fact
     survives only as sort order, pinned in the test below.
     """
-    user = await _seed_user(reset_db)
+    user = await seed_user_with_role(reset_db)
     # Seeds Claude busy in the active match G_A, plus an open match G_B to join.
     await _seed_agent_busy_in_active_match(reset_db, user)
     r = await client.get(
@@ -582,7 +544,7 @@ async def test_join_form_sorts_a_busy_ai_after_a_free_one_of_the_same_state(
     before a loaded one without the page ever saying so. If this ordering is lost,
     the page looks identical and the spreading behaviour silently stops.
     """
-    user = await _seed_user(reset_db)
+    user = await seed_user_with_role(reset_db)
     # Claude is live and busy in G_A. Gemini is made equally live so the two share a
     # state rank and busy-ness is the ONLY thing that can order them — and Claude
     # sorts first alphabetically, so a lost busy key shows up as Claude moving up.

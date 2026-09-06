@@ -25,7 +25,10 @@ from app.schemas.agent import ScoreboardRow
 from tests.factories import make_match
 
 
-async def _seed_user(db, index: int, handle: str | None = None) -> User:
+async def _seed_user_with_handle(db, index: int, handle: str | None = None) -> User:
+    """Like tests.factories.make_user, but a `None` handle stays `None`
+    instead of falling back to a derived default — this file needs a user
+    with no public handle at all (a bot owner)."""
     user = User(
         google_sub=f"sub-{index}",
         email=f"user{index}@example.com",
@@ -100,8 +103,8 @@ async def _seed_ai_agent(
 
 async def test_bot_agent_and_ai_agent_kinds(reset_db) -> None:
     async with reset_db() as db:
-        bot_owner = await _seed_user(db, 1, handle=None)
-        ai_owner = await _seed_user(db, 2, handle="agent2")
+        bot_owner = await _seed_user_with_handle(db, 1, handle=None)
+        ai_owner = await _seed_user_with_handle(db, 2, handle="agent2")
         connection = await _seed_connection(db, ai_owner)
         bot = await _seed_bot_agent(db, bot_owner, name="Bot Alpha", seed=17)
         ai, _ = await _seed_ai_agent(db, ai_owner, connection=connection, name="Alpha", model="claude-sonnet")
@@ -114,7 +117,7 @@ async def test_bot_agent_and_ai_agent_kinds(reset_db) -> None:
 
 async def test_bot_play_is_deterministic_without_connection_or_key(reset_db) -> None:
     async with reset_db() as db:
-        owner = await _seed_user(db, 1, handle=None)
+        owner = await _seed_user_with_handle(db, 1, handle=None)
         bot = await _seed_bot_agent(db, owner, name="Bot Alpha", seed=77)
         profile = build_bot_profile(bot)
         context = BotContext(
@@ -148,8 +151,8 @@ async def test_bot_play_is_deterministic_without_connection_or_key(reset_db) -> 
 
 async def test_leaderboard_labels_ai_and_bot_rows_and_filters(reset_db) -> None:
     async with reset_db() as db:
-        bot_owner = await _seed_user(db, 1, handle=None)
-        ai_owner = await _seed_user(db, 2, handle="agent2")
+        bot_owner = await _seed_user_with_handle(db, 1, handle=None)
+        ai_owner = await _seed_user_with_handle(db, 2, handle="agent2")
         connection = await _seed_connection(db, ai_owner)
         bot_a = await _seed_bot_agent(db, bot_owner, name="Bot Alpha", seed=91)
         bot_b = await _seed_bot_agent(db, bot_owner, name="Bot Beta", seed=92)

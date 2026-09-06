@@ -30,7 +30,7 @@ from app.models import Base, Agent, Connection, GameState, User
 from app.models.connection import ConnectionProvider
 from app.routes.agents_create import _AGENT_BLURB_MAX
 from tests.conftest import signed_in_cookies as _cookies
-from tests.factories import make_agent, make_connection, make_user, seed_match
+from tests.factories import make_agent, make_connection, seed_match, seed_user
 
 GAME = "hoard-hurt-help"
 JOIN_URL = f"/games/{GAME}/matches/G_001/join"
@@ -51,15 +51,7 @@ async def reset_db(monkeypatch):
     await test_engine.dispose()
 
 
-async def _seed_user(reset_db: async_sessionmaker) -> User:
-    async with reset_db() as db:
-        u = await make_user(db)
-        await db.commit()
-        await db.refresh(u)
-        return u
-
-
-async def _seed_agent(
+async def _seed_lineup_agent(
     reset_db: async_sessionmaker,
     user: User,
     name: str,
@@ -103,10 +95,10 @@ def _row_chunks(html: str) -> list[str]:
 
 async def test_lineup_renders_one_row_per_agent_and_no_legacy_cards(client, reset_db):
     """AC1: N agents → N rows, and none of the old card markup survives."""
-    user = await _seed_user(reset_db)
+    user = await seed_user(reset_db)
     await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
-    await _seed_agent(reset_db, user, "One", ConnectionProvider.CLAUDE)
-    await _seed_agent(reset_db, user, "Two", ConnectionProvider.GEMINI)
+    await _seed_lineup_agent(reset_db, user, "One", ConnectionProvider.CLAUDE)
+    await _seed_lineup_agent(reset_db, user, "Two", ConnectionProvider.GEMINI)
 
     r = await client.get(JOIN_URL, cookies=_cookies(user.id), follow_redirects=False)
 
@@ -121,9 +113,9 @@ async def test_lineup_renders_one_row_per_agent_and_no_legacy_cards(client, rese
 
 async def test_lineup_drops_strategy_preview_version_and_record(client, reset_db):
     """AC5: the three per-agent text sources that distinguished nothing are gone."""
-    user = await _seed_user(reset_db)
+    user = await seed_user(reset_db)
     await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
-    await _seed_agent(reset_db, user, "One", ConnectionProvider.CLAUDE)
+    await _seed_lineup_agent(reset_db, user, "One", ConnectionProvider.CLAUDE)
 
     r = await client.get(JOIN_URL, cookies=_cookies(user.id), follow_redirects=False)
 
@@ -144,9 +136,9 @@ async def test_lineup_drops_strategy_preview_version_and_record(client, reset_db
 
 async def test_manual_row_is_first_even_with_agents(client, reset_db):
     """AC8/AC10: "Play manually" leads the page regardless of agent count."""
-    user = await _seed_user(reset_db)
+    user = await seed_user(reset_db)
     await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
-    await _seed_agent(reset_db, user, "One", ConnectionProvider.CLAUDE)
+    await _seed_lineup_agent(reset_db, user, "One", ConnectionProvider.CLAUDE)
 
     r = await client.get(JOIN_URL, cookies=_cookies(user.id), follow_redirects=False)
 
@@ -160,9 +152,9 @@ async def test_pill_group_starts_hidden(client, reset_db):
     Anchored to the pill group itself — a bare ``"hidden" in r.text`` would also
     match the two ``<input type="hidden">`` mirrors that every row carries.
     """
-    user = await _seed_user(reset_db)
+    user = await seed_user(reset_db)
     await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
-    agent = await _seed_agent(reset_db, user, "One", ConnectionProvider.CLAUDE)
+    agent = await _seed_lineup_agent(reset_db, user, "One", ConnectionProvider.CLAUDE)
 
     r = await client.get(JOIN_URL, cookies=_cookies(user.id), follow_redirects=False)
 
@@ -173,9 +165,9 @@ async def test_pill_group_starts_hidden(client, reset_db):
 
 async def test_ready_ais_carry_no_state_word(client, reset_db):
     """A ready pill shows only its name — silence means ready."""
-    user = await _seed_user(reset_db)
+    user = await seed_user(reset_db)
     await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
-    await _seed_agent(reset_db, user, "One", ConnectionProvider.CLAUDE)
+    await _seed_lineup_agent(reset_db, user, "One", ConnectionProvider.CLAUDE)
 
     r = await client.get(JOIN_URL, cookies=_cookies(user.id), follow_redirects=False)
 
@@ -193,12 +185,12 @@ async def test_each_row_holds_exactly_one_id_and_one_provider_mirror(client, res
     Both mirrors ship ``disabled``; the JavaScript enables and disables them as a
     pair. This asserts the structure that guarantee rests on.
     """
-    user = await _seed_user(reset_db)
+    user = await seed_user(reset_db)
     await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
     seeded = {
-        (await _seed_agent(reset_db, user, "One", ConnectionProvider.CLAUDE)).id,
-        (await _seed_agent(reset_db, user, "Two", ConnectionProvider.GEMINI)).id,
-        (await _seed_agent(reset_db, user, "Three", ConnectionProvider.OPENAI)).id,
+        (await _seed_lineup_agent(reset_db, user, "One", ConnectionProvider.CLAUDE)).id,
+        (await _seed_lineup_agent(reset_db, user, "Two", ConnectionProvider.GEMINI)).id,
+        (await _seed_lineup_agent(reset_db, user, "Three", ConnectionProvider.OPENAI)).id,
     }
 
     r = await client.get(JOIN_URL, cookies=_cookies(user.id), follow_redirects=False)
@@ -232,11 +224,11 @@ async def test_id_and_provider_mirrors_appear_in_the_same_row_order(client, rese
     serialize repeated field names in document order, so an id/provider pair that
     straddles two rows would silently seat each agent on the other's AI.
     """
-    user = await _seed_user(reset_db)
+    user = await seed_user(reset_db)
     await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
-    await _seed_agent(reset_db, user, "One", ConnectionProvider.CLAUDE)
-    await _seed_agent(reset_db, user, "Two", ConnectionProvider.GEMINI)
-    await _seed_agent(reset_db, user, "Three", ConnectionProvider.OPENAI)
+    await _seed_lineup_agent(reset_db, user, "One", ConnectionProvider.CLAUDE)
+    await _seed_lineup_agent(reset_db, user, "Two", ConnectionProvider.GEMINI)
+    await _seed_lineup_agent(reset_db, user, "Three", ConnectionProvider.OPENAI)
 
     r = await client.get(JOIN_URL, cookies=_cookies(user.id), follow_redirects=False)
     html = r.text
@@ -329,9 +321,9 @@ def test_blurb_max_is_pinned_at_32():
 
 
 async def test_blurb_renders_on_the_row_when_set(client, reset_db):
-    user = await _seed_user(reset_db)
+    user = await seed_user(reset_db)
     await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
-    await _seed_agent(reset_db, user, "One", ConnectionProvider.CLAUDE, blurb="Forgives once")
+    await _seed_lineup_agent(reset_db, user, "One", ConnectionProvider.CLAUDE, blurb="Forgives once")
 
     r = await client.get(JOIN_URL, cookies=_cookies(user.id), follow_redirects=False)
 
@@ -342,9 +334,9 @@ async def test_blurb_renders_on_the_row_when_set(client, reset_db):
 
 async def test_blurb_absent_renders_no_empty_element(client, reset_db):
     """AC15: an agent with no blurb renders name only, with nothing to shift the row."""
-    user = await _seed_user(reset_db)
+    user = await seed_user(reset_db)
     await seed_match(reset_db, "G_001", state=GameState.REGISTERING, name="Test Match")
-    await _seed_agent(reset_db, user, "One", ConnectionProvider.CLAUDE)
+    await _seed_lineup_agent(reset_db, user, "One", ConnectionProvider.CLAUDE)
 
     r = await client.get(JOIN_URL, cookies=_cookies(user.id), follow_redirects=False)
 
@@ -357,7 +349,7 @@ async def test_blurb_absent_renders_no_empty_element(client, reset_db):
 async def test_create_stores_blank_blurb_as_null(client, reset_db, raw):
     """AC14: empty or whitespace-only is NULL, never "" — the template's
     ``{% if agent.blurb %}`` cannot tell them apart, but the row layout can."""
-    user = await _seed_user(reset_db)
+    user = await seed_user(reset_db)
     r = await client.post(
         "/me/agents/new",
         data={"name": "Atlas", "strategy_text": "Play to win.", "blurb": raw},
@@ -372,7 +364,7 @@ async def test_create_stores_blank_blurb_as_null(client, reset_db, raw):
 
 async def test_create_accepts_exactly_32_characters(client, reset_db):
     """Boundary: an off-by-one in the check would reject a legal blurb."""
-    user = await _seed_user(reset_db)
+    user = await seed_user(reset_db)
     exactly = "x" * 32
     r = await client.post(
         "/me/agents/new",
@@ -393,7 +385,7 @@ async def test_create_rejects_over_long_blurb(client, reset_db):
     would happily store the over-long value and production would be the first
     place it failed.
     """
-    user = await _seed_user(reset_db)
+    user = await seed_user(reset_db)
     r = await client.post(
         "/me/agents/new",
         data={"name": "Atlas", "strategy_text": "Play to win.", "blurb": "x" * 33},
@@ -408,8 +400,8 @@ async def test_create_rejects_over_long_blurb(client, reset_db):
 async def test_set_blurb_route_rejects_over_long_blurb(client, reset_db):
     """The SECOND write path needs the same guard — one cleaned route and one
     unguarded route is exactly how R2 reaches production."""
-    user = await _seed_user(reset_db)
-    agent = await _seed_agent(reset_db, user, "One", ConnectionProvider.CLAUDE)
+    user = await seed_user(reset_db)
+    agent = await _seed_lineup_agent(reset_db, user, "One", ConnectionProvider.CLAUDE)
 
     r = await client.post(
         f"/me/agents/{agent.id}/set-blurb",
@@ -432,8 +424,8 @@ async def test_set_blurb_route_rejects_over_long_blurb(client, reset_db):
 
 
 async def test_set_blurb_clears_with_empty_submission(client, reset_db):
-    user = await _seed_user(reset_db)
-    agent = await _seed_agent(
+    user = await seed_user(reset_db)
+    agent = await _seed_lineup_agent(
         reset_db, user, "One", ConnectionProvider.CLAUDE, blurb="Forgives once"
     )
     r = await client.post(
@@ -462,8 +454,8 @@ async def test_manual_row_not_preticked_when_last_seat_was_an_agent(client, rese
     from app.models import GameState, Player
     from tests.factories import make_match
 
-    user = await _seed_user(reset_db)
-    agent = await _seed_agent(reset_db, user, "One", ConnectionProvider.CLAUDE)
+    user = await seed_user(reset_db)
+    agent = await _seed_lineup_agent(reset_db, user, "One", ConnectionProvider.CLAUDE)
     async with reset_db() as db:
         prior = await make_match(db, "M_PRIOR", state=GameState.COMPLETED)
         version_id = (
@@ -491,7 +483,7 @@ async def test_manual_row_preticked_when_last_seat_was_human(client, reset_db):
     from app.models import AgentKind, GameState, Player
     from tests.factories import make_agent as _make_agent, make_match
 
-    user = await _seed_user(reset_db)
+    user = await seed_user(reset_db)
     async with reset_db() as db:
         u = (await db.execute(select(User).where(User.id == user.id))).scalar_one()
         human_agent, _ = await _make_agent(db, u, name="Claw", kind=AgentKind.HUMAN)
@@ -516,7 +508,7 @@ async def test_manual_row_preticked_when_last_seat_was_human(client, reset_db):
 
 async def test_blurb_input_renders_on_the_create_form(client, reset_db):
     """AC16: the field a user actually types into, not just the handler."""
-    user = await _seed_user(reset_db)
+    user = await seed_user(reset_db)
     r = await client.get("/me/agents/new", cookies=_cookies(user.id))
     assert r.status_code == 200
     assert 'name="blurb"' in r.text
@@ -526,8 +518,8 @@ async def test_blurb_input_renders_on_the_create_form(client, reset_db):
 async def test_blurb_form_on_agent_page_is_separate_from_the_rename_form(client, reset_db):
     """AC16: it must NOT share the name form — that input auto-submits on change,
     so a shared form would fire a rename when you typed a description."""
-    user = await _seed_user(reset_db)
-    agent = await _seed_agent(reset_db, user, "One", ConnectionProvider.CLAUDE)
+    user = await seed_user(reset_db)
+    agent = await _seed_lineup_agent(reset_db, user, "One", ConnectionProvider.CLAUDE)
 
     r = await client.get(f"/me/agents/{agent.id}", cookies=_cookies(user.id))
 
@@ -543,8 +535,8 @@ async def test_blurb_form_on_agent_page_is_separate_from_the_rename_form(client,
 
 async def test_blurb_renders_on_the_agents_list(client, reset_db):
     """AC17."""
-    user = await _seed_user(reset_db)
-    await _seed_agent(reset_db, user, "One", ConnectionProvider.CLAUDE, blurb="Forgives once")
+    user = await seed_user(reset_db)
+    await _seed_lineup_agent(reset_db, user, "One", ConnectionProvider.CLAUDE, blurb="Forgives once")
     r = await client.get("/me/agents", cookies=_cookies(user.id))
     assert r.status_code == 200
     assert "agent-row-blurb" in r.text

@@ -11,7 +11,7 @@ from tests.conftest import session_cookie
 from tests.factories import make_agent, make_user
 
 
-async def _seed_agent(reset_db: async_sessionmaker) -> tuple[int, int]:
+async def _seed_user_and_agent_ids(reset_db: async_sessionmaker) -> tuple[int, int]:
     async with reset_db() as db:
         user = await make_user(db, 0)
         agent, _ = await make_agent(db, user, name="picker-agent")
@@ -29,7 +29,7 @@ async def _preferred(reset_db: async_sessionmaker, agent_id: int) -> str | None:
 async def test_set_model_sets_and_clears(
     client: AsyncClient, reset_db: async_sessionmaker
 ) -> None:
-    user_id, agent_id = await _seed_agent(reset_db)
+    user_id, agent_id = await _seed_user_and_agent_ids(reset_db)
     cookies = {"hhh_session": session_cookie(user_id)}
 
     r = await client.post(
@@ -53,7 +53,7 @@ async def test_set_model_sets_and_clears(
 async def test_set_model_rejects_unknown_model(
     client: AsyncClient, reset_db: async_sessionmaker
 ) -> None:
-    user_id, agent_id = await _seed_agent(reset_db)
+    user_id, agent_id = await _seed_user_and_agent_ids(reset_db)
     r = await client.post(
         f"/me/agents/{agent_id}/set-model",
         data={"preferred_model": "totally-made-up-model"},

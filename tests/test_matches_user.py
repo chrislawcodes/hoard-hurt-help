@@ -3,31 +3,16 @@
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.engine.match_creation import create_match
 from app.models import GameState, Match, User
 from app.models.user import UserRole
-from tests.factories import make_user, seat_player, seed_match
+from tests.factories import seat_player, seed_match, seed_user
 from tests.conftest import signed_in_cookies as _cookies
 
 
-async def _seed_user(
-    reset_db: async_sessionmaker,
-    *,
-    i: int = 0,
-    role: UserRole = UserRole.USER,
-) -> User:
-    async with reset_db() as db:
-        user = await make_user(db, i)
-        user.role = role
-        await db.commit()
-        await db.refresh(user)
-        return user
-
-
 async def test_lobby_shows_create_match_action_for_signed_in_users(client, reset_db):
-    user = await _seed_user(reset_db, i=1)
+    user = await seed_user(reset_db, i=1)
     r = await client.get(
         "/games/hoard-hurt-help",
         cookies=_cookies(user.id),
@@ -37,7 +22,7 @@ async def test_lobby_shows_create_match_action_for_signed_in_users(client, reset
 
 
 async def test_create_match_form_is_available(client, reset_db):
-    user = await _seed_user(reset_db, i=2)
+    user = await seed_user(reset_db, i=2)
     r = await client.get(
         "/games/hoard-hurt-help/matches/new",
         cookies=_cookies(user.id),
@@ -47,7 +32,7 @@ async def test_create_match_form_is_available(client, reset_db):
 
 
 async def test_user_create_flow_records_creator(client, reset_db):
-    user = await _seed_user(reset_db, i=3)
+    user = await seed_user(reset_db, i=3)
     when = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
 
     r = await client.post(
@@ -71,7 +56,7 @@ async def test_user_create_flow_records_creator(client, reset_db):
 
 
 async def test_user_create_flow_rejects_at_active_match_cap(client, reset_db):
-    user = await _seed_user(reset_db, i=4)
+    user = await seed_user(reset_db, i=4)
     when = datetime.now(timezone.utc) + timedelta(hours=1)
 
     async with reset_db() as db:
@@ -106,7 +91,7 @@ async def test_user_create_flow_rejects_at_active_match_cap(client, reset_db):
 async def test_my_matches_includes_owned_unjoined_matches_and_owner_controls(
     client, reset_db
 ):
-    user = await _seed_user(reset_db, i=5)
+    user = await seed_user(reset_db, i=5)
     future = datetime.now(timezone.utc) + timedelta(hours=1)
 
     async with reset_db() as db:
@@ -144,7 +129,7 @@ async def test_my_matches_includes_owned_unjoined_matches_and_owner_controls(
 
 
 async def test_owner_delete_pre_start_succeeds(client, reset_db):
-    user = await _seed_user(reset_db, i=6)
+    user = await seed_user(reset_db, i=6)
     future = datetime.now(timezone.utc) + timedelta(hours=1)
 
     async with reset_db() as db:
@@ -172,7 +157,7 @@ async def test_owner_delete_pre_start_succeeds(client, reset_db):
 
 
 async def test_owner_delete_active_match_is_rejected(client, reset_db):
-    user = await _seed_user(reset_db, i=7)
+    user = await seed_user(reset_db, i=7)
     future = datetime.now(timezone.utc) + timedelta(hours=1)
 
     async with reset_db() as db:
@@ -198,8 +183,8 @@ async def test_owner_delete_active_match_is_rejected(client, reset_db):
 
 
 async def test_non_owner_delete_is_rejected(client, reset_db):
-    owner = await _seed_user(reset_db, i=8)
-    other = await _seed_user(reset_db, i=9)
+    owner = await seed_user(reset_db, i=8)
+    other = await seed_user(reset_db, i=9)
     future = datetime.now(timezone.utc) + timedelta(hours=1)
 
     async with reset_db() as db:
@@ -225,8 +210,8 @@ async def test_non_owner_delete_is_rejected(client, reset_db):
 
 
 async def test_admin_can_delete_any_match(client, reset_db):
-    owner = await _seed_user(reset_db, i=10)
-    admin = await _seed_user(reset_db, i=11, role=UserRole.ADMIN)
+    owner = await seed_user(reset_db, i=10)
+    admin = await seed_user(reset_db, i=11, role=UserRole.ADMIN)
     future = datetime.now(timezone.utc) + timedelta(hours=1)
 
     async with reset_db() as db:
@@ -258,7 +243,7 @@ async def test_admin_can_delete_any_match(client, reset_db):
 
 
 async def test_owner_cannot_cancel_their_match(client, reset_db):
-    user = await _seed_user(reset_db, i=20)
+    user = await seed_user(reset_db, i=20)
     await seed_match(reset_db, "M_C1", state=GameState.REGISTERING, name="M_C1", owner_id=user.id)
 
     r = await client.post(
@@ -271,7 +256,7 @@ async def test_owner_cannot_cancel_their_match(client, reset_db):
 
 
 async def test_signed_out_cannot_cancel(client, reset_db):
-    owner = await _seed_user(reset_db, i=21)
+    owner = await seed_user(reset_db, i=21)
     await seed_match(reset_db, "M_C2", state=GameState.ACTIVE, name="M_C2", owner_id=owner.id)
 
     r = await client.post("/matches/M_C2/cancel", follow_redirects=False)
@@ -279,8 +264,8 @@ async def test_signed_out_cannot_cancel(client, reset_db):
 
 
 async def test_admin_can_cancel_pre_start_and_active(client, reset_db):
-    admin = await _seed_user(reset_db, i=22, role=UserRole.ADMIN)
-    owner = await _seed_user(reset_db, i=23)
+    admin = await seed_user(reset_db, i=22, role=UserRole.ADMIN)
+    owner = await seed_user(reset_db, i=23)
     await seed_match(reset_db, "M_C3", state=GameState.REGISTERING, name="M_C3", owner_id=owner.id)
     await seed_match(reset_db, "M_C4", state=GameState.ACTIVE, name="M_C4", owner_id=owner.id)
 
@@ -294,7 +279,7 @@ async def test_admin_can_cancel_pre_start_and_active(client, reset_db):
 
 
 async def test_admin_cancel_already_ended_match_is_rejected(client, reset_db):
-    admin = await _seed_user(reset_db, i=24, role=UserRole.ADMIN)
+    admin = await seed_user(reset_db, i=24, role=UserRole.ADMIN)
     await seed_match(reset_db, "M_C5", state=GameState.COMPLETED, name="M_C5", owner_id=admin.id)
 
     r = await client.post(
