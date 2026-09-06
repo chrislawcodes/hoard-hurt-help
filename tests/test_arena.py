@@ -32,6 +32,13 @@ from app.models.player import Player
 from tests.factories import seat_player
 
 
+# Bespoke: kept independent of tests/conftest.py's reset_db on purpose. The
+# name `db_session` isn't one pytest_collection_modifyitems tags `integration`
+# (only reset_db/engine/session_factory/db/client/async_client/ac are), and
+# these tests have run in the `unit` (fast) lane on that basis for a while now.
+# Delegating to reset_db would pull its literal name into this file's fixture
+# closure and move all of this file's tests into the `integration` lane — a
+# lane change this cleanup must not make.
 @pytest.fixture(autouse=True)
 async def db_session(monkeypatch):
     """Fresh in-memory SQLite DB per test; SessionLocal patched to match."""

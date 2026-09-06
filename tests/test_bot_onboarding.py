@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.engine.connection_health_badge import ConnectionHealth, compute_connection_health
 from app.engine.connection_activity import (
@@ -17,7 +18,7 @@ from app.engine.connection_activity import (
     mark_seen,
 )
 from app.engine.tokens import generate_turn_token
-from app.models import Base, Match, GameState, Player, Turn, TurnSubmission, User
+from app.models import Match, GameState, Player, Turn, TurnSubmission, User
 from app.models.agent import Agent
 from app.models.connection import Connection, ConnectionStatus
 from tests.factories import make_agent, make_connection, make_user, seat_player
@@ -26,27 +27,17 @@ from tests.conftest import signed_in_cookies as _signed_in_cookies
 NOW = datetime(2026, 5, 30, 12, 0, tzinfo=timezone.utc)
 
 
-# Bespoke: also resets agent_api._last_pull and zeroes the long-poll hold for this
-# file's next-turn polling tests, so it can't delegate to tests/conftest.py's shared
-# reset_db.
+# Autouse override of tests/conftest.py's reset_db: composes reset_pull_rate_limit,
+# and also zeroes the long-poll hold so this file's next-turn polling tests don't
+# wait out a real delay.
 @pytest.fixture(autouse=True)
-async def reset_db(monkeypatch):
-    from app.db import make_engine
-    from sqlalchemy.ext.asyncio import async_sessionmaker as _factory
-
-    test_engine = make_engine("sqlite+aiosqlite:///:memory:")
-    async with test_engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-    test_factory = _factory(test_engine, expire_on_commit=False)
-    monkeypatch.setattr("app.db.SessionLocal", test_factory)
-    monkeypatch.setattr("app.db.engine", test_engine)
-    monkeypatch.setattr("app.routes.agent_api._last_pull", {})
-    # Don't wait out a real long-poll hold when probing the next-turn endpoint.
+async def reset_db(
+    reset_db: async_sessionmaker,
+    reset_pull_rate_limit: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> async_sessionmaker:
     monkeypatch.setattr("app.engine.agent_idle.LONG_POLL_HOLD_SECONDS", 0)
-
-    yield test_factory
-    await test_engine.dispose()
+    return reset_db
 
 
 @pytest.fixture

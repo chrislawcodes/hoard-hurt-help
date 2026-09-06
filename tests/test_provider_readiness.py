@@ -9,17 +9,14 @@ single `provider_readiness` call issues <= 3 queries (no hidden 7th predicate).
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
 from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import Connection as SAConnection
 from sqlalchemy.engine.interfaces import ExecutionContext
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
-from app.db import make_engine
 from app.engine.provider_readiness import ProviderReadiness, provider_readiness
-from app.models import Base
 from app.models.connection import ConnectionProvider, ConnectionStatus
 from tests.factories import make_connection, make_user
 
@@ -35,24 +32,15 @@ def _cold() -> datetime:
 
 
 # ---------------------------------------------------------------------------
-# Fixtures (local engine/session, matching test_coverage_health_and_join_gate.py)
+# Fixtures
 # ---------------------------------------------------------------------------
 
 
 @pytest.fixture
-async def engine() -> AsyncIterator[AsyncEngine]:
-    eng = make_engine("sqlite+aiosqlite:///:memory:")
-    async with eng.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    yield eng
-    await eng.dispose()
-
-
-@pytest.fixture
-async def db_session(engine: AsyncEngine) -> AsyncIterator[AsyncSession]:
-    factory = async_sessionmaker(engine, expire_on_commit=False)
-    async with factory() as session:
-        yield session
+async def db_session(db: AsyncSession) -> AsyncSession:
+    """Alias for tests/conftest.py's db, kept for this file's existing
+    db_session-named call sites."""
+    return db
 
 
 # ---------------------------------------------------------------------------

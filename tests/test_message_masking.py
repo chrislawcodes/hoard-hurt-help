@@ -6,26 +6,17 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from app.models import Base, TurnSubmission
+from app.models import TurnSubmission
 from tests.test_two_phase_segregation import _seed_two_phase_game
 
 
-# Bespoke: also resets agent_api._last_pull for this file's polling tests, so it
-# can't delegate to tests/conftest.py's shared reset_db.
+# Autouse override of tests/conftest.py's reset_db: composes reset_pull_rate_limit
+# so this file's polling tests aren't throttled by an earlier test.
 @pytest.fixture(autouse=True)
-async def reset_db(monkeypatch):
-    from app.db import make_engine
-
-    test_engine = make_engine("sqlite+aiosqlite:///:memory:")
-    async with test_engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-    test_factory = async_sessionmaker(test_engine, expire_on_commit=False)
-    monkeypatch.setattr("app.db.SessionLocal", test_factory)
-    monkeypatch.setattr("app.db.engine", test_engine)
-    monkeypatch.setattr("app.routes.agent_api._last_pull", {})
-    yield test_factory
-    await test_engine.dispose()
+async def reset_db(
+    reset_db: async_sessionmaker, reset_pull_rate_limit: None
+) -> async_sessionmaker:
+    return reset_db
 
 
 async def test_submit_masks_bad_words_in_public_text(reset_db, client):

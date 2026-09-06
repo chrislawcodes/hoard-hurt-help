@@ -10,6 +10,7 @@ once `SpectatorState` gains a `public_state` field, which is owned by that half.
 from __future__ import annotations
 
 import json
+from collections.abc import AsyncIterator
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -32,10 +33,12 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-# Bespoke: drives the game module directly against a raw session, so there is no
-# app.db rebind to delegate to tests/conftest.py's shared reset_db.
+# Bespoke: drives the game module directly against a raw session, so this does
+# NOT rebind app.db like tests/conftest.py's shared reset_db does. It still
+# requests (and ignores) that fixture purely so this file's tests keep the
+# `reset_db` name in their fixture closure and stay tagged `integration`.
 @pytest.fixture(autouse=True)
-async def reset_db():
+async def reset_db_no_app_rebind(reset_db: async_sessionmaker) -> AsyncIterator[async_sessionmaker]:
     engine = make_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

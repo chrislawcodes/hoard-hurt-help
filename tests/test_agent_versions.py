@@ -12,7 +12,6 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.config import settings
-from app.db import make_engine
 from app.engine.tokens import bot_key_lookup
 from app.models import Base
 from app.models.agent import Agent
@@ -40,13 +39,11 @@ from tests.factories import (
 from tests.conftest import signed_in_cookies as _signed_in_cookies
 
 
-@pytest.fixture
-async def engine() -> AsyncIterator[AsyncEngine]:
-    eng = make_engine("sqlite+aiosqlite:///:memory:")
-    yield eng
-    await eng.dispose()
-
-
+# Kept under its conftest-shared name (rather than renamed): conftest.py's own
+# bare `session_factory` doesn't create the schema (it defers that to `db`),
+# and tests/helpers in this file depend on `session_factory` directly — pytest's
+# fixture-override resolution means this override also feeds conftest's own
+# (otherwise-identical) `engine`.
 @pytest.fixture
 async def session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
     async with engine.begin() as conn:
@@ -55,7 +52,7 @@ async def session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSessio
 
 
 @pytest.fixture
-async def app(
+async def app_with_agent_and_connection_routes(
     session_factory: async_sessionmaker[AsyncSession],
     engine: AsyncEngine,
     monkeypatch: pytest.MonkeyPatch,
@@ -80,8 +77,10 @@ async def app(
 
 
 @pytest.fixture
-async def scoped_client(app: FastAPI) -> AsyncIterator[AsyncClient]:
-    transport = ASGITransport(app=app)
+async def scoped_client(
+    app_with_agent_and_connection_routes: FastAPI,
+) -> AsyncIterator[AsyncClient]:
+    transport = ASGITransport(app=app_with_agent_and_connection_routes)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         yield c
 

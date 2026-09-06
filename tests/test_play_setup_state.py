@@ -10,17 +10,14 @@ bounded number of readiness queries — no 3·K blow-up), and the nav ⚠ change
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
 from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import Connection as SAConnection
 from sqlalchemy import event
 from sqlalchemy.engine.interfaces import ExecutionContext
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
-from app.db import make_engine
-from app.models import Base
 from app.models.agent import AgentKind
 from app.models.connection import ConnectionProvider
 from app.models.match import GameState, Match
@@ -48,24 +45,15 @@ def _stale_100_days() -> datetime:
 
 
 # ---------------------------------------------------------------------------
-# Fixtures (local engine/session, matching test_provider_readiness.py)
+# Fixtures
 # ---------------------------------------------------------------------------
 
 
 @pytest.fixture
-async def engine() -> AsyncIterator[AsyncEngine]:
-    eng = make_engine("sqlite+aiosqlite:///:memory:")
-    async with eng.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    yield eng
-    await eng.dispose()
-
-
-@pytest.fixture
-async def db_session(engine: AsyncEngine) -> AsyncIterator[AsyncSession]:
-    factory = async_sessionmaker(engine, expire_on_commit=False)
-    async with factory() as session:
-        yield session
+async def db_session(db: AsyncSession) -> AsyncSession:
+    """Alias for tests/conftest.py's db, kept for this file's existing
+    db_session-named call sites."""
+    return db
 
 
 async def _make_registering_match(db: AsyncSession, match_id: str) -> Match:

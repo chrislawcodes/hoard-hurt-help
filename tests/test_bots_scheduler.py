@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
 from datetime import datetime, timezone
 
 import pytest
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app import db as app_db
 from app.engine import scheduler
@@ -19,9 +20,13 @@ from tests.factories import make_agent
 # Bespoke: uses a file-backed DB (not :memory:) plus a direct app_db/scheduler
 # SessionLocal patch — the scheduler's background task opens its own connection,
 # which a :memory: DB can't share — can't delegate to tests/conftest.py's shared
-# reset_db.
+# reset_db. It still requests (and ignores) that fixture purely so this file's
+# tests keep the `reset_db` name in their fixture closure and stay tagged
+# `integration`.
 @pytest.fixture(autouse=True)
-async def reset_db(monkeypatch, tmp_path):
+async def reset_db_file_backed(
+    reset_db: async_sessionmaker, monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> AsyncIterator[async_sessionmaker]:
     from app.db import make_engine
     from sqlalchemy.ext.asyncio import async_sessionmaker as _factory
 
@@ -39,8 +44,8 @@ async def reset_db(monkeypatch, tmp_path):
 
 
 @pytest.fixture
-async def db(reset_db):
-    async with reset_db() as session:
+async def db(reset_db_file_backed: async_sessionmaker) -> AsyncIterator[AsyncSession]:
+    async with reset_db_file_backed() as session:
         yield session
 
 

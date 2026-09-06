@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
-from app.db import make_engine
 from app.models import Base
 from app.models.agent import Agent, AgentKind, AgentStatus
 from app.models.agent_version import AgentVersion
@@ -20,12 +18,11 @@ from tests.factories import make_user
 
 
 @pytest.fixture
-async def session_factory() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
-    engine: AsyncEngine = make_engine("sqlite+aiosqlite:///:memory:")
+async def session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
+    """Shadows conftest's factory to create the schema first."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-    yield async_sessionmaker(engine, expire_on_commit=False)
-    await engine.dispose()
+    return async_sessionmaker(engine, expire_on_commit=False)
 
 
 def _fake_connection(user_id: int) -> SimpleNamespace:
