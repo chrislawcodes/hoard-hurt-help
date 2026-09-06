@@ -120,9 +120,8 @@ merge.
 
 ## Step 7 — Close the loop
 
-- Update `STATUS.md` if this PR completes a meaningful task: **one line** saying
-  what shipped and what it unblocks. The full account — reasoning, what was
-  rejected, what it left undone — goes in `docs/operations/what-shipped-and-why.md`,
-  linked from that line. Do not put the long version in `STATUS.md`.
+- STATUS.md is retired — do not add an entry. `docs/operations/what-shipped-and-why.md`
+  gets a short section only when this PR made a decision a reader could not
+  recover from the code.
 - Report to the user: merged PR link, the squash commit on `main`, CI result,
   and confirmation that the worktree and branch were pruned.

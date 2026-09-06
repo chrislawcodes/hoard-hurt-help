@@ -77,9 +77,8 @@ A small Direct Path change may run the fast test lane
 rather than judging by eye. CI runs the full `pytest` suite on every PR either
 way, so the fast lane is local signal only.
 
-A small change also **skips** the spec / plan / tasks docs and the `STATUS.md`
-update. It still **keeps** the worktree-per-task rule and the PR's `Validation`
-section.
+A small change also **skips** the spec / plan / tasks docs. It still **keeps**
+the worktree-per-task rule and the PR's `Validation` section.
 
 ## Python Standards
 
@@ -142,16 +141,12 @@ Diagnose before fixing. Find the smallest reproducing case. Fix the root cause. 
 
 ## Project Status
 
-When a meaningful task is complete, write it down in **two places, at two lengths**:
+No PR writes a per-PR status entry. The PR body and `git log` are the record
+of what shipped.
 
-- `STATUS.md` — **one line**: what shipped, and what it unblocks. This is the
-  dashboard someone reads at the start of a session. Keep it scannable.
-- `docs/operations/what-shipped-and-why.md` — **the full account**: the reasoning,
-  what was tried and rejected, what it deliberately left undone. Link to it from
-  the `STATUS.md` line.
-
-The long form goes in the second file. STATUS.md once held both and reached 26,796
-words, which made it useless as a dashboard.
+If a change involved reasoning a reader can't recover from the code — something
+tried and rejected, a deliberate gap — add a short section to
+`docs/operations/what-shipped-and-why.md` explaining it.
 
 ## How We Work — Worktrees, Clean Main, Prune On Merge
 
