@@ -5,6 +5,7 @@ Single source of truth for runtime config. Other modules import
 """
 
 import logging
+import os
 from functools import lru_cache
 
 from pydantic import Field, field_validator
@@ -161,6 +162,64 @@ class Settings(BaseSettings):
                 "ADMIN_EMAILS fallback active — set PLATFORM_ADMIN_EMAILS to remove"
             )
         return _parse_email_set(raw)
+
+    # --- Environment reads that don't go through pydantic's field-from-env
+    # machinery ---
+    #
+    # Each of these predates this file and must keep reading exactly this
+    # variable name, with exactly this default and parsing — renaming one
+    # would silently change production behaviour (Railway sets
+    # HHH_TALK_DEADLINE_SECONDS and HHH_ACT_DEADLINE_SECONDS to 600; a rename
+    # would revert both to their small defaults with no error). They read
+    # `os.environ`/`os.getenv` fresh on every access rather than caching a
+    # value at construction, because tests use `monkeypatch.setenv`/`delenv`
+    # mid-test and expect the very next read to see the change — `settings`
+    # is a single cached instance for the process, so a cached value would
+    # never move.
+
+    @property
+    def in_production(self) -> bool:
+        """True in a real deployment, detected by the runtime env marker
+        Railway sets. See app/main.py's callers."""
+        return bool(os.getenv("RAILWAY_ENVIRONMENT_ID"))
+
+    @property
+    def in_test_run(self) -> bool:
+        """True under pytest (PYTEST_CURRENT_TEST is set by pytest itself)."""
+        return bool(os.getenv("PYTEST_CURRENT_TEST"))
+
+    @property
+    def mcp_auth_debug(self) -> bool:
+        """Set MCP_AUTH_DEBUG=1 for deep logging of the MCP OAuth auth layer
+        (FastMCP token swap and upstream validation). See app/main.py."""
+        return os.getenv("MCP_AUTH_DEBUG", "").strip() == "1"
+
+    @property
+    def skip_startup_migrations(self) -> bool:
+        """True when SKIP_STARTUP_MIGRATIONS opts out of running migrations at
+        boot. Equivalent to the original site's
+        `os.getenv(...) not in {"1", "true", "yes"}` — just inverted so the
+        name matches what True means; callers that want "should run
+        migrations" negate this."""
+        return os.getenv("SKIP_STARTUP_MIGRATIONS", "").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+        }
+
+    @property
+    def talk_deadline_seconds(self) -> int:
+        """Talk-phase window cap for a turn, in seconds. Overridable via
+        HHH_TALK_DEADLINE_SECONDS. See app/engine/scheduler_turn_loop.py."""
+        return int(os.environ.get("HHH_TALK_DEADLINE_SECONDS", "45"))
+
+    @property
+    def act_deadline_seconds(self) -> int:
+        """Act-phase window for new matches, in seconds. Reasoning models
+        (e.g. gpt-5.4-mini) can take ~50s to decide a move; 75s clears them
+        with margin. Overridable via HHH_ACT_DEADLINE_SECONDS. See
+        app/games/hoard_hurt_help/game.py."""
+        return int(os.environ.get("HHH_ACT_DEADLINE_SECONDS", 75))
 
 
 @lru_cache

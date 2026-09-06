@@ -631,8 +631,9 @@ note = "PR S6: +18 lines — start_poller/_poll_due_loop now take sweep_overdue_
 
 [[oversized]]
 file = "app/engine/scheduler_turn_loop.py"
-lines = 416
+lines = 420
 kind = "source"
+note = "PR U2: +4 lines — TALK_DEADLINE_SECONDS now reads settings.talk_deadline_seconds (app/config.py owns the env read) instead of os.environ.get directly; kept as a module-level alias since tests import it by name."
 
 [[oversized]]
 file = "app/engine/win_probability.py"

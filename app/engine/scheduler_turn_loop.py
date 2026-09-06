@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
@@ -30,6 +29,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.aware_datetime import ensure_aware
+from app.config import settings
 from app.engine import resolver
 from app.engine.agent_play_reads import load_turn_at
 from app.engine.match_cancellation import mark_cancelled
@@ -55,7 +55,11 @@ from app.ops_events import log_ops_event
 # strategies specifically, since a missed message costs a persuader far more than
 # it costs a plain cooperator. Widening it costs turn time for everyone, so the
 # shipped default stays put; set HHH_TALK_DEADLINE_SECONDS to change it.
-TALK_DEADLINE_SECONDS = int(os.environ.get("HHH_TALK_DEADLINE_SECONDS", "45"))
+#
+# A module-level alias of settings.talk_deadline_seconds (app/config.py owns
+# the actual env read), kept because tests import this name directly and
+# reload this module after changing the env var to see a new value.
+TALK_DEADLINE_SECONDS = settings.talk_deadline_seconds
 
 if TYPE_CHECKING:
     from app.games.base import GameModule
