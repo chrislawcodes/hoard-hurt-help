@@ -18,11 +18,12 @@ The scheduler selects a driver from the game module's
 from __future__ import annotations
 
 import asyncio
-from datetime import timedelta, timezone
+from datetime import timedelta
 from typing import TYPE_CHECKING, Protocol
 
 from sqlalchemy import select
 
+from app.aware_datetime import ensure_aware
 from app.broadcast import publish
 from app.engine.bot_kind import is_bot_kind
 from app.engine.tokens import generate_turn_token
@@ -171,9 +172,7 @@ class SequentialDriver:
         self, db: AsyncSession, turn: Turn, player: Player
     ) -> None:
         """Block until the active player submits (via the API) or the deadline passes."""
-        deadline = turn.deadline_at
-        if deadline.tzinfo is None:
-            deadline = deadline.replace(tzinfo=timezone.utc)
+        deadline = ensure_aware(turn.deadline_at)
         while True:
             remaining = seconds_until(deadline)
             if remaining <= 0:

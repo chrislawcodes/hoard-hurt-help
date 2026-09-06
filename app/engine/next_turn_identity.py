@@ -10,7 +10,7 @@ window.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any, cast
 
 from sqlalchemy import case, select
@@ -108,7 +108,7 @@ def _rank_agent_matches(
         elif match.scheduled_start is not None:
             when = ensure_aware(match.scheduled_start)
         else:
-            when = datetime.max.replace(tzinfo=timezone.utc)
+            when = ensure_aware(datetime.max)
         ranked.append(
             ((0 if match.state == GameState.ACTIVE else 1, when, match.id), rows)
         )
