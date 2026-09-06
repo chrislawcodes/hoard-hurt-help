@@ -33,6 +33,7 @@ from app.config import settings
 from app.engine import resolver
 from app.engine.agent_play_reads import load_turn_at
 from app.engine.match_cancellation import mark_cancelled
+from app.engine.seated import seated_filter
 from app.engine.tokens import generate_turn_token
 from app.engine.turn_clock import SUBMIT_POLL_SECONDS, now_utc, seconds_until
 from app.engine.turn_drivers import SequentialDriver, TurnDriver
@@ -346,7 +347,7 @@ async def _all_submitted(db, turn: Turn) -> bool:
     active = await db.scalar(
         select(func.count())
         .select_from(Player)
-        .where(Player.match_id == turn.match_id, Player.left_at.is_(None))
+        .where(Player.match_id == turn.match_id, seated_filter())
     )
     submitted = await db.scalar(
         select(func.count())
@@ -362,7 +363,7 @@ async def _all_messaged(db, turn: Turn) -> bool:
     active = await db.scalar(
         select(func.count())
         .select_from(Player)
-        .where(Player.match_id == turn.match_id, Player.left_at.is_(None))
+        .where(Player.match_id == turn.match_id, seated_filter())
     )
     messaged = await db.scalar(
         select(func.count())

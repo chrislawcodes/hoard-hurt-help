@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.aware_datetime import ensure_aware
 from app.engine.agent_play_reads import load_open_turns, sorted_seat_names
 from app.engine.agent_playability import playable_agent_filter
+from app.engine.seated import seated_filter
 from app.models.agent import Agent
 from app.models.agent_version import AgentVersion
 from app.models.connection import Connection
@@ -76,7 +77,7 @@ async def _identity_candidate_rows(
                 .where(
                     Agent.user_id == connection.user_id,
                     *playable_agent_filter(),
-                    Player.left_at.is_(None),
+                    seated_filter(),
                     Match.state.in_(UNFINISHED_STATES),
                 )
             )

@@ -42,6 +42,7 @@ from app.db import SessionLocal
 from app.engine.bots.service import auto_submit_bot_phase
 from app.engine.match_cancellation import mark_cancelled
 from app.engine.player_counts import active_player_count
+from app.engine.seated import seated_filter
 from app.engine.scheduler_turn_loop import (
     _run_game,
     _run_game_guarded,
@@ -453,7 +454,7 @@ async def _pin_current_versions(db: AsyncSession, match_id: str) -> None:
         await db.execute(
             select(Player, Agent.current_version_id)
             .join(Agent, Agent.id == Player.agent_id)
-            .where(Player.match_id == match_id, Player.left_at.is_(None))
+            .where(Player.match_id == match_id, seated_filter())
         )
     ).all()
     for player, current_version_id in rows:

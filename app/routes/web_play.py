@@ -29,6 +29,7 @@ from app.aware_datetime import ensure_aware
 from app.deps import DbSession, require_user, require_user_with_handle
 from app.engine.human_player import get_or_create_human_agent
 from app.engine.player_move import record_player_action
+from app.engine.seated import seated_filter
 from app.games import get as get_game_module
 from app.games.base import GameError
 from app.identity import word_filter
@@ -86,7 +87,7 @@ async def _active_human_seat(db: DbSession, match_id: str, user_id: int) -> Play
                 Player.match_id == match_id,
                 Player.user_id == user_id,
                 Agent.kind == AgentKind.HUMAN,
-                Player.left_at.is_(None),
+                seated_filter(),
             )
         )
     ).scalar_one_or_none()

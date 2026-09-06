@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.engine.bot_presets import bot_preset_by_id
 from app.engine.bots.roster import is_known_personality
 from app.engine.bots.runtime import validate_bot_profile_fields
+from app.engine.seated import seated_filter
 from app.models.agent import Agent, AgentKind
 from app.models.match import Match
 from app.models.player import Player
@@ -67,7 +68,7 @@ async def _existing_seat_names(db: AsyncSession, match_id: str) -> list[str]:
         (
             await db.execute(
                 select(Player.seat_name).where(
-                    Player.match_id == match_id, Player.left_at.is_(None)
+                    Player.match_id == match_id, seated_filter()
                 )
             )
         )

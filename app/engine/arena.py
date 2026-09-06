@@ -29,6 +29,7 @@ from app.engine.match_creation import create_match
 from app.engine.bots.seating import BotSeatingError, add_bots_to_game
 from app.engine.match_cancellation import mark_cancelled
 from app.engine.player_counts import active_player_count
+from app.engine.seated import seated_filter
 from app.games import get as get_game_module
 from app.games.hoard_hurt_help.rules import (
     DEFAULT_MUTUAL_HELP_MODE,
@@ -136,7 +137,7 @@ async def fill_match_with_bots(
         (
             await db.execute(
                 select(Player.seat_name).where(
-                    Player.match_id == match.id, Player.left_at.is_(None)
+                    Player.match_id == match.id, seated_filter()
                 )
             )
         )
@@ -246,7 +247,7 @@ async def ensure_practice_arena(db: AsyncSession) -> None:
                 .join(Agent, Agent.id == Player.agent_id)
                 .where(
                     Player.match_id == existing.id,
-                    Player.left_at.is_(None),
+                    seated_filter(),
                     Agent.kind == AgentKind.BOT,
                 )
             )
@@ -366,7 +367,7 @@ async def fill_and_start_auto_matches(
             await db.execute(
                 select(Player.seat_name, Agent.kind)
                 .join(Agent, Agent.id == Player.agent_id)
-                .where(Player.match_id == match_id, Player.left_at.is_(None))
+                .where(Player.match_id == match_id, seated_filter())
             )
         ).all()
         has_external_agent = any(

@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.engine.agent_playability import playable_agent_filter
 from app.engine.connection_health_badge import _connection_is_live
 from app.engine.provider_readiness import _provider_connections_query
+from app.engine.seated import seated_filter
 from app.models.agent import Agent
 from app.models.connection import Connection, ConnectionProvider
 from app.models.match import (
@@ -42,7 +43,7 @@ async def active_matches_for_provider(
             Agent.user_id == user_id,
             Agent.provider == provider,
             *playable_agent_filter(),
-            Player.left_at.is_(None),
+            seated_filter(),
             Match.state == GameState.ACTIVE,
         )
     )
@@ -93,7 +94,7 @@ async def active_matches_for_user(db: AsyncSession, user_id: int) -> int:
         .where(
             Agent.user_id == user_id,
             *playable_agent_filter(),
-            Player.left_at.is_(None),
+            seated_filter(),
             Match.state == GameState.ACTIVE,
         )
     )
@@ -133,7 +134,7 @@ async def providers_busy_for_user(db: AsyncSession, user_id: int) -> dict[str, s
         .join(Match, Match.id == Player.match_id)
         .where(
             Player.user_id == user_id,
-            Player.left_at.is_(None),
+            seated_filter(),
             Player.chosen_provider.is_not(None),
             Match.state.notin_(FINISHED_STATES),
         )

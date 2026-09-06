@@ -8,6 +8,7 @@ from random import Random
 from typing import TYPE_CHECKING, Any
 
 from app.games.base import BaseGameModule, GameConfig, GameError, GameTheme, StrategyPreset
+from app.engine.seated import is_seated
 from app.engine.turn_clock import now_utc
 from app.games.liars_dice.engine import (
     Bid,
@@ -404,7 +405,7 @@ class LiarsDice(BaseGameModule):
         winner = [
             player.id
             for player in players
-            if player.seat_name not in elimination_order and player.left_at is None
+            if player.seat_name not in elimination_order and is_seated(player)
         ]
         winner_id = winner[0] if winner else None
         losers = [by_seat[seat] for seat in reversed(elimination_order) if seat in by_seat]

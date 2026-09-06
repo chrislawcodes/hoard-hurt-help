@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.engine.connection_activity import compute_bot_health
 from app.engine.connection_health_badge import LOOP_RUNNING_WINDOW_SECONDS, within_window
+from app.engine.seated import seated_filter
 from app.models.agent import Agent
 from app.models.connection import Connection, ConnectionStatus
 from app.models.match import (
@@ -83,7 +84,7 @@ async def user_has_warm_agent_without_match(db: AsyncSession, user_id: int) -> b
             .join(Match, Player.match_id == Match.id)
             .where(
                 Player.user_id == user_id,
-                Player.left_at.is_(None),
+                seated_filter(),
                 Match.state.in_(UNFINISHED_STATES),
             )
         )

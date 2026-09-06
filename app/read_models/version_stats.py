@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.engine.seated import seated_filter
 from app.models.match import GameState, Match, MatchKind
 from app.models.player import Player
 
@@ -80,7 +81,7 @@ async def version_stats_by_id(
             .join(Match, Match.id == Player.match_id)
             .where(
                 Player.agent_version_id.in_(version_ids),
-                Player.left_at.is_(None),
+                seated_filter(),
                 Match.state == GameState.COMPLETED,
             )
             .group_by(Player.agent_version_id)
@@ -112,7 +113,7 @@ async def recent_completed_matches_by_version(
             .join(Match, Match.id == Player.match_id)
             .where(
                 Player.agent_version_id.in_(version_ids),
-                Player.left_at.is_(None),
+                seated_filter(),
                 Match.state == GameState.COMPLETED,
             )
             # completed_at is set by finalize_game; coalesce guards legacy rows

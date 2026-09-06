@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import select
 
+from app.engine.seated import is_seated
 from app.games.liars_dice.engine import Bid
 from app.models.game_state import MatchState, PlayerState
 from app.models.match import Match
@@ -146,7 +147,7 @@ def _public_dice_counts(players: list[Player], states: dict[int, PlayerState]) -
     return {
         player.seat_name: _dice_count(states.get(player.id))
         for player in players
-        if player.left_at is None
+        if is_seated(player)
     }
 
 
@@ -154,7 +155,7 @@ def _alive_players(players: list[Player], states: dict[int, PlayerState]) -> lis
     return [
         player
         for player in players
-        if player.left_at is None and _dice_count(states.get(player.id)) > 0
+        if is_seated(player) and _dice_count(states.get(player.id)) > 0
     ]
 
 

@@ -18,6 +18,7 @@ from sqlalchemy import select
 from app.agent_prompt import MESSAGE_MAX_LENGTH
 from app.aware_datetime import ensure_aware
 from app.deps import DbSession, get_current_user
+from app.engine.seated import is_seated
 from app.engine.user_match_start import viewer_start_eligibility
 from app.games import get as get_game_module
 from app.games.hoard_hurt_help.rules import mutual_help_value
@@ -147,7 +148,7 @@ def _resolve_viewer_seats(
         (
             p
             for p in my_players
-            if p.left_at is None
+            if is_seated(p)
             and kind_by_seat.get(p.seat_name) == AgentKind.HUMAN
         ),
         None,
@@ -560,7 +561,7 @@ async def _build_human_play_context(
     # gap between turns instead of blinking to the spectator view (and back).
     viewer_is_human = (
         viewer_player is not None
-        and viewer_player.left_at is None
+        and is_seated(viewer_player)
         and kind_by_seat.get(viewer_player.seat_name) == AgentKind.HUMAN
     )
     if viewer_player is not None and viewer_is_human:
@@ -574,7 +575,7 @@ async def _build_human_play_context(
         # play_phase stays None, which the panel renders as a brief wait.
         return base
 
-    active = [p for p in players if p.left_at is None]
+    active = [p for p in players if is_seated(p)]
     acted_ids = await _load_acted_player_ids(db, turn)
 
     base["play_phase"] = turn.phase
