@@ -8,13 +8,13 @@ game-agnostic talk/round/game finalization to `app.engine.resolver`.
 from __future__ import annotations
 
 import os
-from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import select
 
 from app.agent_prompt import make_agent_base_prompt
 from app.engine import resolver
+from app.engine.turn_clock import now_utc
 from app.games.base import (
     BaseGameModule,
     GameConfig,
@@ -77,10 +77,6 @@ def act_deadline_seconds() -> int:
     match stores its own deadline at creation time.
     """
     return int(os.environ.get("HHH_ACT_DEADLINE_SECONDS", DEFAULT_ACT_DEADLINE_SECONDS))
-
-
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 def _shipped_counts(
@@ -244,7 +240,7 @@ class HoardHurtHelp(BaseGameModule):
             existing.message = message
             existing.thinking = thinking
             existing.was_defaulted = was_defaulted
-            existing.submitted_at = _now()
+            existing.submitted_at = now_utc()
         else:
             db.add(
                 TurnSubmission(
@@ -255,7 +251,7 @@ class HoardHurtHelp(BaseGameModule):
                     message=message,
                     thinking=thinking,
                     was_defaulted=was_defaulted,
-                    submitted_at=_now(),
+                    submitted_at=now_utc(),
                 )
             )
 
@@ -276,7 +272,7 @@ class HoardHurtHelp(BaseGameModule):
             existing.text = message
             existing.thinking = thinking
             existing.was_defaulted = was_defaulted
-            existing.submitted_at = _now()
+            existing.submitted_at = now_utc()
         else:
             db.add(
                 TurnMessage(
@@ -285,7 +281,7 @@ class HoardHurtHelp(BaseGameModule):
                     text=message,
                     thinking=thinking,
                     was_defaulted=was_defaulted,
-                    submitted_at=_now(),
+                    submitted_at=now_utc(),
                 )
             )
 

@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import datetime, timezone
 from random import Random
 from typing import TYPE_CHECKING, Any
 
 from app.games.base import BaseGameModule, GameConfig, GameError, GameTheme, StrategyPreset
+from app.engine.turn_clock import now_utc
 from app.games.liars_dice.engine import (
     Bid,
     BidMove,
@@ -47,10 +47,6 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from app.read_models.matches import TimelineTurn
-
-
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 class LiarsDice(BaseGameModule):
@@ -273,7 +269,7 @@ class LiarsDice(BaseGameModule):
             existing.message = str(move.get("message", ""))
             existing.thinking = str(move.get("thinking", ""))
             existing.was_defaulted = is_connector_fallback
-            existing.submitted_at = _now()
+            existing.submitted_at = now_utc()
         else:
             db.add(
                 TurnSubmission(
@@ -286,7 +282,7 @@ class LiarsDice(BaseGameModule):
                     message=str(move.get("message", "")),
                     thinking=str(move.get("thinking", "")),
                     was_defaulted=is_connector_fallback,
-                    submitted_at=_now(),
+                    submitted_at=now_utc(),
                 )
             )
 
@@ -294,7 +290,7 @@ class LiarsDice(BaseGameModule):
 
     async def resolve_turn(self, db: AsyncSession, turn: Any) -> None:
         if turn.resolved_at is None:
-            turn.resolved_at = _now()
+            turn.resolved_at = now_utc()
             await db.commit()
 
     async def award_round(self, db: AsyncSession, game: Match, round_num: int) -> None:
@@ -392,7 +388,7 @@ class LiarsDice(BaseGameModule):
             player.total_round_score = placement_points.get(player.id, 0)
             player.current_round_score = placement_points.get(player.id, 0)
         game.state = GameState.COMPLETED
-        game.completed_at = _now()
+        game.completed_at = now_utc()
         game.winner_player_id = placement[0] if placement else None
         await db.commit()
 
