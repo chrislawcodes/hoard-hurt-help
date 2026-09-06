@@ -357,12 +357,6 @@ note = "thin assembler re-exports on purpose"
 #              count can only fall from here.
 
 [[test_helpers]]
-name = "_make_connection"
-files = ["tests/test_agent_detail_fixes.py", "tests/test_mcp_key_auth.py"]
-verdict = "unjudged"
-note = ""
-
-[[test_helpers]]
 name = "_make_game_with_players"
 files = ["tests/test_resolver.py", "tests/test_two_phase_loop.py"]
 verdict = "unjudged"

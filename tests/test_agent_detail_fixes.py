@@ -107,7 +107,7 @@ async def client(app: FastAPI) -> AsyncIterator[AsyncClient]:
 # ---------------------------------------------------------------------------
 
 
-async def _make_connection(
+async def _make_connection_with_heartbeat(
     db: AsyncSession,
     user: User,
     *,
@@ -159,7 +159,7 @@ async def test_load_agent_matches_returns_active_upcoming_done_ordering(
 ) -> None:
     async with session_factory() as db:
         user = await make_user(db, i=0, handle="agent0")
-        conn = await _make_connection(db, user)
+        conn = await _make_connection_with_heartbeat(db, user)
         agent, version = await make_agent(db, user, connection=conn, name="Alpha")
 
         started = NOW - timedelta(hours=1)
@@ -203,7 +203,7 @@ async def test_load_agent_matches_caps_done_at_10(
 ) -> None:
     async with session_factory() as db:
         user = await make_user(db, i=1, handle="agent1")
-        conn = await _make_connection(db, user)
+        conn = await _make_connection_with_heartbeat(db, user)
         agent, version = await make_agent(db, user, connection=conn, name="Alpha")
 
         started = NOW - timedelta(hours=1)
@@ -232,7 +232,7 @@ async def test_agent_detail_shows_matches_section(
 ) -> None:
     async with session_factory() as db:
         user = await make_user(db, i=2, handle="agent2")
-        conn = await _make_connection(db, user)
+        conn = await _make_connection_with_heartbeat(db, user)
         agent, version = await make_agent(db, user, connection=conn, name="Alpha")
         started = NOW - timedelta(hours=1)
         active_match = await make_match(
@@ -257,7 +257,7 @@ async def test_agent_detail_matches_shows_leave_for_pre_game(
 ) -> None:
     async with session_factory() as db:
         user = await make_user(db, i=3, handle="agent3")
-        conn = await _make_connection(db, user)
+        conn = await _make_connection_with_heartbeat(db, user)
         agent, version = await make_agent(db, user, connection=conn, name="Alpha")
         pre_match = await make_match(
             db, "M_pre", state=GameState.SCHEDULED, scheduled_start=NOW - timedelta(hours=1)
@@ -278,7 +278,7 @@ async def test_agent_detail_shows_no_matches_empty_state(
 ) -> None:
     async with session_factory() as db:
         user = await make_user(db, i=4, handle="agent4")
-        conn = await _make_connection(db, user)
+        conn = await _make_connection_with_heartbeat(db, user)
         agent, _ = await make_agent(db, user, connection=conn, name="Alpha")
         await db.commit()
 
@@ -384,7 +384,7 @@ async def test_agent_detail_shows_ready_to_play_card_when_warm(
     recently = datetime.now(timezone.utc) - timedelta(seconds=20)
     async with session_factory() as db:
         user = await make_user(db, i=5, handle="agent5")
-        conn = await _make_connection(db, user, last_seen_at=recently)
+        conn = await _make_connection_with_heartbeat(db, user, last_seen_at=recently)
         agent, _ = await make_agent(db, user, connection=conn, name="Alpha")
         await db.commit()
 
@@ -407,7 +407,7 @@ async def test_agent_detail_hides_ready_to_play_when_at_capacity(
     recently = datetime.now(timezone.utc) - timedelta(seconds=20)
     async with session_factory() as db:
         user = await make_user(db, i=6, handle="agent6")
-        conn = await _make_connection(db, user, last_seen_at=recently, max_concurrent_games=1)
+        conn = await _make_connection_with_heartbeat(db, user, last_seen_at=recently, max_concurrent_games=1)
         agent, version = await make_agent(db, user, connection=conn, name="Alpha")
         started = NOW - timedelta(hours=1)
         m = await make_match(
@@ -430,7 +430,7 @@ async def test_agent_detail_hides_ready_to_play_when_paused(
     recently = datetime.now(timezone.utc) - timedelta(seconds=20)
     async with session_factory() as db:
         user = await make_user(db, i=7, handle="agent7")
-        conn = await _make_connection(
+        conn = await _make_connection_with_heartbeat(
             db, user, status=ConnectionStatus.PAUSED, last_seen_at=recently
         )
         agent, _ = await make_agent(db, user, connection=conn, name="Alpha")
@@ -454,7 +454,7 @@ async def test_agent_detail_shows_no_live_connection_when_never_connected(
     'No live connection runs <provider>' — the coverage-based message."""
     async with session_factory() as db:
         user = await make_user(db, i=8, handle="agent8")
-        conn = await _make_connection(db, user)  # no last_seen_at → not live
+        conn = await _make_connection_with_heartbeat(db, user)  # no last_seen_at → not live
         agent, _ = await make_agent(db, user, connection=conn, name="Alpha")
         await db.commit()
 
@@ -471,7 +471,7 @@ async def test_agent_detail_shows_no_live_connection_when_cold(
     the coverage check fails and the detail page shows the 'No live connection' card."""
     async with session_factory() as db:
         user = await make_user(db, i=9, handle="agent9")
-        conn = await _make_connection(db, user, last_seen_at=COLD)
+        conn = await _make_connection_with_heartbeat(db, user, last_seen_at=COLD)
         agent, _ = await make_agent(db, user, connection=conn, name="Alpha")
         await db.commit()
 
@@ -488,7 +488,7 @@ async def test_agent_detail_no_reconnect_card_when_live(
     recently = datetime.now(timezone.utc) - timedelta(seconds=20)
     async with session_factory() as db:
         user = await make_user(db, i=12, handle="agentC")
-        conn = await _make_connection(db, user, last_seen_at=recently)
+        conn = await _make_connection_with_heartbeat(db, user, last_seen_at=recently)
         agent, version = await make_agent(db, user, connection=conn, name="Alpha")
         started = NOW - timedelta(hours=1)
         m = await make_match(
@@ -537,7 +537,7 @@ async def test_onboarding_state_waiting_never_connected(
     """State 1: no first_connected_at and no matches → WAITING."""
     async with session_factory() as db:
         user = await make_user(db, i=13, handle="ob0")
-        conn = await _make_connection(db, user)
+        conn = await _make_connection_with_heartbeat(db, user)
         agent, _ = await make_agent(db, user, connection=conn, name="Alpha")
         await db.commit()
 
@@ -558,7 +558,7 @@ async def test_onboarding_state_connected_no_game(
     """State 2: connected but no matches → CONNECTED_NO_GAME."""
     async with session_factory() as db:
         user = await make_user(db, i=14, handle="ob1")
-        conn = await _make_connection(db, user, first_connected_at=NOW)
+        conn = await _make_connection_with_heartbeat(db, user, first_connected_at=NOW)
         agent, _ = await make_agent(db, user, connection=conn, name="Alpha")
         await db.commit()
 
@@ -579,7 +579,7 @@ async def test_onboarding_state_connected_pregame(
     """State 3: connected, in a pre-game match → CONNECTED_PREGAME."""
     async with session_factory() as db:
         user = await make_user(db, i=15, handle="ob2")
-        conn = await _make_connection(db, user, first_connected_at=NOW)
+        conn = await _make_connection_with_heartbeat(db, user, first_connected_at=NOW)
         agent, version = await make_agent(db, user, connection=conn, name="Alpha")
         match = await make_match(
             db, "M_pregame", state=GameState.SCHEDULED, scheduled_start=NOW - timedelta(hours=1)
@@ -606,7 +606,7 @@ async def test_onboarding_state_in_game_no_move(
     """State 4: connected, in active match, no real move yet → IN_GAME_NO_MOVE."""
     async with session_factory() as db:
         user = await make_user(db, i=16, handle="ob3")
-        conn = await _make_connection(db, user, first_connected_at=NOW)
+        conn = await _make_connection_with_heartbeat(db, user, first_connected_at=NOW)
         agent, version = await make_agent(db, user, connection=conn, name="Alpha")
         started = NOW - timedelta(hours=1)
         match = await make_match(
@@ -641,7 +641,7 @@ async def test_onboarding_state_playing_first_real_move(
     """State 5: has a real (non-defaulted) submission → PLAYING with watch link."""
     async with session_factory() as db:
         user = await make_user(db, i=17, handle="ob4")
-        conn = await _make_connection(db, user, first_connected_at=NOW)
+        conn = await _make_connection_with_heartbeat(db, user, first_connected_at=NOW)
         agent, version = await make_agent(db, user, connection=conn, name="Alpha")
         started = NOW - timedelta(hours=1)
         match = await make_match(
@@ -674,7 +674,7 @@ async def test_onboarding_state_playing_even_when_cold(
     async with session_factory() as db:
         user = await make_user(db, i=18, handle="ob5")
         # No first_connected_at — this is a legacy agent that pre-dates first_connected_at
-        conn = await _make_connection(db, user)
+        conn = await _make_connection_with_heartbeat(db, user)
         agent, version = await make_agent(db, user, connection=conn, name="Alpha")
         started = NOW - timedelta(hours=1)
         match = await make_match(
@@ -711,7 +711,7 @@ async def test_status_fragment_shows_ready_to_play_for_connected_idle_agent(
     recently = datetime.now(timezone.utc) - timedelta(seconds=20)
     async with session_factory() as db:
         user = await make_user(db, i=19, handle="ob6")
-        conn = await _make_connection(
+        conn = await _make_connection_with_heartbeat(
             db, user, last_seen_at=recently, first_connected_at=recently
         )
         agent, _ = await make_agent(db, user, connection=conn, name="Alpha")
@@ -731,7 +731,7 @@ async def test_status_fragment_hides_playing_banner(
     recently = datetime.now(timezone.utc) - timedelta(seconds=20)
     async with session_factory() as db:
         user = await make_user(db, i=20, handle="ob7")
-        conn = await _make_connection(
+        conn = await _make_connection_with_heartbeat(
             db, user, last_seen_at=recently, first_connected_at=recently
         )
         agent, version = await make_agent(db, user, connection=conn, name="Alpha")
@@ -764,7 +764,7 @@ async def test_status_fragment_shows_at_capacity_card(
     recently = datetime.now(timezone.utc) - timedelta(seconds=20)
     async with session_factory() as db:
         user = await make_user(db, i=21, handle="ob8")
-        conn = await _make_connection(
+        conn = await _make_connection_with_heartbeat(
             db, user, last_seen_at=recently, first_connected_at=recently, max_concurrent_games=1
         )
         agent1, version1 = await make_agent(db, user, connection=conn, name="Cap1")
@@ -794,7 +794,7 @@ async def test_detail_page_shows_onboarding_card_inline(
     recently = datetime.now(timezone.utc) - timedelta(seconds=20)
     async with session_factory() as db:
         user = await make_user(db, i=22, handle="ob9")
-        conn = await _make_connection(
+        conn = await _make_connection_with_heartbeat(
             db, user, last_seen_at=recently, first_connected_at=recently
         )
         agent, _ = await make_agent(db, user, connection=conn, name="Alpha")
@@ -816,7 +816,7 @@ async def test_detail_name_field_autosaves_on_change(
     recently = datetime.now(timezone.utc) - timedelta(seconds=20)
     async with session_factory() as db:
         user = await make_user(db, i=23, handle="ob10")
-        conn = await _make_connection(
+        conn = await _make_connection_with_heartbeat(
             db, user, last_seen_at=recently, first_connected_at=recently
         )
         agent, _ = await make_agent(db, user, connection=conn, name="Alpha")

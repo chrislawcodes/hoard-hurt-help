@@ -63,7 +63,7 @@ async def db_factory(
     yield session_factory
 
 
-async def _make_connection(
+async def _make_key_auth_connection(
     db: AsyncSession,
     *,
     key_signin: bool,
@@ -99,7 +99,7 @@ async def test_opted_in_key_authenticates(
     db_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     async with db_factory() as db:
-        connection, raw_key = await _make_connection(db, key_signin=True)
+        connection, raw_key = await _make_key_auth_connection(db, key_signin=True)
         connection_id = connection.id
 
     token = await _verify(raw_key)
@@ -114,7 +114,7 @@ async def test_key_without_opt_in_is_rejected(
 ) -> None:
     """The default. A connection that never opted in must not authenticate."""
     async with db_factory() as db:
-        _connection, raw_key = await _make_connection(db, key_signin=False)
+        _connection, raw_key = await _make_key_auth_connection(db, key_signin=False)
 
     assert await _verify(raw_key) is None
 
@@ -123,7 +123,7 @@ async def test_unknown_key_is_rejected(
     db_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     async with db_factory() as db:
-        await _make_connection(db, key_signin=True)
+        await _make_key_auth_connection(db, key_signin=True)
 
     assert await _verify(generate_connection_key()) is None
 
@@ -135,7 +135,7 @@ async def test_rotated_out_key_is_rejected(
     working on /mcp at once — unlike the plain HTTP API, which still honours it.
     """
     async with db_factory() as db:
-        connection, old_key = await _make_connection(db, key_signin=True)
+        connection, old_key = await _make_key_auth_connection(db, key_signin=True)
         new_key = generate_connection_key()
         connection.prev_key_lookup = connection.key_lookup
         connection.key_lookup = bot_key_lookup(new_key)
@@ -150,7 +150,7 @@ async def test_deleted_connection_key_is_rejected(
     db_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     async with db_factory() as db:
-        _connection, raw_key = await _make_connection(
+        _connection, raw_key = await _make_key_auth_connection(
             db, key_signin=True, deleted=True
         )
 
@@ -163,7 +163,7 @@ async def test_token_resolves_to_its_own_connection(
     """The claim names the connection, so a key can never land on another one —
     including another connection belonging to the same user."""
     async with db_factory() as db:
-        first, first_key = await _make_connection(db, key_signin=True)
+        first, first_key = await _make_key_auth_connection(db, key_signin=True)
         first_id = first.id
         second_key = generate_connection_key()
         second = Connection(
@@ -196,7 +196,7 @@ async def test_paused_connection_authenticates_then_fails_downstream(
     paused connection gets the same "resume it to play" error as on the OAuth
     path rather than a bare 401."""
     async with db_factory() as db:
-        _connection, raw_key = await _make_connection(
+        _connection, raw_key = await _make_key_auth_connection(
             db, key_signin=True, status=ConnectionStatus.PAUSED
         )
 
@@ -235,7 +235,7 @@ async def test_provider_dispatches_a_key_with_the_scopes_it_enforces(
     from ``verify_token`` rather than from the argument this test passed in.
     """
     async with db_factory() as db:
-        _connection, raw_key = await _make_connection(db, key_signin=True)
+        _connection, raw_key = await _make_key_auth_connection(db, key_signin=True)
 
     token = await server.mcp_app.auth.verify_token(raw_key)
 
