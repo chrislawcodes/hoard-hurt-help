@@ -8,7 +8,7 @@ description: Run a Feature Factory checkpoint's adversarial reviews as pure-Clau
 This is the **review** step of a Feature Factory checkpoint, staffed by **Claude
 subagents on the subscription** instead of the Gemini/Codex CLIs. It exists so the
 factory runs end-to-end inside a Claude Code web sandbox (no `gemini`/`codex`
-binaries, no API key). See `specs/020-claude-only-feature-factory/spec.md`.
+binaries, no API key). See `specs/020-claude-only-feature-factory/spec.md` (historical).
 
 It is **additive**: the default Gemini/Codex path is unchanged. This path only
 activates when reviews are staffed by Claude (via prepare-claude-reviews, which

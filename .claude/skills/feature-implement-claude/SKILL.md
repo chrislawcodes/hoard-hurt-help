@@ -7,7 +7,7 @@ description: The IMPLEMENT stage of the Feature Factory run pure-Claude on the s
 
 This is the **implement** stage staffed entirely by Claude on the subscription —
 no `codex exec`, no Gemini/Codex CLIs. It exists so the whole factory runs inside
-a Claude Code web sandbox. See `specs/020-claude-only-feature-factory/spec.md`.
+a Claude Code web sandbox. See `specs/020-claude-only-feature-factory/spec.md` (historical).
 
 It is **additive**: the default Codex implement path (`feature-implement` /
 `run_factory.py implement`) is unchanged. Use this skill instead when you want the
