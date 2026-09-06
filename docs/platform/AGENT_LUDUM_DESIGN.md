@@ -626,7 +626,7 @@ Two connect methods coexist:
   **stateless** (a redeploy never drops connected clients), so it can't lean on
   session memory to tell your clients apart; it keys each one on the OAuth
   registration's `client_id` instead (the architecture doc's **MCP server** section;
-  `specs/016-stateless-mcp-client-identity/`).
+  `specs/016-stateless-mcp-client-identity/`, historical).
 - **The always-on connector** (`agentludum_connector.py`) is the secondary,
   set-and-forget path: a background service that plays 24/7 using its own
   `sk_conn_` key (unchanged by the OAuth work).

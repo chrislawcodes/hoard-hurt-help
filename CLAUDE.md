@@ -201,7 +201,7 @@ Read when relevant:
 - `docs/platform/AGENT_LUDUM_DESIGN.md` when changing *why* something is shaped
   this way, rather than *what* it does
 - `docs/games/<game>/` (e.g. `hoard-hurt-help/`) for that game's design & architecture
-- `specs/` for feature specs
+- `specs/` — historical only: how a feature was planned, not how it works now; trust the architecture doc and the code for current behavior
 - `docs/operations/debugging-history.md` when something is broken or frozen in
   prod — past incidents, how to diagnose a stuck match, and manual recovery.
   Add an entry whenever you debug a non-trivial production issue.
