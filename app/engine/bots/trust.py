@@ -108,14 +108,14 @@ def compute_trust_map(
                 delta = model.help_earlier
             elif record.action == "HURT":
                 delta = model.hurt_earlier
-        trust[actor] = _clamp(trust[actor] + delta)
+        trust[actor] = _clamp_trust(trust[actor] + delta)
 
     # Mutual help: if you and another player HELPed each other in the same turn,
     # that relationship gets a stronger boost.
     mutuals = _mutual_help_partners(history, your_agent_id)
     for actor in mutuals:
         if actor in trust:
-            trust[actor] = _clamp(trust[actor] + model.mutual_help)
+            trust[actor] = _clamp_trust(trust[actor] + model.mutual_help)
 
     # Betrayal memory: a player who HURT a helper — you OR anyone else — is
     # remembered, and the hit fades over the rounds that follow at this bot's own
@@ -131,9 +131,9 @@ def compute_trust_map(
         factor = BETRAYAL_SELF_FACTOR if victim == your_agent_id else BETRAYAL_OTHER_FACTOR
         base = model.hurt_last * factor
         penalty = round(base * (1 - rounds_since / model.forgive_rounds))
-        trust[attacker] = _clamp(trust[attacker] + penalty)
+        trust[attacker] = _clamp_trust(trust[attacker] + penalty)
 
-    current_partner = _best_partner(trust)
+    current_partner = _sole_top_partner(trust)
     if current_partner is not None:
         for record in history:
             if record.was_defaulted:
@@ -145,9 +145,9 @@ def compute_trust_map(
                 continue
             if latest_rt is not None and (record.round, record.turn) == latest_rt:
                 if record.action == "HELP":
-                    trust[actor] = _clamp(trust[actor] + model.help_partner)
+                    trust[actor] = _clamp_trust(trust[actor] + model.help_partner)
                 elif record.action == "HURT":
-                    trust[actor] = _clamp(trust[actor] + model.hurt_partner)
+                    trust[actor] = _clamp_trust(trust[actor] + model.hurt_partner)
 
     # Talk nudges trust, but stays weaker than actions.
     for signal in signals:
@@ -157,11 +157,11 @@ def compute_trust_map(
         if signal.target_id is not None and signal.target_id != your_agent_id:
             continue
         if signal.kind in {"direct_mention", "cooperation_offer", "loyalty_claim"}:
-            trust[speaker] = _clamp(trust[speaker] + _talk_delta(model, 1))
+            trust[speaker] = _clamp_trust(trust[speaker] + _talk_delta(model, 1))
         elif signal.kind == "apology":
-            trust[speaker] = _clamp(trust[speaker] + max(1, _talk_delta(model, 1)))
+            trust[speaker] = _clamp_trust(trust[speaker] + max(1, _talk_delta(model, 1)))
         elif signal.kind == "threat":
-            trust[speaker] = _clamp(trust[speaker] - max(1, _talk_delta(model, 1)))
+            trust[speaker] = _clamp_trust(trust[speaker] - max(1, _talk_delta(model, 1)))
 
     # Broken expected mutual help: if someone made a cooperation offer and never
     # backed it with a HELP in the most recent turn, the offer is treated as a
@@ -186,7 +186,7 @@ def compute_trust_map(
             if not record.was_defaulted
         )
         if not backed:
-            trust[speaker] = _clamp(trust[speaker] - 4)
+            trust[speaker] = _clamp_trust(trust[speaker] - 4)
 
     # Partner fatigue: erode a farmed partner's trust toward 0 (never below), one
     # PARTNER_FATIGUE step per prior mutual-help turn with them. Applied last so it
@@ -269,7 +269,7 @@ def _betrayals(history: Sequence[ActionRecord]) -> list[tuple[str, str, int]]:
     return betrayals
 
 
-def _best_partner(trust: dict[str, int]) -> str | None:
+def _sole_top_partner(trust: dict[str, int]) -> str | None:
     trusted = [aid for aid, score in trust.items() if score > 0]
     if not trusted:
         return None
@@ -280,5 +280,5 @@ def _best_partner(trust: dict[str, int]) -> str | None:
     return best[0]
 
 
-def _clamp(value: int) -> int:
+def _clamp_trust(value: int) -> int:
     return max(-100, min(100, value))
