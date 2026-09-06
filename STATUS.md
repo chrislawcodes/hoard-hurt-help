@@ -18,6 +18,7 @@
 One line per change, newest first. The full account of each — the reasoning, what
 was rejected, what it left undone — is in [`what-shipped-and-why.md`](docs/operations/what-shipped-and-why.md).
 
+- **The Feature Factory engine moves from docs to tools** (2026-09-06) — it was sitting under `docs/`, but it's tooling with its own tests, not documentation. [Full account](docs/operations/what-shipped-and-why.md#the-feature-factory-engine-moves-from-docs-to-tools)
 - **The docs that state a rule are generated from it, and four that had drifted are fixed** (2026-09-03) — the game design doc carried the **v8 payoff table into a v11 game**, and the platform design doc recorded a memory decision that no longer ships. [Full account](docs/operations/what-shipped-and-why.md#the-docs-that-state-a-rule-are-generated-from-it-and-four-that-had-drifted-are-fixed)
 - **"Is this agent yours?" gets one home** (2026-08-30) — four places each answered the same question by hand: **you own it, you have not archived it, and it is an AI rather than a human seat**. [Full account](docs/operations/what-shipped-and-why.md#is-this-agent-yours-gets-one-home)
 - **The talk phase reaches the export, and the column is named for what it holds** (2026-09-01) — M_7975 exported three of its eight seats as **silent on all 35 of their moves** while the viewer showed them talking the whole match. [Full account](docs/operations/what-shipped-and-why.md#the-talk-phase-reaches-the-export-and-the-column-is-named-for-what-it-holds)
