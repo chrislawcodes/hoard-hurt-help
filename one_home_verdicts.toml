@@ -70,8 +70,8 @@ pr = "PR A"
 [[function_names]]
 name = "_now"
 files = ["app/games/hoard_hurt_help/game.py", "app/games/liars_dice/game.py"]
-verdict = "protocol"
-note = ""
+verdict = "merged"
+note = "both game modules now import turn_clock.now_utc instead of defining their own _now (PR #748); guarded by tests/test_now_helper_single_source.py"
 pr = "PR A"
 
 [[function_names]]
@@ -824,7 +824,7 @@ kind = "source"
 
 [[oversized]]
 file = "app/games/hoard_hurt_help/game.py"
-lines = 432
+lines = 428
 kind = "source"
 
 [[oversized]]
@@ -844,7 +844,7 @@ kind = "source"
 
 [[oversized]]
 file = "app/games/liars_dice/game.py"
-lines = 557
+lines = 553
 kind = "source"
 
 [[oversized]]
