@@ -693,7 +693,7 @@ async def test_admin_cancel_pre_start(client, reset_db):
     assert r.status_code == 200
 
 
-async def _seed_active_match(reset_db, match_id: str = "G_ACT") -> str:
+async def _seed_running_match(reset_db, match_id: str = "G_ACT") -> str:
     async with reset_db() as db:
         db.add(
             Match(
@@ -712,7 +712,7 @@ async def test_admin_cannot_cancel_a_running_match_by_default(client, reset_db):
     name, so an existing caller cannot start killing running matches because a
     parameter was added."""
     admin = await seed_email_user_with_role(reset_db, "admin@test.com")
-    match_id = await _seed_active_match(reset_db)
+    match_id = await _seed_running_match(reset_db)
 
     r = await client.post(
         f"/api/admin/matches/{match_id}/cancel", cookies=_cookies(admin.id)
@@ -729,7 +729,7 @@ async def test_admin_can_cancel_a_running_match_with_allow_active(client, reset_
     match once it started, and a bad run had to be waited out or destroyed with
     a delete that threw away every turn."""
     admin = await seed_email_user_with_role(reset_db, "admin@test.com")
-    match_id = await _seed_active_match(reset_db)
+    match_id = await _seed_running_match(reset_db)
 
     r = await client.post(
         f"/api/admin/matches/{match_id}/cancel?allow_active=true",
@@ -770,7 +770,7 @@ async def test_a_non_admin_cannot_cancel_a_running_match(client, reset_db):
     """The parameter must not become a way around the admin gate."""
     await seed_email_user_with_role(reset_db, "admin@test.com")
     player = await seed_email_user_with_role(reset_db, "player@test.com")
-    match_id = await _seed_active_match(reset_db, "G_ACT2")
+    match_id = await _seed_running_match(reset_db, "G_ACT2")
 
     r = await client.post(
         f"/api/admin/matches/{match_id}/cancel?allow_active=true",
