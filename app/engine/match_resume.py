@@ -39,6 +39,7 @@ from app.models.match import GameState, Match, MatchKind
 from app.models.player import Player
 from app.models.turn import Turn, TurnMessage, TurnSubmission
 from app.engine.turn_clock import now_utc
+from app.read_models.matches import load_players
 
 __all__ = ["ResumePoint", "ResumeError", "resume_match_from"]
 
@@ -82,9 +83,7 @@ async def resume_match_from(
             f"{source.total_rounds}x{source.turns_per_round} match"
         )
 
-    players = list(
-        (await db.execute(select(Player).where(Player.match_id == source.id))).scalars().all()
-    )
+    players = await load_players(db, source.id)
     if not players:
         raise ResumeError(f"{source.id} has no players to carry over")
 

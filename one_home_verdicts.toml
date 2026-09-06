@@ -618,14 +618,15 @@ note = "client(app) is bound to a bespoke FastAPI test app (agents_lifecycle_rou
 
 [[oversized]]
 file = "app/engine/agent_play.py"
-lines = 467
+lines = 468
 kind = "source"
+note = "PR U5: +1 line — opponent_history's seat lookup now filters load_players(db, game.id) in Python instead of its own select(Player).where(...) query."
 
 [[oversized]]
 file = "app/engine/agent_play_reads.py"
-lines = 481
+lines = 480
 kind = "source"
-note = "PR U4: -6 lines — load_open_turn now delegates to load_open_turns(db, [match_id]).get(match_id) instead of its own query."
+note = "PR U4: -6 lines — load_open_turn now delegates to load_open_turns(db, [match_id]).get(match_id) instead of its own query. PR U5: -1 line — load_match_players now delegates to app.read_models.matches.load_players instead of its own select(Player).where(...) query."
 
 [[oversized]]
 file = "app/engine/arena.py"
@@ -653,9 +654,9 @@ note = "PR S6: +18 lines — start_poller/_poll_due_loop now take sweep_overdue_
 
 [[oversized]]
 file = "app/engine/scheduler_turn_loop.py"
-lines = 420
+lines = 417
 kind = "source"
-note = "PR U2: +4 lines — TALK_DEADLINE_SECONDS now reads settings.talk_deadline_seconds (app/config.py owns the env read) instead of os.environ.get directly; kept as a module-level alias since tests import it by name."
+note = "PR U2: +4 lines — TALK_DEADLINE_SECONDS now reads settings.talk_deadline_seconds (app/config.py owns the env read) instead of os.environ.get directly; kept as a module-level alias since tests import it by name. PR U5: -3 lines — the round-reset player query now calls load_players(db, game.id) instead of its own select(Player).where(...) query."
 
 [[oversized]]
 file = "app/engine/win_probability.py"
@@ -669,17 +670,13 @@ kind = "source"
 
 [[oversized]]
 file = "app/games/hoard_hurt_help/game.py"
-lines = 414
+lines = 409
 kind = "source"
+note = "PR U5: -5 lines — private_state_for's all_players lookup and record_player_action's target lookup now go through app.read_models.matches.load_players instead of their own select(Player).where(...) queries."
 
 [[oversized]]
 file = "app/games/hoard_hurt_help/rules.py"
 lines = 501
-kind = "source"
-
-[[oversized]]
-file = "app/games/hoard_hurt_help/scoring.py"
-lines = 401
 kind = "source"
 
 [[oversized]]
@@ -1350,6 +1347,12 @@ file_a = "tests/test_agent_next_turn_pacing.py"
 file_b = "tests/test_agent_next_turn_payload.py"
 windows = 8
 
+[[copied_blocks]]
+file_a = "tests/test_clamp_has_one_home.py"
+file_b = "tests/test_match_players_have_one_home.py"
+windows = 9
+note = "PR U5: the new tripwire test deliberately follows test_clamp_has_one_home.py's structural-guard shape (scan/baseline/tmp_path-planted-copy pattern), same as test_small_idioms_have_one_home.py already does for the same reason"
+
 # --- idiom_baselines (PR U3) ---
 # A "looked at it, leaving it on purpose" record for a site that matches one
 # of this repo's small shared-idiom scans (app/engine/turn_clock.seconds_until,
@@ -1383,3 +1386,41 @@ file = "app/engine/bots/roster.py"
 line = 59
 note = "humanizes a strategy id on an underscore separator, not a game-type slug on a hyphen — different rule; recorded for completeness even though the hyphen-based scan below cannot match it"
 pr = "PR U3"
+
+# --- match_players_baseline (U5) ---
+# "All the players of a match" has one home: app/read_models/matches.py's
+# load_players (ORDER BY seat_name). Nine of the twelve inline
+# `select(Player).where(Player.match_id == …)` sites found at PR U5 time were
+# routed through it; these three were looked at and left inline on purpose
+# because load_players' ORDER BY seat_name would change the order the caller
+# sees, and in each case that order is load-bearing:
+#
+#   - match_export.py: the row order of the JSON export's "players" array is
+#     user-visible.
+#   - resolver.py (finalize_game): the winner is `sorted(players,
+#     key=finish_order_sort_key)[0]`, and that sort is stable — a full tie on
+#     (round_wins, total_score) keeps the query's own row order to break it.
+#     Reordering to seat_name would change who wins a tied match.
+#   - match_manage_web.py (match_detail): the query's row order becomes the
+#     row order of the rendered admin player table.
+#
+# Read by tests/test_match_players_have_one_home.py, which fails the build
+# when a new inline copy appears with no matching entry here.
+
+[[match_players_baseline]]
+file = "app/read_models/match_export.py"
+line = 180
+note = "row order of the JSON export's players array is user-visible; load_players' ORDER BY seat_name is not provably the same order, so routing it would risk changing the export"
+pr = "PR U5"
+
+[[match_players_baseline]]
+file = "app/engine/resolver.py"
+line = 126
+note = "finalize_game picks ranked[0] from a stable sort on (round_wins, total_score); a full tie breaks on the query's row order, which load_players' ORDER BY seat_name would change — could flip who wins a tied match"
+pr = "PR U5"
+
+[[match_players_baseline]]
+file = "app/routes/match_manage_web.py"
+line = 101
+note = "row order feeds player_views, rendered as the admin match-detail player table; load_players' ORDER BY seat_name is not provably the same order, so routing it would risk reordering the page"
+pr = "PR U5"

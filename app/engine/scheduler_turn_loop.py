@@ -41,6 +41,7 @@ from app.games.base import GameError
 from app.models.match import Match, GameState
 from app.models.player import Player
 from app.models.turn import Turn, TurnMessage, TurnSubmission
+from app.read_models.matches import load_players
 from app.ops_events import log_ops_event
 
 # The talk phase is quick "table talk", so cap it even when the match allows a long
@@ -126,11 +127,7 @@ async def _run_round(
     from app.engine import scheduler
 
     if reset_scores:
-        players: list[Player] = list(
-            (await db.execute(select(Player).where(Player.match_id == game.id)))
-            .scalars()
-            .all()
-        )
+        players = await load_players(db, game.id)
         for p in players:
             p.current_round_score = 0
         await db.commit()

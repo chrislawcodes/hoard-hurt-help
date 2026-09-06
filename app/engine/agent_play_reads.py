@@ -22,6 +22,7 @@ from app.games import get as get_game_module
 from app.models.match import Match, GameState
 from app.models.player import Player
 from app.models.turn import Turn, TurnMessage, TurnSubmission
+from app.read_models.matches import load_players
 from app.schemas.agent import (
     Action,
     CurrentTurn,
@@ -300,13 +301,11 @@ async def load_match_players(
     """All players seated in a match. With ``exclude_left`` set, drop those who
     have left (``left_at IS NOT NULL``) — the standings view's filter.
 
-    The one loader behind the repeated ``select(Player).where(match_id == …)`` the
-    per-match verbs and the next-turn payload both run.
+    Delegates to :func:`app.read_models.matches.load_players`, the one loader
+    behind ``select(Player).where(match_id == …)``, which the per-match verbs
+    and the next-turn payload both run through.
     """
-    stmt = select(Player).where(Player.match_id == match_id)
-    if exclude_left:
-        stmt = stmt.where(Player.left_at.is_(None))
-    return (await db.execute(stmt)).scalars().all()
+    return await load_players(db, match_id, active_only=exclude_left)
 
 
 async def load_open_turn(db: AsyncSession, match_id: str) -> Turn | None:

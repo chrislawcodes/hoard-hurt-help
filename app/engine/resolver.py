@@ -16,23 +16,14 @@ from app.models.match import Match, GameState
 from app.models.player import Player
 from app.models.turn import Turn, TurnMessage
 from app.engine.turn_clock import now_utc
+from app.read_models.matches import load_players
 
 _Key = TypeVar("_Key")
 
 
 async def finalize_talk_phase(db: AsyncSession, turn: Turn) -> None:
     """Materialize missing talk messages and mark the talk phase resolved."""
-    active_players: list[Player] = list(
-        (
-            await db.execute(
-                select(Player).where(
-                    Player.match_id == turn.match_id, Player.left_at.is_(None)
-                )
-            )
-        )
-        .scalars()
-        .all()
-    )
+    active_players = await load_players(db, turn.match_id, active_only=True)
     messages: list[TurnMessage] = list(
         (
             await db.execute(select(TurnMessage).where(TurnMessage.turn_id == turn.id))
@@ -97,11 +88,7 @@ async def award_round_winners(db: AsyncSession, game: Match, round_num: int) -> 
     if round_num <= game.rounds_awarded:
         return
 
-    players: list[Player] = list(
-        (await db.execute(select(Player).where(Player.match_id == game.id)))
-        .scalars()
-        .all()
-    )
+    players = await load_players(db, game.id)
 
     winner_ids, share = round_award({p.id: p.current_round_score for p in players})
     winners = set(winner_ids)
