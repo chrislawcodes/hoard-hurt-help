@@ -17,6 +17,11 @@ header promising "what shipped and what is now unblocked".
 
 ---
 
+## One-off scripts removed
+
+- `scripts/backfill_played_model.py` (removed 2026-09-05, Direct Path) — wrote `Player.played_model` onto the eleven matches that predated that column, for PR #737. It already ran against prod; keeping it around risked someone re-running it by accident. Its only test, `tests/test_backfill_played_model.py`, is removed with it. Still readable at commit `f954cf3c`.
+- `.claude/skills/game-design-workspace/` — leftover output from an old skill-eval run (benchmark and grading JSON). Untracked and gitignored, so it never had a commit; deleted straight from disk instead of through this PR.
+
 ## The Feature Factory engine moves from docs to tools
 
 - **The Feature Factory engine moves from docs to tools** (2026-09-06, branch `claude/move-feature-factory-tools-4d8xb1`, Direct Path, PR #766) — PR J of the "One Home, Kept" plan. The engine (`run_factory.py`, review-lens, about 40 command modules, and their tests) used to live under `docs/workflow/operations/codex-skills/`. That was the wrong home: it's tooling with its own test suite, not documentation. It now lives at `tools/feature-factory/`.
