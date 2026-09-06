@@ -59,7 +59,7 @@ def test_poll_fail_threshold_is_reasonable(connector) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _make_turn(
+def _make_next_turn_payload(
     *,
     match_id: str = "M_1",
     agent_id: str = "A",
@@ -102,7 +102,7 @@ def test_decide_sets_is_connector_fallback_on_act_failure(connector, monkeypatch
 
     monkeypatch.setitem(connector._ADAPTERS, "claude", BrokenAdapter())
 
-    turn = _make_turn(phase="act")
+    turn = _make_next_turn_payload(phase="act")
     sess = connector._GameSession(provider="claude", model="claude-haiku-4-5")
 
     decision = connector._decide(turn, sess)
@@ -126,7 +126,7 @@ def test_decide_attaches_model_failure_marker(connector, monkeypatch) -> None:
             raise RuntimeError("model not found (404)")
 
     monkeypatch.setitem(connector._ADAPTERS, "claude", UnavailableAdapter())
-    turn = _make_turn(phase="act")
+    turn = _make_next_turn_payload(phase="act")
     sess = connector._GameSession(provider="claude", model="claude-opus-5")
 
     decision = connector._decide(turn, sess)
@@ -150,7 +150,7 @@ def test_decide_sets_is_connector_fallback_on_talk_failure(connector, monkeypatc
 
     monkeypatch.setitem(connector._ADAPTERS, "claude", BrokenAdapter())
 
-    turn = _make_turn(phase="talk")
+    turn = _make_next_turn_payload(phase="talk")
     sess = connector._GameSession(provider="claude", model="claude-haiku-4-5")
 
     decision = connector._decide(turn, sess)
@@ -172,7 +172,7 @@ def test_decide_no_fallback_flag_on_success(connector, monkeypatch) -> None:
 
     monkeypatch.setitem(connector._ADAPTERS, "claude", GoodAdapter())
 
-    turn = _make_turn(phase="act")
+    turn = _make_next_turn_payload(phase="act")
     sess = connector._GameSession(provider="claude", model="claude-haiku-4-5")
 
     decision = connector._decide(turn, sess)
@@ -247,7 +247,7 @@ def test_decide_reasks_and_recovers_missing_target(connector, monkeypatch) -> No
         resume_move='{"action":"HELP","target_id":"seat-other","thinking":"help them"}',
     )
     monkeypatch.setitem(connector._ADAPTERS, "claude", adapter)
-    turn = _make_turn(phase="act")
+    turn = _make_next_turn_payload(phase="act")
     sess = connector._GameSession(provider="claude", model="claude-haiku-4-5")
 
     decision = connector._decide(turn, sess)
@@ -265,7 +265,7 @@ def test_decide_hoards_when_target_unrecoverable(connector, monkeypatch) -> None
         resume_move='{"action":"HELP","target_id":null,"thinking":"still x"}',
     )
     monkeypatch.setitem(connector._ADAPTERS, "claude", adapter)
-    turn = _make_turn(phase="act")
+    turn = _make_next_turn_payload(phase="act")
     sess = connector._GameSession(provider="claude", model="claude-haiku-4-5")
 
     decision = connector._decide(turn, sess)
@@ -283,7 +283,7 @@ def test_decide_passes_valid_target_without_reask(connector, monkeypatch) -> Non
         resume_move='{"action":"HOARD","target_id":null,"thinking":"unused"}',
     )
     monkeypatch.setitem(connector._ADAPTERS, "claude", adapter)
-    turn = _make_turn(phase="act")
+    turn = _make_next_turn_payload(phase="act")
     sess = connector._GameSession(provider="claude", model="claude-haiku-4-5")
 
     decision = connector._decide(turn, sess)
@@ -619,7 +619,7 @@ def test_decide_skips_dead_phase_when_deadline_passed(connector, monkeypatch) ->
     """
     monkeypatch.setitem(connector._ADAPTERS, "claude", _ExplodingAdapter())
 
-    turn = _make_turn(phase="act")
+    turn = _make_next_turn_payload(phase="act")
     turn["current"]["deadline"] = (
         datetime.now(timezone.utc) - timedelta(seconds=3)
     ).isoformat()
@@ -632,7 +632,7 @@ def test_decide_falls_back_when_some_time_but_not_enough(connector, monkeypatch)
     """A little time left (but not enough to think) → a real fallback that can land."""
     monkeypatch.setitem(connector._ADAPTERS, "claude", _ExplodingAdapter())
 
-    turn = _make_turn(phase="act")
+    turn = _make_next_turn_payload(phase="act")
     # ~12s out → budget ≈ 12 - 8 = 4s: positive but below _MIN_MODEL_SECONDS.
     turn["current"]["deadline"] = (
         datetime.now(timezone.utc) + timedelta(seconds=12)
@@ -664,7 +664,7 @@ def test_decide_bounds_model_call_to_remaining_time(connector, monkeypatch) -> N
 
     monkeypatch.setitem(connector._ADAPTERS, "claude", BudgetSpyAdapter())
 
-    turn = _make_turn(phase="act")
+    turn = _make_next_turn_payload(phase="act")
     turn["current"]["deadline"] = (
         datetime.now(timezone.utc) + timedelta(seconds=45)
     ).isoformat()
@@ -836,7 +836,7 @@ def test_decide_reasks_and_recovers_after_a_prose_reply(connector, monkeypatch) 
         resume_move='{"action":"HOARD","target_id":null,"thinking":"bank it"}',
     )
     monkeypatch.setitem(connector._ADAPTERS, "claude", adapter)
-    turn = _make_turn(phase="act")
+    turn = _make_next_turn_payload(phase="act")
     sess = connector._GameSession(provider="claude", model="claude-haiku-4-5")
 
     decision = connector._decide(turn, sess)
@@ -853,7 +853,7 @@ def test_decide_reasks_on_prose_in_the_talk_phase_too(connector, monkeypatch) ->
         resume_move='{"message":"lets pact","thinking":"open friendly"}',
     )
     monkeypatch.setitem(connector._ADAPTERS, "claude", adapter)
-    turn = _make_turn(phase="talk")
+    turn = _make_next_turn_payload(phase="talk")
     sess = connector._GameSession(provider="claude", model="claude-haiku-4-5")
 
     decision = connector._decide(turn, sess)
@@ -872,7 +872,7 @@ def test_decide_still_fails_loudly_when_prose_repeats(connector, monkeypatch) ->
     """
     adapter = _ReAskAdapter(first_move=_REAL_PROSE, resume_move=_REAL_PROSE)
     monkeypatch.setitem(connector._ADAPTERS, "claude", adapter)
-    turn = _make_turn(phase="act")
+    turn = _make_next_turn_payload(phase="act")
     sess = connector._GameSession(provider="claude", model="claude-haiku-4-5")
 
     decision = connector._decide(turn, sess)
@@ -893,7 +893,7 @@ def test_decide_does_not_reask_prose_when_resume_is_unavailable(
     adapter = _ReAskAdapter(first_move=_REAL_PROSE, resume_move="{}")
     adapter.supports_resume = False
     monkeypatch.setitem(connector._ADAPTERS, "claude", adapter)
-    turn = _make_turn(phase="act")
+    turn = _make_next_turn_payload(phase="act")
     sess = connector._GameSession(provider="claude", model="claude-haiku-4-5")
 
     decision = connector._decide(turn, sess)

@@ -117,7 +117,7 @@ async def _make_connection_setup(
     return setup, plain_key
 
 
-async def _make_turn(
+async def _seed_hoard_turn(
     db: AsyncSession,
     *,
     match: Match,
@@ -807,7 +807,7 @@ async def test_delete_stops_runner_but_leaves_agents_active(
             version=version,
             seat_name=f"{user.handle}/Alpha",
         )
-        await _make_turn(db, match=match, player=player, turn_no=1)
+        await _seed_hoard_turn(db, match=match, player=player, turn_no=1)
         await db.commit()
 
     delete_resp = await client.post(
@@ -1247,8 +1247,8 @@ async def test_connection_health_across_multiple_agents_tracks_the_active_game(
         cold_player.served_pinned_at = NOW
         connection.last_seen_at = NOW - timedelta(seconds=20)
         for turn_no in (1, 2, 3):
-            await _make_turn(db, match=cold_match, player=cold_player, turn_no=turn_no, defaulted=True)
-        await _make_turn(db, match=warm_match, player=warm_player, turn_no=1, defaulted=False)
+            await _seed_hoard_turn(db, match=cold_match, player=cold_player, turn_no=turn_no, defaulted=True)
+        await _seed_hoard_turn(db, match=warm_match, player=warm_player, turn_no=1, defaulted=False)
         await db.commit()
 
         health = await compute_connection_health(db, connection, now=NOW)
