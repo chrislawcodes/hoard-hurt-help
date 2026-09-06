@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from typing import Any
 
+from app.aware_datetime import ensure_aware
 from app.engine.tokens import generate_match_id
 from app.games import get as get_game_module
 from app.games import known_types
@@ -112,8 +113,7 @@ async def create_match(
     """Create a match and retry on primary-key collision."""
     if game not in known_types():
         raise ValueError(f"Unknown game type {game!r}.")
-    if scheduled_start.tzinfo is None:
-        scheduled_start = scheduled_start.replace(tzinfo=timezone.utc)
+    scheduled_start = ensure_aware(scheduled_start)
     if scheduled_start <= now_utc():
         raise ValueError("scheduled_start must be in the future.")
     if not (1 <= min_players <= 20) or not (1 <= max_players <= 20):

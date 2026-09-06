@@ -17,3 +17,8 @@ SUBMIT_POLL_SECONDS = 0.25
 def now_utc() -> datetime:
     """Return the current time as a timezone-aware UTC datetime."""
     return datetime.now(timezone.utc)
+
+
+def seconds_until(deadline: datetime) -> float:
+    """Seconds remaining (negative once past) until an aware deadline."""
+    return (deadline - now_utc()).total_seconds()

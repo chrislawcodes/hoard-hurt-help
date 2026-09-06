@@ -169,6 +169,10 @@ async def seat_connect_status(
     # a prominent reconnect CTA. The poll keeps running underneath, so the moment
     # they reconnect and it comes online we still auto-seat them.
     deadline = ensure_aware(player.seat_reserved_until)
+    # Deliberately NOT app.engine.turn_clock.seconds_until(deadline): `now` is
+    # this function's one clock snapshot (bound above, before the release
+    # check) and is reused here on purpose. Reading the clock again would be a
+    # real behaviour change, not just a style swap (see one_home_verdicts.toml).
     waited_seconds = SEAT_HOLD_SECONDS - (deadline - now).total_seconds()
     is_configured = (
         await _seat_provider_readiness(db, user.id, player)
