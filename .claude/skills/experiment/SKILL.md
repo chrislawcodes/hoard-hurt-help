@@ -251,13 +251,10 @@ format of the existing entries exactly.
 
 ---
 
-## Step 5 — Update STATUS.md
+## Step 5 — STATUS.md is retired
 
-Mark the experiment complete in `STATUS.md`:
-
-1. Move the feature from "In Progress" or "Next" to "Recently Completed".
-2. Note which path won and the PR number(s).
-3. Update "Next" for anything now unblocked.
+Do not update `STATUS.md`. The experiment result already lives in
+`experiments.md` from Step 4 — that's the record.
 
 ---
 

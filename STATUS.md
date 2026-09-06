@@ -1,7 +1,8 @@
 # Hoard Hurt Help — Project Dashboard
 
-> **How to use:** Review at the start of a session. The Feature Factory workflow
-> updates this at closeout to record what shipped and what is now unblocked.
+> Frozen 6 September 2026.
+> No new entries.
+> What shipped is `git log`; why is `docs/operations/what-shipped-and-why.md`.
 
 ---
 
