@@ -1208,3 +1208,69 @@ file = "tests/test_viewer_owner_credit.py"
 name = "reset_db"
 verdict = "leave"
 note = "autouse re-export of tests/conftest.py's reset_db; nothing to merge"
+
+# --- scheduler_patches (T3) ---
+# tests/conftest.py's `quiet_scheduler` fixture is the declared home for
+# silencing app.engine.scheduler's background loop: an async no-op `publish`,
+# `_wait_for_messages`/`_wait_for_turn` that return immediately, and
+# `SessionLocal` rebound to the test database `reset_db` yields. A
+# `setattr(scheduler, "<publish|SessionLocal|_wait_for_messages|_wait_for_turn>", ...)`
+# found directly in a tests/test_*.py file is checked against the table below.
+#
+# T3 (this PR) migrated every site whose patch was interchangeable with
+# quiet_scheduler's — one file (tests/test_two_phase_loop.py) moved all three
+# of its patches there, and one (tests/test_match_resume.py) moved its plain
+# `publish` no-op there. The six sites below could not move without changing
+# what the test exercises, so each is recorded here instead:
+#
+#   - two files (test_bots_scheduler.py, test_match_resume.py) run the
+#     scheduler against a FILE-backed SQLite database, not reset_db's
+#     in-memory one — the turn loop opens its own session, and an in-memory
+#     :memory: DB is per-connection, so a second session sees no tables.
+#     quiet_scheduler's SessionLocal (reset_db's factory) can't serve that.
+#   - three `publish` sites (test_bots_scheduler.py, test_overdue_sweeper.py,
+#     test_two_phase_loop.py) record every published event for the test to
+#     assert on; quiet_scheduler's publish is a pure no-op with nothing to
+#     inspect, so it can't stand in for these.
+#   - one `SessionLocal` site (test_scheduler_lifecycle.py) points the
+#     scheduler at the single already-open `db` session the test is using
+#     (via a same-session factory shim), not at a fresh reset_db database.
+#
+# verdict is one of: leave | merged | rename | unjudged (same meaning as the
+# test_fixtures table above). Read by tests/test_scheduler_quiet_has_one_home.py.
+
+[[scheduler_patches]]
+file = "tests/test_bots_scheduler.py"
+name = "SessionLocal"
+verdict = "leave"
+note = "file-backed DB (the scheduler's background task needs a real shared connection across sessions, which :memory: can't give it); can't point at quiet_scheduler's in-memory reset_db factory"
+
+[[scheduler_patches]]
+file = "tests/test_bots_scheduler.py"
+name = "publish"
+verdict = "leave"
+note = "records events into a list the test asserts on (published[:3] == [...]); quiet_scheduler's publish is a no-op with nothing to record"
+
+[[scheduler_patches]]
+file = "tests/test_match_resume.py"
+name = "SessionLocal"
+verdict = "leave"
+note = "same file-backed-DB reason as test_bots_scheduler.py; this file's plain `publish` no-op did move to quiet_scheduler (see reset_db_file_backed's dependency on it), but SessionLocal still has to point at the file-backed factory, applied after quiet_scheduler's so it wins"
+
+[[scheduler_patches]]
+file = "tests/test_overdue_sweeper.py"
+name = "publish"
+verdict = "leave"
+note = "records events into a list the test asserts on (e.g. published == [(match.id, \"turn_talked\")]); quiet_scheduler's publish is a no-op with nothing to record"
+
+[[scheduler_patches]]
+file = "tests/test_scheduler_lifecycle.py"
+name = "SessionLocal"
+verdict = "leave"
+note = "test-specific: points the scheduler at the single already-open `db` session via a same-session factory shim, not at a fresh reset_db database — the test (test_run_game_cancels_unknown_game_type) needs _run_game to see the row this test already wrote in `db`"
+
+[[scheduler_patches]]
+file = "tests/test_two_phase_loop.py"
+name = "publish"
+verdict = "leave"
+note = "records events into a list the test asserts on (e.g. published[0][2][\"phase\"] == \"talk\"); quiet_scheduler's publish is a no-op with nothing to record"
