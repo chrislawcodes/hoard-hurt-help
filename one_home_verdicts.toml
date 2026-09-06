@@ -468,12 +468,6 @@ verdict = "rename"
 note = "renamed from _seed_match; builds a full match history (users, players, turns, submissions) from round data, not just a Match row"
 
 [[test_helpers]]
-name = "_seed_turn"
-files = ["tests/test_agent_play_service.py", "tests/test_onboarding_states.py"]
-verdict = "unjudged"
-note = ""
-
-[[test_helpers]]
 name = "_seed_user"
 files = [
     "tests/test_admin.py",

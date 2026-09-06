@@ -15,7 +15,7 @@ from app.models import Connection, GameState, Match, Player, Turn
 from tests.factories import make_connection, make_user, seat_player
 
 
-async def _seed_turn(
+async def _seed_playable_turn(
     reset_db: async_sessionmaker,
     *,
     match_id: str,
@@ -67,7 +67,7 @@ async def _seed_turn(
 async def test_submit_action_service_updates_turn_count_and_first_move(
     reset_db, monkeypatch
 ):
-    seed = await _seed_turn(reset_db, match_id="M_SERVICE_2")
+    seed = await _seed_playable_turn(reset_db, match_id="M_SERVICE_2")
 
     calls: list[int] = []
 
@@ -114,7 +114,7 @@ async def test_submit_action_service_updates_turn_count_and_first_move(
 
 
 async def test_next_turn_service_returns_payload(reset_db):
-    seed = await _seed_turn(reset_db, match_id="M_SERVICE_3")
+    seed = await _seed_playable_turn(reset_db, match_id="M_SERVICE_3")
 
     async with reset_db() as db:
         connection = (
@@ -140,7 +140,7 @@ async def test_next_turn_stamps_play_loop_heartbeat(reset_db, monkeypatch):
     monkeypatch.setattr(
         "app.engine.agent_play_next_turn.LONG_POLL_INTERVAL_SECONDS", 0.05
     )
-    seed = await _seed_turn(reset_db, match_id="M_SERVICE_HB")
+    seed = await _seed_playable_turn(reset_db, match_id="M_SERVICE_HB")
     async with reset_db() as db:
         connection = (
             await db.execute(

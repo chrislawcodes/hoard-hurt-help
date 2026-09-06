@@ -14,7 +14,7 @@ from app.models.turn import Turn, TurnSubmission
 from tests.factories import make_agent, make_user
 
 
-async def _seed_turn(db) -> tuple[int, int]:
+async def _seed_c5_turn(db) -> tuple[int, int]:
     """Return (agent_id, turn_id) for a player seated in a fresh match."""
     user = await make_user(db, 0)
     agent, _ = await make_agent(db, user, name="mover")
@@ -66,13 +66,13 @@ def _player_id_select(agent_id: int):
 
 
 async def test_has_not_moved_with_defaulted_only(db) -> None:
-    agent_id, turn_id = await _seed_turn(db)
+    agent_id, turn_id = await _seed_c5_turn(db)
     await _add_submission(db, turn_id, agent_id, defaulted=True)
     assert await has_moved(db, agent_id) is False
 
 
 async def test_has_moved_with_one_real_submission(db) -> None:
-    agent_id, turn_id = await _seed_turn(db)
+    agent_id, turn_id = await _seed_c5_turn(db)
     await _add_submission(db, turn_id, agent_id, defaulted=False)
     assert await has_moved(db, agent_id) is True
 
