@@ -27,7 +27,7 @@ def _at() -> datetime:
     return datetime(2026, 6, 10, tzinfo=timezone.utc)
 
 
-async def _seed_completed_match(
+async def _seed_placement_match(
     db: Any, match_id: str, game_type: str, stats: list[tuple[str, float, int]]
 ) -> None:
     match = Match(
@@ -56,7 +56,7 @@ async def test_pd_leaderboard_ratings_unchanged() -> None:
     factory = async_sessionmaker(engine, expire_on_commit=False)
 
     async with factory() as db:
-        await _seed_completed_match(
+        await _seed_placement_match(
             db, "M_LB", "hoard-hurt-help",
             [("A", 3.0, 120), ("B", 2.0, 90), ("C", 1.0, 60)],
         )
@@ -91,7 +91,7 @@ async def test_per_game_placement_key_reorders_its_section() -> None:
     async with factory() as db:
         # X wins more rounds but Y has the higher total score. PD's default key
         # would rank X first; the score-only game must rank Y first.
-        await _seed_completed_match(
+        await _seed_placement_match(
             db, "M_SO", "score-only-test", [("X", 5.0, 10), ("Y", 1.0, 99)]
         )
         section = (await load_leaderboard_sections(db, included="agents"))[0]
