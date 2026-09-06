@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.aware_datetime import ensure_aware
 from app.engine.agent_playability import playable_agent_filter
+from app.engine.seated import seated_filter
 from app.models.agent import Agent
 from app.models.connection import Connection, ConnectionStatus
 from app.models.match import GameState, Match
@@ -284,7 +285,7 @@ async def compute_connection_health(
                 .join(Player, Player.match_id == Match.id)
                 .where(
                     Match.state == GameState.ACTIVE,
-                    Player.left_at.is_(None),
+                    seated_filter(),
                     Player.served_by_connection_id == connection.id,
                 )
                 .order_by(Match.id, Player.id)

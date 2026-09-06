@@ -25,6 +25,7 @@ from app.engine.join_gate_capacity import (
     live_user_capacity,
 )
 from app.engine.provider_readiness import user_play_readiness
+from app.engine.seated import seated_filter
 from app.models.agent import Agent
 from app.models.agent_version import AgentVersion
 from app.models.match import GameState, Match
@@ -59,7 +60,7 @@ async def _load_agent_matches(db: DbSession, agent_id: int) -> list[MatchEntry]:
             .join(Player, Player.match_id == Match.id)
             .where(
                 Player.agent_id == agent_id,
-                Player.left_at.is_(None),
+                seated_filter(),
             )
             .order_by(Match.scheduled_start.desc())
         )

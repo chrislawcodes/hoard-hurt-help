@@ -15,6 +15,7 @@ from app.engine.bots.runtime import (
 )
 from app.engine.bots.types import BotContext
 from app.engine.player_move import record_player_action
+from app.engine.seated import seated_filter
 from app.games.hoard_hurt_help.rules import LEGACY_MUTUAL_HELP_MODE
 from app.models.agent import Agent, AgentKind, AgentStatus
 from app.models.match import Match
@@ -189,7 +190,7 @@ async def _load_active_players_with_bots(
                 .join(Agent, Agent.id == Player.agent_id)
                 .where(
                     Player.match_id == match_id,
-                    Player.left_at.is_(None),
+                    seated_filter(),
                 )
                 .order_by(Player.seat_name)
             )

@@ -11,6 +11,7 @@ from app.engine.bot_presets import bot_preset_by_id
 from app.engine.bots import validate_bot_profile_fields
 from app.engine.bots.roster import PACKS, PERSONALITIES, BOT_NAME_POOL
 from app.engine.bots.seating import BotSeatingError, add_bots_to_game
+from app.engine.seated import seated_filter
 from app.models.agent import AgentKind
 from app.models.match import Match, GameState
 from app.models.player import Player
@@ -36,7 +37,7 @@ async def _render_add_bots(
         (
             await db.execute(
                 select(Player.seat_name).where(
-                    Player.match_id == match.id, Player.left_at.is_(None)
+                    Player.match_id == match.id, seated_filter()
                 )
             )
         )

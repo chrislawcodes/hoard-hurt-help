@@ -19,6 +19,7 @@ from app.engine.model_provider_match import provider_for_model
 from app.engine.model_verification import model_status_for
 from app.engine.scheduler import start_game
 from app.engine.seat_hold import hold_deadline
+from app.engine.seated import seated_filter
 from app.models.model_verification import ModelVerificationStatus
 from app.models.agent import Agent, AgentKind
 from app.models.agent_version import AgentVersion
@@ -158,7 +159,7 @@ async def _build_agent_rows(
         (
             await db.execute(
                 select(Player.agent_id).where(
-                    Player.match_id == match.id, Player.left_at.is_(None)
+                    Player.match_id == match.id, seated_filter()
                 )
             )
         )
@@ -330,7 +331,7 @@ async def _seat_user_agent(
             select(Player.id).where(
                 Player.agent_id == selected_agent.id,
                 Player.match_id == match.id,
-                Player.left_at.is_(None),
+                seated_filter(),
             )
         )
     ).first()

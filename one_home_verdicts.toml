@@ -630,15 +630,15 @@ note = "PR U4: -6 lines — load_open_turn now delegates to load_open_turns(db, 
 
 [[oversized]]
 file = "app/engine/arena.py"
-lines = 411
+lines = 412
 kind = "source"
-note = "PR S6: +7 lines — fill_and_start_auto_matches now takes start_game as a parameter instead of importing it, to untangle the arena<->scheduler import cycle. PR U1: +1 line — now_utc() import (inline datetime.now(timezone.utc) sweep)."
+note = "PR S6: +7 lines — fill_and_start_auto_matches now takes start_game as a parameter instead of importing it, to untangle the arena<->scheduler import cycle. PR U1: +1 line — now_utc() import (inline datetime.now(timezone.utc) sweep). PR U6: +1 line — seated_filter() import (left_at is-None sweep)."
 
 [[oversized]]
 file = "app/engine/connection_activity.py"
-lines = 411
+lines = 412
 kind = "source"
-note = "PR U1: +1 line — now_utc() import (inline datetime.now(timezone.utc) sweep)."
+note = "PR U1: +1 line — now_utc() import (inline datetime.now(timezone.utc) sweep). PR U6: +1 line — seated_filter() import (left_at is-None sweep)."
 
 [[oversized]]
 file = "app/engine/provider_readiness.py"
@@ -648,15 +648,15 @@ note = "PR U1: +1 line — now_utc() import (inline datetime.now(timezone.utc) s
 
 [[oversized]]
 file = "app/engine/scheduler.py"
-lines = 484
+lines = 485
 kind = "source"
-note = "PR S6: +18 lines — start_poller/_poll_due_loop now take sweep_overdue_turns as a parameter instead of importing it, to untangle the overdue_sweeper<->scheduler import cycle."
+note = "PR S6: +18 lines — start_poller/_poll_due_loop now take sweep_overdue_turns as a parameter instead of importing it, to untangle the overdue_sweeper<->scheduler import cycle. PR U6: +1 line — seated_filter() import (left_at is-None sweep)."
 
 [[oversized]]
 file = "app/engine/scheduler_turn_loop.py"
-lines = 417
+lines = 418
 kind = "source"
-note = "PR U2: +4 lines — TALK_DEADLINE_SECONDS now reads settings.talk_deadline_seconds (app/config.py owns the env read) instead of os.environ.get directly; kept as a module-level alias since tests import it by name. PR U5: -3 lines — the round-reset player query now calls load_players(db, game.id) instead of its own select(Player).where(...) query."
+note = "PR U2: +4 lines — TALK_DEADLINE_SECONDS now reads settings.talk_deadline_seconds (app/config.py owns the env read) instead of os.environ.get directly; kept as a module-level alias since tests import it by name. PR U5: -3 lines — the round-reset player query now calls load_players(db, game.id) instead of its own select(Player).where(...) query. PR U6: +1 line — seated_filter() import (left_at is-None sweep)."
 
 [[oversized]]
 file = "app/engine/win_probability.py"
@@ -686,8 +686,9 @@ kind = "source"
 
 [[oversized]]
 file = "app/games/liars_dice/game.py"
-lines = 553
+lines = 554
 kind = "source"
+note = "PR U6: +1 line — is_seated() import (left_at is-None sweep)."
 
 [[oversized]]
 file = "app/read_models/leaderboard.py"
@@ -696,9 +697,9 @@ kind = "source"
 
 [[oversized]]
 file = "app/read_models/matches.py"
-lines = 520
+lines = 521
 kind = "source"
-note = "PR U4: -11 lines — deleted dead _agent_count (no callers; _agent_counts already covers every real use)."
+note = "PR U4: -11 lines — deleted dead _agent_count (no callers; _agent_counts already covers every real use). PR U6: +1 line — seated_filter() import (left_at is-None sweep)."
 
 [[oversized]]
 file = "app/routes/matches_user.py"
@@ -708,14 +709,15 @@ note = "PR U1: +1 line — now_utc() import (inline datetime.now(timezone.utc) s
 
 [[oversized]]
 file = "app/routes/web_join.py"
-lines = 532
+lines = 533
 kind = "source"
-note = "PR U1: +1 line — now_utc() import (inline datetime.now(timezone.utc) sweep)."
+note = "PR U1: +1 line — now_utc() import (inline datetime.now(timezone.utc) sweep). PR U6: +1 line — seated_filter() import (left_at is-None sweep)."
 
 [[oversized]]
 file = "app/routes/web_viewer_context.py"
-lines = 602
+lines = 603
 kind = "source"
+note = "PR U6: +1 line — is_seated() import (left_at is-None sweep)."
 
 [[oversized]]
 file = "mcp_server/mcp_tools.py"
@@ -1424,3 +1426,15 @@ file = "app/routes/match_manage_web.py"
 line = 101
 note = "row order feeds player_views, rendered as the admin match-detail player table; load_players' ORDER BY seat_name is not provably the same order, so routing it would risk reordering the page"
 pr = "PR U5"
+
+# --- seated_baseline (U6) ---
+# "Is this player still seated?" has one home: app/engine/seated.py's
+# seated_filter() (SQLAlchemy clause) and is_seated() (in-memory check). All
+# 40 inline sites found at PR U6 time (34 `Player.left_at.is_(None)` clauses,
+# 6 `player.left_at is None` checks) were routed through it — none needed to
+# stay inline, so this table starts empty. It exists so a future exception,
+# if one is ever genuinely needed, has a place to be recorded and audited
+# rather than silently hardcoded into the test.
+#
+# Read by tests/test_seated_players_have_one_home.py, which fails the build
+# when a new inline copy appears with no matching entry here.

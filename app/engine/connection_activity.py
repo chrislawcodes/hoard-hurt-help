@@ -35,6 +35,7 @@ from app.engine.connection_health_badge import (
     within_window,
 )
 from app.engine.onboarding_states import PREGAME_STATES, has_moved
+from app.engine.seated import seated_filter
 from app.models.connection import Connection, ConnectionStatus
 from app.models.match import Match, GameState
 from app.models.player import Player
@@ -276,7 +277,7 @@ async def _seated_matches(db: AsyncSession, bot_id: int) -> Sequence[Match]:
             await db.execute(
                 select(Match)
                 .join(Player, Player.match_id == Match.id)
-                .where(Player.agent_id == bot_id, Player.left_at.is_(None))
+                .where(Player.agent_id == bot_id, seated_filter())
             )
         )
         .scalars()

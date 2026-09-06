@@ -11,6 +11,7 @@ from sqlalchemy import ColumnElement, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.engine.game_records import Action, ActionRecord, PlayerRecord
+from app.engine.seated import seated_filter
 from app.models.agent import Agent, AgentKind
 from app.models.match import (
     GameState,
@@ -95,7 +96,7 @@ async def _seat_in_active_match(
             .join(Match, Match.id == Player.match_id)
             .where(
                 seat_filter,
-                Player.left_at.is_(None),
+                seated_filter(),
                 Match.state == GameState.ACTIVE,
             )
             .limit(1)
@@ -131,7 +132,7 @@ async def count_agent_live_seats(db: AsyncSession, agent_id: int) -> int:
             .join(Match, Match.id == Player.match_id)
             .where(
                 Player.agent_id == agent_id,
-                Player.left_at.is_(None),
+                seated_filter(),
                 Match.state.in_(UNFINISHED_STATES),
             )
         )
@@ -149,7 +150,7 @@ async def count_players(
 
     stmt = select(func.count()).select_from(Player).where(Player.match_id == match_id)
     if active_only:
-        stmt = stmt.where(Player.left_at.is_(None))
+        stmt = stmt.where(seated_filter())
     return int(await db.scalar(stmt) or 0)
 
 
@@ -174,7 +175,7 @@ async def count_players_by_match(
         .group_by(Player.match_id)
     )
     if active_only:
-        stmt = stmt.where(Player.left_at.is_(None))
+        stmt = stmt.where(seated_filter())
     rows = (await db.execute(stmt)).all()
     return {match_id: int(count) for match_id, count in rows}
 
@@ -264,7 +265,7 @@ async def load_players(
 
     stmt = select(Player).where(Player.match_id == match_id).order_by(Player.seat_name)
     if active_only:
-        stmt = stmt.where(Player.left_at.is_(None))
+        stmt = stmt.where(seated_filter())
     return list((await db.execute(stmt)).scalars().all())
 
 

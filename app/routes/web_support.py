@@ -20,6 +20,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.engine.match_id_rewrite import match_id_candidates
+from app.engine.seated import seated_filter
 from app.match_naming import is_smoke_test_match_name
 from app.games import get as get_game_module
 from app.games.base import GameError, GameTheme
@@ -233,7 +234,7 @@ async def _batch_top_standings(
             await db.execute(
                 select(Player).where(
                     Player.match_id.in_(match_ids),
-                    Player.left_at.is_(None)
+                    seated_filter()
                 )
             )
         )

@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.aware_datetime import ensure_aware
 from app.db import SessionLocal
 from app.engine.provider_readiness import ProviderReadiness, provider_readiness, user_play_readiness
+from app.engine.seated import seated_filter
 from app.models.connection import ConnectionProvider
 from app.models.player import Player
 from app.engine.turn_clock import now_utc
@@ -91,7 +92,7 @@ async def sweep_held_seats(session_factory: async_sessionmaker | None = None) ->
                 await db.execute(
                     select(Player).where(
                         Player.seat_reserved_until.is_not(None),
-                        Player.left_at.is_(None),
+                        seated_filter(),
                     )
                 )
             )

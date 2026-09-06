@@ -25,6 +25,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.engine.bot_kind import is_bot_kind
+from app.engine.seated import seated_filter
 from app.models.agent import Agent
 from app.models.match import GameState, Match
 from app.models.player import Player
@@ -74,7 +75,7 @@ async def viewer_start_eligibility(
         await db.execute(
             select(Player.user_id, Player.seat_reserved_until, Agent.kind)
             .join(Agent, Agent.id == Player.agent_id)
-            .where(Player.match_id == match.id, Player.left_at.is_(None))
+            .where(Player.match_id == match.id, seated_filter())
         )
     ).all()
 

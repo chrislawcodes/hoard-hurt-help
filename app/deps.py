@@ -15,6 +15,7 @@ from app.engine.agent_playability import playable_agent_filter
 from app.engine.connection_activity import mark_seen
 from app.engine.connection_auth_loading import connection_user_load_options
 from app.engine.match_id_rewrite import match_id_candidates
+from app.engine.seated import seated_filter
 from app.engine.tokens import (
     bot_key_lookup,
     connection_key_log_hint,
@@ -337,7 +338,7 @@ async def require_agent_player(
             .join(Agent, Agent.id == Player.agent_id)
             .where(
                 Player.match_id.in_(candidate_match_ids),
-                Player.left_at.is_(None),
+                seated_filter(),
                 Agent.user_id == connection.user_id,
                 *playable_agent_filter(),
             )

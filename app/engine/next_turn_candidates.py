@@ -20,6 +20,7 @@ from app.aware_datetime import ensure_aware
 from app.engine.agent_play_reads import load_open_turns
 from app.engine.agent_playability import playable_agent_filter
 from app.engine.next_turn import TurnCandidate
+from app.engine.seated import seated_filter
 from app.engine.turn_routing import (
     ConnectionRouteState,
     TurnPin,
@@ -128,7 +129,7 @@ async def _fetch_active_agent_rows(
         .where(
             Agent.user_id == connection.user_id,
             *playable_agent_filter(),
-            Player.left_at.is_(None),
+            seated_filter(),
             Match.state == GameState.ACTIVE,
         )
     )
