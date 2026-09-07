@@ -2,8 +2,6 @@
 
 This is the thin route layer: it owns the HTTP endpoints and template rendering
 and delegates all page-data assembly to :mod:`app.routes.web_viewer_context`.
-The builders are imported here so existing callers that did
-``from app.routes.web_viewer import _game_view_context`` keep working.
 """
 
 from typing import Annotated

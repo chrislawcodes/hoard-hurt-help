@@ -23,7 +23,7 @@ from app.models.agent_version import AgentVersion
 from app.models.user import User
 from app.routes.web_support import safe_internal_next
 from app.templating import templates
-from app.routes.agents_queries import owned_agent_filter
+from app.read_models.agents_owned import owned_agent_filter
 
 router = APIRouter()
 

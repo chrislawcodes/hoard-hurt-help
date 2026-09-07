@@ -40,7 +40,7 @@ from app.routes.connections_connect_guide import (
     antigravity_config_file,
 )
 from app.routes.connections_machine_setup import _ensure_pending_setup_and_key
-from app.routes.connections_queries import (
+from app.read_models.connections_owned import (
     _connection_display_name,
     _live_status_context,
     _load_attached_agents,

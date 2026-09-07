@@ -1,7 +1,7 @@
 """The ownership rule has one home, and nothing re-derives it.
 
 "Is this the user's own, still-existing agent?" was written out by hand in seven
-places — twice inside `agents_queries.py` itself, ten lines apart, and again in
+places — twice inside `agents_owned.py` itself, ten lines apart, and again in
 `web_join._seat_user_agent`. That third copy is where the paused-agent bug lived:
 a caller that re-derives half a rule is equally free to forget the other half, and
 that one forgot to ask whether the agent could actually play.
@@ -19,12 +19,12 @@ import re
 from sqlalchemy import select
 
 from app.models.agent import Agent, AgentKind, AgentStatus
-from app.routes.agents_queries import owned_agent_filter
+from app.read_models.agents_owned import owned_agent_filter
 from tests.factories import make_agent, make_user
 
 APP = pathlib.Path(__file__).resolve().parents[1] / "app"
 # Where the rule is allowed to be spelled out: its own definition.
-HOME = "app/routes/agents_queries.py"
+HOME = "app/read_models/agents_owned.py"
 
 
 async def test_the_filter_means_what_the_pages_assume(reset_db) -> None:

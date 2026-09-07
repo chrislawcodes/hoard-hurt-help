@@ -20,7 +20,7 @@ from app.models.connection import ConnectionProvider
 from app.models.connection_setup import ConnectionSetup
 from app.models.user import User
 from app.routes.connections_connect_guide import _provider_label, _setup_message
-from app.routes.connections_queries import _load_owned_connection
+from app.read_models.connections_owned import _load_owned_connection
 from app.templating import templates
 
 router = APIRouter()

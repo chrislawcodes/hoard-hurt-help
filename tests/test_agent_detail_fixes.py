@@ -21,7 +21,7 @@ from app.models.user import User
 from app.routes.agents_lifecycle import router as agents_lifecycle_router
 from app.routes.agents_setup import router as agents_setup_router
 from app.routes.agents_detail import _load_agent_matches
-from app.routes.agents_health_presenter import _is_ready_to_play
+from app.read_models.agents_health import _is_ready_to_play
 from app.routes.agents_status import router as agents_status_router
 from app.routes.connections_credentials import router as connections_credentials_router
 from app.routes.connections_lifecycle import router as connections_lifecycle_router

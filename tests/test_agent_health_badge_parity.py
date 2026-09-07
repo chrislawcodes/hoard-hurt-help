@@ -41,7 +41,7 @@ from app.engine.provider_readiness import (
 )
 from app.models.agent import AgentStatus
 from app.models.connection import ConnectionProvider, ConnectionStatus
-from app.routes.agents_health_presenter import readiness_health_status
+from app.read_models.agents_health import readiness_health_status
 from app.routes.web_join import _build_ai_options
 from tests.conftest import signed_in_cookies as _cookies
 from tests.factories import make_agent, make_connection, make_user

@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from app.models import Agent
 from app.models.agent_version import AgentVersion
 from app.models.connection import ConnectionStatus
-from app.routes.agents_health_presenter import _readiness_state
+from app.read_models.agents_health import _readiness_state
 from tests.factories import make_agent, make_connection, make_user
 from tests.conftest import signed_in_cookies as _signed_in_cookies
 

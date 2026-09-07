@@ -64,12 +64,12 @@ home = "app/games/__init__.py"
 [[function_names]]
 name = "_load_user_agents"
 files = [
+    "app/read_models/connections_owned.py",
     "app/routes/agents_list.py",
-    "app/routes/connections_queries.py",
     "app/routes/web_player_shared.py",
 ]
 verdict = "leave"
-note = "all three call user_agents_select; differ by ai_only / ordering / return shape (2026-08 triage)"
+note = "all three call user_agents_select; differ by ai_only / ordering / return shape (2026-08 triage); connections_queries.py moved to app/read_models/connections_owned.py in the routes-import-only-routers PR"
 pr = "PR A"
 
 [[function_names]]
@@ -146,7 +146,8 @@ home = "app/read_models/matches.py"
 
 # load_open_turn/load_open_turns (app/engine/agent_play_reads.py) and
 # _count_agent_matches/_count_agent_matches_for_agents
-# (app/routes/agents_health_presenter.py) are the other two PR U4 singular/plural
+# (app/read_models/agents_health.py, moved from app/routes/agents_health_presenter.py
+# in the routes-import-only-routers PR) are the other two PR U4 singular/plural
 # pairs: the singular now delegates to the plural with a one-element list. They
 # have no entry here on purpose — this table's schema only fits
 # scripts/find_duplicate_rules.py's notion of a duplicate (the identical name
@@ -1570,3 +1571,98 @@ file = "app/read_models/engagement_milestones.py"
 line = 221
 verdict = "false_positive"
 note = "for user_id, submitted_at in (await db.execute(_genuine_submissions(cohort))).all(): the query is the for-loop's own iterable, run once before iteration starts, not re-run per row."
+
+# --- route_infrastructure (routes-import-only-routers PR) ---------------------
+# The rule: a module under app/routes/ should import route infrastructure from
+# another app/routes/ module, not act as a general library for it. Pure
+# queries and presenters belong in app/read_models/ instead — three modules
+# moved there in this PR (agents_queries.py -> read_models/agents_owned.py,
+# connections_queries.py -> read_models/connections_owned.py,
+# agents_health_presenter.py -> read_models/agents_health.py).
+#
+# `module` is the imported file's repo-relative path. Every entry below is
+# route-layer machinery on purpose: request/session dependencies,
+# authorization chains, shared redirect/error handling, StreamingResponse
+# plumbing, or copy — never a pure query. The first nine were named as the
+# baseline "genuinely route-layer machinery" set; scanning the live repo for
+# this PR turned up six more pre-existing cross-route imports of the same
+# shape, from page modules that also happen to define their own routes
+# (agents_create, agents_detail, sse, connections_machine_setup, web_play,
+# web_viewer_context) — recorded rather than moved, to keep this PR at zero
+# behaviour change. Two more (showcase_replay and web_play importing
+# `_game_view_context` from web_viewer.py, which only re-imported it from
+# web_viewer_context.py to keep old callers working) were repointed straight
+# at web_viewer_context.py instead of recorded, since that just fixes an
+# accidental one-hop forward and needed no new entry.
+#
+# NOT covered by this table (and not scanned at all): a parent module
+# importing a sibling page module by name to mount its `router` (e.g.
+# `from app.routes import agents_create, agents_detail, agents_list` in
+# agents_setup.py, used only as `agents_create.router`). That is router
+# composition — the normal way a FastAPI app nests routers — not one route
+# module borrowing another's internals, so it needs no entry here.
+#
+# Read by tests/test_routes_import_only_infrastructure.py, which fails the
+# build when a module under app/routes/ imports a specific name out of
+# another app/routes/ module that has no entry here: move it to
+# app/read_models/, or add an entry recording it as infrastructure on purpose.
+
+[[route_infrastructure]]
+module = "app/routes/web_support.py"
+note = "shared web-route helpers (safe_internal_next, admin/session checks, view-gating); must never import a web_* sibling itself, so routes can depend on it with no import cycle"
+
+[[route_infrastructure]]
+module = "app/routes/web_match_loaders.py"
+note = "the canonical match-loading FastAPI dependencies and game-slug-redirect machinery every route module shares; depends only on models, never on a web_* route module"
+
+[[route_infrastructure]]
+module = "app/routes/match_authz.py"
+note = "the ordered authorization dependencies (user vs. platform admin) for game-scoped match routes"
+
+[[route_infrastructure]]
+module = "app/routes/nav_context.py"
+note = "the one nav/hero 'Play' call-to-action resolver, reused by the auth and games-catalog routes"
+
+[[route_infrastructure]]
+module = "app/routes/web_player_shared.py"
+note = "small helpers shared by the split player route modules (guide/join/connect/dashboard) to avoid a circular import between siblings"
+
+[[route_infrastructure]]
+module = "app/routes/connections_connect_guide.py"
+note = "pure connect-instructions copy (play prompt, provider labels, CLI tables), no routes or DB access, reused by every connect surface"
+
+[[route_infrastructure]]
+module = "app/routes/admin_match_actions.py"
+note = "shared match-administration orchestration (create/cancel/export) reused by the platform-admin and game-scoped admin APIs"
+
+[[route_infrastructure]]
+module = "app/routes/admin_date_window.py"
+note = "the shared start/end/timezone window parser for the two admin reporting pages"
+
+[[route_infrastructure]]
+module = "app/routes/showcase_replay.py"
+note = "the cached showcase-replay loader; a router itself, but also the one home for load_showcase_replay_cached/showcase_mutual_help_mode, which other pages import directly"
+
+[[route_infrastructure]]
+module = "app/routes/agents_create.py"
+note = "a page module (has its own routes) whose clean_agent_name/clean_agent_blurb request-validation helpers (raise HTTPException) agents_lifecycle.py also calls, so the two agree on the same length/emptiness rules"
+
+[[route_infrastructure]]
+module = "app/routes/agents_detail.py"
+note = "a page module (has its own routes) whose Request-bound _build_agent_detail_context (and its _load_agent_matches query) agents_status.py also calls, so the status fragment renders the same context as the full page"
+
+[[route_infrastructure]]
+module = "app/routes/sse.py"
+note = "sse_response builds the shared text/event-stream StreamingResponse (headers, subscribe-and-forward) every SSE route uses, agents_status.py included"
+
+[[route_infrastructure]]
+module = "app/routes/connections_machine_setup.py"
+note = "a page module (has its own routes) whose Request/session-bound _ensure_pending_setup_and_key connections_pages.py also calls, to reuse the same stable setup key"
+
+[[route_infrastructure]]
+module = "app/routes/web_play.py"
+note = "a page module (has its own routes) whose seat_human_player (raises HTTPException, mutates the match) web_join.py also calls to seat a human player"
+
+[[route_infrastructure]]
+module = "app/routes/web_viewer_context.py"
+note = "the Request-bound page-data assembly (_game_view_context, _load_viewer_prompt_version) web_viewer.py's thin route layer delegates to; showcase_replay.py and web_play.py now import _game_view_context from here directly instead of via web_viewer.py"

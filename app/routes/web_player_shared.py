@@ -21,7 +21,7 @@ from app.models.agent_version import AgentVersion
 from app.models.connection import ConnectionProvider
 from app.models.player import Player
 from app.provider_labels import provider_label
-from app.routes.agents_queries import user_agents_select
+from app.read_models.agents_owned import user_agents_select
 from app.routes.web_support import SEAT_NAME_MAX, unique_seat_name
 
 

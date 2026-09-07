@@ -23,7 +23,7 @@ from app.models.match import (
     UNFINISHED_STATES,
 )
 from app.models.player import Player
-from app.routes.agents_queries import owned_agent_filter
+from app.read_models.agents_owned import owned_agent_filter
 from app.engine.turn_clock import now_utc
 
 

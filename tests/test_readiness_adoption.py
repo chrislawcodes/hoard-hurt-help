@@ -37,7 +37,7 @@ from app.models.match import GameState, Match
 from app.models.player import Player
 from app.models.user import User
 from app.routes.agents_detail import _build_agent_detail_context
-from app.routes.agents_health_presenter import readiness_health_status
+from app.read_models.agents_health import readiness_health_status
 from app.routes.connections_setup import router as connections_setup_router
 from app.routes.nav_context import PlaySetupStage, resolve_play_setup_state
 from tests.factories import make_connection, make_match, make_user
@@ -289,7 +289,7 @@ async def test_connections_poll_no_forward_when_no_mcp_connection(
 
 # ---------------------------------------------------------------------------
 # Part 2: agents_list badge via provider_readiness signal, through the shared
-# readiness_health_status mapping (app/routes/agents_health_presenter.py).
+# readiness_health_status mapping (app/read_models/agents_health.py).
 #
 # Stale/absent mcp_connected_at (100+ days) → NO_MCP_CONNECTION → "no live connection".
 # Recent mcp_connected_at but never seen live → CONNECTED_NOT_LIVE → also

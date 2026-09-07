@@ -17,6 +17,74 @@ header promising "what shipped and what is now unblocked".
 
 ---
 
+## Routes import infrastructure, not each other
+
+- **Routes import infrastructure, not each other** (2026-09-06, branch
+  `routes-import-only-routers`, Direct Path) — the rule: a module under
+  `app/routes/` should import route infrastructure from another
+  `app/routes/` module, not act as a general library for it. A pure query or
+  presenter belongs in `app/read_models/` instead.
+
+  Three modules moved: `agents_queries.py` → `app/read_models/agents_owned.py`
+  (~12 importers repointed: the ownership filter and the agent-loading
+  queries used across the agent pages), `connections_queries.py` →
+  `app/read_models/connections_owned.py` (~5 importers: the connections-page
+  loaders and card builders), and `agents_health_presenter.py` →
+  `app/read_models/agents_health.py` (~7 importers: the shared
+  readiness→badge mapping and match-count queries). Each was read first to
+  confirm it held no `router = APIRouter()`, no `@router.*`, and no `Depends`
+  used as a route dependency — pure SQLAlchemy queries and presentation
+  helpers only. One backwards import was also fixed:
+  `app/read_models/lobby_onboarding.py` had been importing
+  `owned_agent_filter` out of `app/routes/agents_queries.py`; it now imports
+  the read-model directly. No forwarding stub was left behind in
+  `app/routes/` — the repo's re-export tripwire
+  (`tests/test_reexports_have_one_home.py`) would have failed on one.
+
+  Nine modules stay in `app/routes/` on purpose, as genuinely route-layer
+  machinery: `web_support`, `web_match_loaders`, `match_authz`, `nav_context`,
+  `web_player_shared`, `connections_connect_guide`, `admin_match_actions`,
+  `admin_date_window`, and `showcase_replay` (a router that also exports two
+  helper functions other pages import directly). Six more pre-existing
+  cross-route imports of the same infrastructure shape turned up once the new
+  scanner ran against the live repo — `agents_create`, `agents_detail`,
+  `sse`, `connections_machine_setup`, `web_play`, and
+  `web_viewer_context` — each genuinely request/session-bound (raises
+  `HTTPException`, returns a `StreamingResponse`, or builds a
+  `Request`-bound template context), so each was recorded rather than moved,
+  to keep this PR at zero behaviour change. Two more (`showcase_replay.py`
+  and `web_play.py` importing `_game_view_context` from `web_viewer.py`,
+  which only re-imported it from `web_viewer_context.py` to keep old callers
+  working) were repointed straight at `web_viewer_context.py` instead of
+  recorded — that was an accidental one-hop forward, not a real dependency.
+
+  The new tripwire, `tests/test_routes_import_only_infrastructure.py`,
+  AST-scans every `app/routes/*.py` file for an import that dots into a
+  specific sibling module (`from app.routes.X import name`, `import
+  app.routes.X`, and their relative equivalents) and fails if `X` has no
+  entry in the new `[[route_infrastructure]]` table of
+  `one_home_verdicts.toml`, naming the importing file and the imported
+  module, and saying: move it to `read_models`, or record it as
+  infrastructure. Deliberately NOT scanned: a parent module importing a
+  sibling page module by plain name to mount its `router` (e.g. `from
+  app.routes import agents_create, agents_detail, agents_list` in
+  `agents_setup.py`, used only as `agents_create.router.routes`) — that is
+  router composition, the ordinary way a FastAPI app nests routers, and is
+  syntactically distinct (it never dots into the submodule) from one route
+  module reaching into another's internals. A `tmp_path` test proves the
+  scanner actually fires on an undeclared cross-route import.
+
+  Zero behaviour change: no route added, removed, or renamed; no function
+  renamed. Measured before/after in the same worktree (`git stash` /
+  `git stash pop`): route count held at 147, the import-cycle ratchet held
+  at 1 (the pre-existing, already-recorded `scheduler`/`scheduler_turn_loop`
+  cycle — untouched by this move), and the Part-3-scoped cross-route import
+  count fell from 78 to 60 (the 18 edges that used to point at the three
+  moved modules from other `app/routes/` files). Test collection rose by
+  exactly 2, matching the two new tests.
+
+---
+
 ## Every `except Exception` explained, or narrowed
 
 - **Every `except Exception` explained, or narrowed** (2026-09-06, branch

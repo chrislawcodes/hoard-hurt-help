@@ -38,7 +38,7 @@ from app.models.connection import Connection, ConnectionProvider, ConnectionStat
 from app.models.match import Match
 from app.models.user import User
 from app.routes.web_support import safe_internal_next
-from app.routes.agents_queries import owned_agent_filter
+from app.read_models.agents_owned import owned_agent_filter
 from app.engine.turn_clock import now_utc
 
 
