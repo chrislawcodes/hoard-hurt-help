@@ -241,6 +241,14 @@ PROVIDER_MODELS: dict[str, list[str]] = {
         "claude-haiku-4-5",
         "claude-sonnet-5",
         "claude-opus-5",
+        # Added 2026-09-07 and verified the same way — `claude --print --model
+        # claude-fable-5-1` answered. It goes LAST on purpose: the first entry is
+        # this provider's default model (`default_model_for_provider`), so moving
+        # it up would silently put every Claude seat with no preference on the
+        # most expensive model on the list. Fable also thinks on every turn and
+        # cannot be told not to, so a seat set to it needs a per-turn deadline
+        # well above the 75s default or its moves will time out and score HOARD.
+        "claude-fable-5-1",
     ],
     "gemini": [
         "gemini-3.1-flash-lite",
