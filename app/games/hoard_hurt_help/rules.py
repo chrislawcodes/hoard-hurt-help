@@ -238,11 +238,6 @@ def mutual_help_value(
     return max(MUTUAL_HELP_FLOOR, HELP_POINTS + MUTUAL_HELP_BONUS - repeats)
 
 
-def mode_uses_last_turn(mode: MutualHelpMode | str) -> bool:
-    """True when the payout depends on the immediately previous turn only."""
-    return MutualHelpMode(mode) is MutualHelpMode.NO_REPEATS
-
-
 def mutual_help_legend(mode: MutualHelpMode | str) -> str:
     """The one-line Help description for the replay legend, for this mode.
 

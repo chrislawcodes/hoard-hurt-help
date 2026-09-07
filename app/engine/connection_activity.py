@@ -34,7 +34,6 @@ from app.engine.connection_health_badge import (
     humanize_since,
     within_window,
 )
-from app.engine.onboarding_states import PREGAME_STATES, has_moved
 from app.engine.seated import seated_filter
 from app.models.connection import Connection, ConnectionStatus
 from app.models.match import Match, GameState
@@ -283,69 +282,6 @@ async def _seated_matches(db: AsyncSession, bot_id: int) -> Sequence[Match]:
         .scalars()
         .all()
     )
-
-
-async def compute_onboarding_status(db: AsyncSession, bot: Bot) -> OnboardingStatus:
-    """Resolve the bot's onboarding state from its stored + derived facts.
-
-    Precedence (top wins): has-moved -> in-active-game -> connected-in-pregame ->
-    connected-no-game -> entered-but-waiting-to-connect -> waiting. Play history
-    takes precedence so any established bot (including ones created before this
-    feature, with a NULL ``first_connected_at``) resolves to "playing" — a state
-    the detail page no longer renders as a persistent line (the health badge owns
-    that), keeping it only as the one-time first-move flourish.
-    """
-    games = await _seated_matches(db, bot.id)
-    active = next((g for g in games if g.state == GameState.ACTIVE), None)
-    pregame = next((g for g in games if g.state in PREGAME_STATES), None)
-    connected = bot.first_connected_at is not None
-    # A Connection has no `name`; its display name is the user-set nickname (a
-    # machine connection is named after the box) with a stable fallback.
-    name = bot.nickname or "Machine connection"
-
-    if await has_moved(db, bot.id):
-        # Established bot. The detail page hides the onboarding panel entirely for
-        # this state and lets the health badge be the single source of truth, so
-        # this only surfaces as the one-time first-move "flourish". Point it only
-        # at a genuinely live game — never a finished one, which would render a
-        # dead "Watch live" link.
-        return OnboardingStatus(
-            OnboardingState.PLAYING,
-            bot_name=name,
-            match_id=active.id if active else None,
-            game_name=active.name if active else None,
-            game_type=active.game if active else None,
-        )
-
-    if connected:
-        if active is not None:
-            return OnboardingStatus(
-                OnboardingState.IN_GAME_NO_MOVE,
-                name,
-                active.id,
-                active.name,
-                active.game,
-            )
-        if pregame is not None:
-            return OnboardingStatus(
-                OnboardingState.CONNECTED_PREGAME,
-                name,
-                pregame.id,
-                pregame.name,
-                pregame.game,
-            )
-        return OnboardingStatus(OnboardingState.CONNECTED_NO_GAME, name)
-
-    waiting_game = active or pregame
-    if waiting_game is not None:
-        return OnboardingStatus(
-            OnboardingState.WAITING_IN_GAME,
-            name,
-            waiting_game.id,
-            waiting_game.name,
-            waiting_game.game,
-        )
-    return OnboardingStatus(OnboardingState.WAITING, name)
 
 
 async def compute_bot_health(

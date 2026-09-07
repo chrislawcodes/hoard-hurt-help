@@ -9,13 +9,11 @@ only adds the labels, descriptions, and grouping the admin screen needs.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
 from dataclasses import dataclass
 
 from app.engine.bot_presets import (
     HISTORICAL_BOT_NAME_POOL,
     BOT_PRESETS,
-    allocate_default_bot_names,
 )
 
 # Each personality leans toward one of the three actions. Used only to colour a
@@ -99,11 +97,3 @@ BOT_NAME_POOL: tuple[str, ...] = HISTORICAL_BOT_NAME_POOL
 def is_known_personality(strategy: str) -> bool:
     return strategy in _PERSONALITY_IDS
 
-
-def allocate_default_names(count: int, used: Iterable[str]) -> list[str]:
-    """Pick ``count`` default names, skipping any already ``used``.
-
-    Walks the historical leader pool first, then falls back to ``Leader N`` if
-    a very large table exhausts it.
-    """
-    return allocate_default_bot_names(count, used_names=set(used))
