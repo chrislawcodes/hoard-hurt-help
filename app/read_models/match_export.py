@@ -103,9 +103,7 @@ async def gather_export_rows(
         seat_agent_id: user_id
         for seat_agent_id, user_id in (
             await db.execute(
-                select(Player.seat_name, Player.user_id).where(
-                    Player.match_id == match_id
-                )
+                select(Player.seat_name, Player.user_id).where(Player.match_id == match_id)
             )
         ).all()
     }
@@ -132,16 +130,12 @@ async def gather_export_rows(
                     # rather than defaulting to visible.
                     "thinking": (
                         action.thinking
-                        if viewer.may_read_private_seat_text(
-                            owner_of_seat.get(action.agent_id, -1)
-                        )
+                        if viewer.may_read_private_seat_text(owner_of_seat.get(action.agent_id, -1))
                         else None
                     ),
                     "points_delta": action.points_delta,
                     "round_score_after": action.round_score_after,
-                    "submitted_at": action.submitted_at.isoformat()
-                    if action.submitted_at
-                    else "",
+                    "submitted_at": action.submitted_at.isoformat() if action.submitted_at else "",
                     "was_defaulted": action.was_defaulted,
                 }
             )
@@ -176,18 +170,32 @@ async def build_json_export(
     """Build the JSON export response for a loaded match."""
 
     match_id = match.id
-    players = (
-        (await db.execute(select(Player).where(Player.match_id == match_id))).scalars().all()
-    )
+    players = (await db.execute(select(Player).where(Player.match_id == match_id))).scalars().all()
+
+    # Batched once for the whole roster instead of once per player: a match
+    # export walks every seat, and looking up its AgentVersion and Agent one
+    # row at a time turned a fixed handful of queries into one per player.
+    agent_version_ids = {p.agent_version_id for p in players if p.agent_version_id is not None}
+    versions_by_id: dict[int, AgentVersion] = {}
+    if agent_version_ids:
+        version_rows = (
+            (await db.execute(select(AgentVersion).where(AgentVersion.id.in_(agent_version_ids))))
+            .scalars()
+            .all()
+        )
+        versions_by_id = {v.id: v for v in version_rows}
+
+    agent_ids = {p.agent_id for p in players}
+    agents_by_id: dict[int, Agent] = {}
+    if agent_ids:
+        agent_rows = (
+            (await db.execute(select(Agent).where(Agent.id.in_(agent_ids)))).scalars().all()
+        )
+        agents_by_id = {a.id: a for a in agent_rows}
+
     players_payload: list[dict[str, Any]] = []
     for p in players:
-        version = None
-        if p.agent_version_id is not None:
-            version = (
-                await db.execute(
-                    select(AgentVersion).where(AgentVersion.id == p.agent_version_id)
-                )
-            ).scalar_one_or_none()
+        version = versions_by_id.get(p.agent_version_id) if p.agent_version_id is not None else None
         # A bot seat carries no agent_version_id, so `version` is already None
         # and needs no special case here.
         strategy_prompt: str | None = None
@@ -221,9 +229,7 @@ async def build_json_export(
         # Same resolver the turn payload uses, so this is the server's answer,
         # not a second opinion. Once the seat plays, `model` above is the record
         # and this stays what was intended.
-        agent = (
-            await db.execute(select(Agent).where(Agent.id == p.agent_id))
-        ).scalar_one_or_none()
+        agent = agents_by_id.get(p.agent_id)
         model_to_play = (
             resolve_seat_model(p.chosen_provider, agent.preferred_model)
             if agent is not None
@@ -246,9 +252,7 @@ async def build_json_export(
             "id": match.id,
             "name": match.name,
             "state": match.state.value,
-            "scheduled_start": match.scheduled_start.isoformat()
-            if match.scheduled_start
-            else None,
+            "scheduled_start": match.scheduled_start.isoformat() if match.scheduled_start else None,
             "started_at": match.started_at.isoformat() if match.started_at else None,
             "completed_at": match.completed_at.isoformat() if match.completed_at else None,
             "rules_version": match.rules_version,

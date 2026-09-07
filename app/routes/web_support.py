@@ -42,10 +42,26 @@ __all__ = [
 ]
 
 _GENERAL_NAMES: tuple[str, ...] = (
-    "Napoleon", "Hannibal", "Caesar", "Wellington", "Patton",
-    "Eisenhower", "Rommel", "Alexander", "Scipio", "Marlborough",
-    "Sherman", "Grant", "Montgomery", "Zhukov", "MacArthur",
-    "Khalid", "Saladin", "Genghis", "Sun Tzu", "Bolivar",
+    "Napoleon",
+    "Hannibal",
+    "Caesar",
+    "Wellington",
+    "Patton",
+    "Eisenhower",
+    "Rommel",
+    "Alexander",
+    "Scipio",
+    "Marlborough",
+    "Sherman",
+    "Grant",
+    "Montgomery",
+    "Zhukov",
+    "MacArthur",
+    "Khalid",
+    "Saladin",
+    "Genghis",
+    "Sun Tzu",
+    "Bolivar",
 )
 
 # Public seat names are capped to fit the standings column.
@@ -179,9 +195,7 @@ async def _load_owned_player_match_or_404(
     missing_detail: str | None = None,
 ) -> tuple[Player, Match]:
     player = (
-        await db.execute(
-            select(Player).where(Player.id == player_id, Player.user_id == user_id)
-        )
+        await db.execute(select(Player).where(Player.id == player_id, Player.user_id == user_id))
     ).scalar_one_or_none()
     if player is None:
         if missing_detail is not None:
@@ -197,16 +211,21 @@ async def _redirect_to_match(
     *,
     suffix: str = "",
 ) -> RedirectResponse:
-    match = None
-    for candidate_match_id in match_id_candidates(legacy_match_id):
-        match = (
-            await db.execute(select(Match).where(Match.id == candidate_match_id))
-        ).scalar_one_or_none()
-        if match is not None:
-            break
+    candidates = match_id_candidates(legacy_match_id)
+    matches_by_id = {
+        m.id: m
+        for m in ((await db.execute(select(Match).where(Match.id.in_(candidates)))).scalars().all())
+    }
+    # One row can match more than one candidate spelling (a straggler legacy
+    # `G_` row alongside an unrelated `M_` row with the same suffix), so the
+    # winner is picked by walking `candidates` in order rather than trusting
+    # whatever order the `IN` query happened to return.
+    match = next((matches_by_id[c] for c in candidates if c in matches_by_id), None)
     if match is None:
         raise HTTPException(404)
-    return RedirectResponse(url=_match_url(match, suffix), status_code=status.HTTP_301_MOVED_PERMANENTLY)
+    return RedirectResponse(
+        url=_match_url(match, suffix), status_code=status.HTTP_301_MOVED_PERMANENTLY
+    )
 
 
 def _is_showcase(view: dict) -> bool:
@@ -218,9 +237,7 @@ def _is_showcase(view: dict) -> bool:
     )
 
 
-async def _batch_top_standings(
-    db, match_ids: list[str], limit: int = 3
-) -> dict[str, list[dict]]:
+async def _batch_top_standings(db, match_ids: list[str], limit: int = 3) -> dict[str, list[dict]]:
     """Fetch top-N standings for multiple matches in one query.
 
     Returns a dict keyed by match_id, each value is the top-N players sorted by
@@ -230,14 +247,7 @@ async def _batch_top_standings(
         return {}
 
     players = (
-        (
-            await db.execute(
-                select(Player).where(
-                    Player.match_id.in_(match_ids),
-                    seated_filter()
-                )
-            )
-        )
+        (await db.execute(select(Player).where(Player.match_id.in_(match_ids), seated_filter())))
         .scalars()
         .all()
     )
@@ -245,10 +255,12 @@ async def _batch_top_standings(
     # Group players by match, preserving every requested id (empty lists included).
     by_match: dict[str, list[dict]] = {mid: [] for mid in match_ids}
     for p in players:
-        by_match[p.match_id].append({
-            "agent_id": p.seat_name,
-            "round_score": p.current_round_score,
-            "round_wins": p.total_round_wins,
-        })
+        by_match[p.match_id].append(
+            {
+                "agent_id": p.seat_name,
+                "round_score": p.current_round_score,
+                "round_wins": p.total_round_wins,
+            }
+        )
 
     return rank_standings_by_match(by_match, limit=limit)
