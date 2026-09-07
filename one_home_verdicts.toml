@@ -1412,8 +1412,8 @@ pr = "PR U3"
 
 [[match_players_baseline]]
 file = "app/read_models/match_export.py"
-line = 180
-note = "row order of the JSON export's players array is user-visible; load_players' ORDER BY seat_name is not provably the same order, so routing it would risk changing the export"
+line = 173
+note = "row order of the JSON export's players array is user-visible; load_players' ORDER BY seat_name is not provably the same order, so routing it would risk changing the export. Line moved 180->173 when the per-row-query batching PR reformatted the surrounding function; the query itself is unchanged."
 pr = "PR U5"
 
 [[match_players_baseline]]
@@ -1531,3 +1531,42 @@ name = "wait_for_leaderboard_refreshes"
 line = 55
 verdict = "unjudged"
 note = "same 'await any in-flight background refresh, for tests and shutdown' shape as wait_for_lobby_refreshes and wait_for_showcase_refreshes, both deleted by this PR — this one wasn't in Part 1's named list of six, left for a person to judge"
+
+# --- per_row_queries ----------------------------------------------------------
+# A scanner hit is an `await db.execute(...)` / `await db.get(...)` (matching
+# the session variable names this repo actually uses: `db`, or any name ending
+# `_db`) whose nearest enclosing statement, walking outward and stopping at the
+# first `for`/`async for`, is that loop — covering both its own iterable
+# expression and its body, so a call that only LOOKS like it runs per-row (the
+# loop is iterating the query's own result) is still flagged for a person to
+# look at. A nested function def defined inside the loop resets the scan, so a
+# call inside a closure isn't blamed on the loop that defines it.
+#
+# `line` is the `for`/`async for` statement's own line, not the call's — one
+# entry covers every per-row query inside that one loop, however many there
+# are.
+#
+# verdict is one of: leave | false_positive | unjudged
+#   leave          = a real per-row query, looked at, kept on purpose (reason
+#                     in `note`) rather than batched.
+#   false_positive = not actually a per-row query — usually the loop is
+#                     iterating the query's own already-fetched result, not
+#                     re-querying per row.
+#   unjudged       = flagged, nobody has looked at it yet.
+#
+# Read by tests/test_no_query_per_row.py, which fails the build when a new
+# per-row query appears with no entry here (message: batch it, or record why
+# it must stay per-row), and also fails when a recorded entry's loop no longer
+# scans as a hit — the ratchet only tightens.
+
+[[per_row_queries]]
+file = "app/engine/arena.py"
+line = 360
+verdict = "leave"
+note = "for match_id in due_ids: re-fetches the match (db.get) and its active players (db.execute) per id on purpose — an earlier iteration's commit/rollback (e.g. mark_cancelled + commit) must not leave a later iteration holding a stale, expired ORM object from a batched pre-fetch."
+
+[[per_row_queries]]
+file = "app/read_models/engagement_milestones.py"
+line = 221
+verdict = "false_positive"
+note = "for user_id, submitted_at in (await db.execute(_genuine_submissions(cohort))).all(): the query is the for-loop's own iterable, run once before iteration starts, not re-run per row."

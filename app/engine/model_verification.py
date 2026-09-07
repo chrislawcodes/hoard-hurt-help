@@ -96,26 +96,21 @@ async def compute_worklist(
     # Drop pairs already checked within the refresh window.
     fresh_cutoff = now - REFRESH_INTERVAL
     rows = (
-        (
-            await db.execute(
-                select(
-                    ModelVerification.provider,
-                    ModelVerification.model,
-                    ModelVerification.checked_at,
-                ).where(ModelVerification.connection_id == connection.id)
-            )
+        await db.execute(
+            select(
+                ModelVerification.provider,
+                ModelVerification.model,
+                ModelVerification.checked_at,
+            ).where(ModelVerification.connection_id == connection.id)
         )
-        .all()
-    )
+    ).all()
     fresh = {
         (provider, model)
         for provider, model, checked_at in rows
         if checked_at is not None and ensure_aware(checked_at) > fresh_cutoff
     }
-    return [
-        {"provider": provider, "model": model}
-        for provider, model in sorted(desired - fresh)
-    ]
+    return [{"provider": provider, "model": model} for provider, model in sorted(desired - fresh)]
+
 
 _MAX_ERROR_LEN = 300
 # Token-shaped secrets redacted FIRST (so a key embedded in a path is caught
@@ -140,9 +135,7 @@ def sanitize_error(text: str | None) -> str | None:
     return cleaned or None
 
 
-def _status_for_outcome(
-    outcome: str, prior_timeouts: int
-) -> tuple[ModelVerificationStatus, int]:
+def _status_for_outcome(outcome: str, prior_timeouts: int) -> tuple[ModelVerificationStatus, int]:
     """Map a reported outcome to a stored status + new consecutive-timeout count.
 
     verified/failed reset the timeout streak; a timeout increments it and escalates
@@ -171,21 +164,47 @@ async def record_results(
     rows are updated in place; new ones are created. Caller commits.
     """
     now = now_utc()
+
+    # Parse/filter up front, then batch-load every existing row this call could
+    # touch in one query instead of one SELECT per result.
+    parsed: list[tuple[str, str, str, str | None]] = []
+    keys: set[tuple[str, str]] = set()
     for result in results:
         provider = str(result.get("provider") or "").lower()
         model = str(result.get("model") or "")
         outcome = str(result.get("outcome") or "")
         if not provider or not model:
             continue
-        row = (
-            await db.execute(
-                select(ModelVerification).where(
-                    ModelVerification.connection_id == connection.id,
-                    ModelVerification.provider == provider,
-                    ModelVerification.model == model,
+        parsed.append((provider, model, outcome, result.get("error_text")))
+        keys.add((provider, model))
+
+    rows_by_key: dict[tuple[str, str], ModelVerification] = {}
+    if keys:
+        providers = {provider for provider, _ in keys}
+        models = {model for _, model in keys}
+        existing_rows = (
+            (
+                await db.execute(
+                    select(ModelVerification).where(
+                        ModelVerification.connection_id == connection.id,
+                        ModelVerification.provider.in_(providers),
+                        ModelVerification.model.in_(models),
+                    )
                 )
             )
-        ).scalar_one_or_none()
+            .scalars()
+            .all()
+        )
+        # provider IN (...) AND model IN (...) is a cross product, wider than the
+        # exact (provider, model) pairs asked for, so filter back down to those.
+        rows_by_key = {
+            (row.provider, row.model): row
+            for row in existing_rows
+            if (row.provider, row.model) in keys
+        }
+
+    for provider, model, outcome, error_text in parsed:
+        row = rows_by_key.get((provider, model))
         if row is None:
             # Set consecutive_timeouts explicitly: the column default applies only
             # at INSERT, so a freshly-created (unflushed) row reads None otherwise.
@@ -196,13 +215,12 @@ async def record_results(
                 consecutive_timeouts=0,
             )
             db.add(row)
+            rows_by_key[(provider, model)] = row
         status, streak = _status_for_outcome(outcome, row.consecutive_timeouts)
         row.status = status
         row.consecutive_timeouts = streak
         row.error_text = (
-            sanitize_error(result.get("error_text"))
-            if status is not ModelVerificationStatus.VERIFIED
-            else None
+            sanitize_error(error_text) if status is not ModelVerificationStatus.VERIFIED else None
         )
         row.checked_at = now
 
