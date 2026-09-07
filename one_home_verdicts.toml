@@ -648,9 +648,9 @@ note = "PR S6: +18 lines — start_poller/_poll_due_loop now take sweep_overdue_
 
 [[oversized]]
 file = "app/engine/scheduler_turn_loop.py"
-lines = 418
+lines = 423
 kind = "source"
-note = "PR U2: +4 lines — TALK_DEADLINE_SECONDS now reads settings.talk_deadline_seconds (app/config.py owns the env read) instead of os.environ.get directly; kept as a module-level alias since tests import it by name. PR U5: -3 lines — the round-reset player query now calls load_players(db, game.id) instead of its own select(Player).where(...) query. PR U6: +1 line — seated_filter() import (left_at is-None sweep)."
+note = "PR U2: +4 lines — TALK_DEADLINE_SECONDS now reads settings.talk_deadline_seconds (app/config.py owns the env read) instead of os.environ.get directly; kept as a module-level alias since tests import it by name. PR U5: -3 lines — the round-reset player query now calls load_players(db, game.id) instead of its own select(Player).where(...) query. PR U6: +1 line — seated_filter() import (left_at is-None sweep). fail-loud-review: +5 lines — comments marking the two `except Exception` sites here as an allowed background-task chokepoint and a fail-open crash-context read (CLAUDE.md's Fail Loud rule + tests/test_except_exception_is_explained.py)."
 
 [[oversized]]
 file = "app/engine/win_probability.py"

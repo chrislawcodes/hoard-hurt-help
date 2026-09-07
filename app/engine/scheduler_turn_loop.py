@@ -258,6 +258,9 @@ async def _run_game_guarded(match_id: str) -> None:
     try:
         await scheduler._run_game(match_id)
     except Exception as exc:
+        # background task: this is the fire-and-forget turn loop's single
+        # chokepoint — record the crash as a queryable incident, then re-raise
+        # so it still surfaces.
         round_num: int | None = None
         turn_num: int | None = None
         try:
@@ -268,7 +271,9 @@ async def _run_game_guarded(match_id: str) -> None:
                 if match is not None:
                     round_num = match.current_round
                     turn_num = match.current_turn
-        except Exception:  # never let crash-reporting hide the original crash
+        except Exception:
+            # fail-open: advisory only — this is just extra crash context
+            # (round/turn); never let crash-reporting hide the original crash.
             scheduler.logger.exception(
                 "could not read match position for crash context match_id=%s",
                 match_id,

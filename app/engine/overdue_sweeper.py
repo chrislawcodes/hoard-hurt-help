@@ -95,8 +95,9 @@ async def sweep_overdue_turns(
                 factory, reg, match_id, round_num, turn_num
             )
         except Exception as exc:
-            # fail-open per match, loud like a loop crash: the incident is
-            # persisted and greppable; remaining frozen matches still get swept.
+            # background task: the sweeper must survive one bad match — the
+            # incident is persisted and greppable, and the sweep moves on to
+            # heal the rest.
             log_ops_event(
                 logger,
                 logging.ERROR,

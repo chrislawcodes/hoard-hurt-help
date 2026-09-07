@@ -207,7 +207,9 @@ def create_app() -> FastAPI:
         # MCP SDK not installed in this environment — /mcp will be unavailable.
         logger.warning("MCP SDK not installed; /mcp endpoint disabled")
     except Exception:
-        # MCP SDK is present but broken (bad install, version conflict, etc).
+        # fail-open: advisory only — MCP SDK is present but broken (bad
+        # install, version conflict, etc). The rest of the app must still
+        # start; only /mcp is unavailable.
         logger.exception("Failed to initialize MCP server; /mcp endpoint disabled")
 
     @asynccontextmanager

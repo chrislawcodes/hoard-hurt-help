@@ -151,6 +151,9 @@ async def google_callback(request: Request, db: DbSession):
     try:
         token = await oauth.google.authorize_access_token(request)
     except Exception as exc:
+        # route handler: the OAuth exchange can fail in many ways (authlib
+        # error, network error, malformed response); turn any of them into a
+        # clean 400 instead of a 500.
         raise api_error(
             status_code=status.HTTP_400_BAD_REQUEST,
             code="GOOGLE_AUTH_FAILED",
