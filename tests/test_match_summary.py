@@ -32,6 +32,7 @@ def _act(
     target: str | None = None,
     delta: int = 0,
     mutual: bool = False,
+    was_defaulted: bool = False,
 ) -> dict[str, Any]:
     return {
         "agent_id": seat,
@@ -39,6 +40,12 @@ def _act(
         "target_id": target,
         "display_delta": delta,
         "mutual": mutual,
+        # The actor's own gain from this move — what the real viewer.py
+        # history calls actor_delta (build_final_summary's cooperator-wins
+        # tiebreak tail reads it for HOARD points). Reusing `delta` keeps
+        # every existing call site unchanged.
+        "actor_delta": delta,
+        "was_defaulted": was_defaulted,
     }
 
 

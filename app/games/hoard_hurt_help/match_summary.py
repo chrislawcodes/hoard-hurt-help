@@ -16,6 +16,8 @@ from __future__ import annotations
 from collections import Counter
 from typing import Any
 
+from app.engine.finish_order import CooperationTally, cooperation_tally
+
 
 def _fmt_wins(wins: float) -> str:
     """Round-wins for display: whole numbers as integers, tie-split fractions to
@@ -170,6 +172,15 @@ def build_final_summary(
 
     name_of = {row["agent_id"]: row["display_name"] for row in scoreboard}
     mix = _action_mix(history)
+    # The cooperator-wins tiebreak chain's later keys (app/engine/finish_order.py):
+    # HOARD's actor_delta is this move's points_delta equivalent — the actor's
+    # own gain, which for HOARD is the turn's shared-pot payout.
+    zero_tally = CooperationTally()
+    tallies = cooperation_tally(
+        (a["agent_id"], a["target_id"], a["action"], a["actor_delta"], a["was_defaulted"])
+        for turn in history
+        for a in turn.get("actions", [])
+    )
 
     standings: list[dict[str, Any]] = []
     for row in scoreboard:
@@ -187,8 +198,24 @@ def build_final_summary(
                 "mix": mix.get(seat, {"hoard": 0, "help": 0, "hurt": 0}),
             }
         )
-    # Rounds won is the score; points break ties; name keeps it deterministic.
-    standings.sort(key=lambda r: (-r["round_wins"], -r["total_score"], r["display_name"]))
+    # Rounds won is the score; points break ties; still level, the
+    # cooperator-wins chain (most HELP received, then given, most HURT
+    # received, FEWEST HURT given, most HOARD points); name keeps it
+    # deterministic display order for a group level on all of those — this
+    # page always ranks 1..n in order, ties or not, so a fully level group
+    # just sits adjacent in the list rather than sharing a rank number.
+    standings.sort(
+        key=lambda r: (
+            -r["round_wins"],
+            -r["total_score"],
+            -tallies.get(r["agent_id"], zero_tally).help_received,
+            -tallies.get(r["agent_id"], zero_tally).help_given,
+            -tallies.get(r["agent_id"], zero_tally).hurt_received,
+            tallies.get(r["agent_id"], zero_tally).hurt_given,
+            -tallies.get(r["agent_id"], zero_tally).hoard_points,
+            r["display_name"],
+        )
+    )
     for i, row in enumerate(standings, start=1):
         row["rank"] = i
 

@@ -289,7 +289,35 @@ class HoardHurtHelp(BaseGameModule):
         await resolver.award_round_winners(db, game, round_num)
 
     async def finalize(self, db: AsyncSession, game: Match) -> None:
-        await resolver.finalize_game(db, game)
+        await resolver.finalize_game(db, game, self)
+
+    def match_placement_key(
+        self,
+        *,
+        round_wins: float,
+        total_score: int,
+        help_received: int = 0,
+        help_given: int = 0,
+        hurt_received: int = 0,
+        hurt_given: int = 0,
+        hoard_points: int = 0,
+    ) -> tuple[float, ...]:
+        """The cooperator-wins tiebreak chain: round wins, then total score,
+        then — level on both — most HELP received, most HELP given, most HURT
+        received, FEWEST HURT given (note the sign flip: dealing less HURT
+        ranks higher), then most points earned from HOARD. Level on all
+        seven, the match is a shared win — see
+        docs/operations/what-shipped-and-why.md for the rule and the evidence
+        behind it."""
+        return (
+            round_wins,
+            float(total_score),
+            float(help_received),
+            float(help_given),
+            float(hurt_received),
+            float(-hurt_given),
+            float(hoard_points),
+        )
 
     async def default_move(
         self, db: AsyncSession, match: Match, player: Player

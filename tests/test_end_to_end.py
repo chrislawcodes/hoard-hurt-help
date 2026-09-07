@@ -99,7 +99,16 @@ async def _play_turn(db, game: Match, players: list[Player], round_num: int, tur
 
 
 async def test_full_game_runs_to_completion(db):
-    """3 rounds × 4 turns × 4 players. AI_1 and AI_2 (mutual pact) should win each round."""
+    """3 rounds × 4 turns × 4 players. AI_1 and AI_2 (mutual pact) should win each round.
+
+    AI_1 and AI_2 HELP each other on every single turn and never HOARD or
+    HURT, so they finish this match perfectly level: same round wins, same
+    total score, same HELP given and received. That is a genuine tie all the
+    way down the cooperator-wins chain (app/engine/finish_order.py) — not a
+    bug, the honest outcome of two players who played identically to each
+    other — so the match completes with a shared win rather than an
+    arbitrary single winner.
+    """
     game, players = await _setup_game(db, n_players=4)
 
     for round_num in range(1, game.total_rounds + 1):
@@ -113,11 +122,16 @@ async def test_full_game_runs_to_completion(db):
 
         await award_round_winners(db, game, round_num)
 
-    await finalize_game(db, game)
+    module = get_game_module(game.game)
+    placement = await module.final_placement(db, game)
+    await finalize_game(db, game, module)
     await db.refresh(game)
 
     assert game.state == GameState.COMPLETED
-    assert game.winner_player_id is not None
+    assert game.winner_player_id is None
+    # AI_1 and AI_2 (players[1], players[2]) share the top placement group;
+    # AI_0 and AI_3 never HELP anyone, so they trail.
+    assert set(placement[:2]) == {players[1].id, players[2].id}
 
     # AI_1 and AI_2 had the mutual pact (+8 per turn each, 4 turns = +32 per round, max).
     # AI_0 was getting Hurt every turn (-4 - 4 = -2 per turn if AI_3 hurts and another helps;

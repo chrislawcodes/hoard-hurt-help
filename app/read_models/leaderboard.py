@@ -12,6 +12,7 @@ from typing import Literal
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.engine.finish_order import CooperationTally, cooperation_tally
 from app.games import GameError
 from app.games.base import default_match_placement_key
 from app.games import game_display_name
@@ -21,6 +22,7 @@ from app.models.agent import Agent, AgentKind
 from app.models.agent_version import AgentVersion
 from app.models.match import GameState, Match
 from app.models.player import Player
+from app.models.turn import Turn, TurnSubmission
 from app.models.user import User
 from app.match_naming import is_smoke_test_match_name
 from app.provider_labels import provider_label
@@ -78,6 +80,14 @@ class _Participant:
     total_score: int
     last_played_at: datetime
     provider: str | None = None
+    # The cooperator-wins tiebreak chain's later keys (app/engine/finish_order.py).
+    # 0 for a game with no HELP/HURT/HOARD concept (e.g. Liar's Dice) — that
+    # game's own match_placement_key ignores them.
+    help_received: int = 0
+    help_given: int = 0
+    hurt_received: int = 0
+    hurt_given: int = 0
+    hoard_points: int = 0
 
 
 @dataclass(frozen=True)
@@ -126,6 +136,14 @@ def _merge_same_key_participants(participants: list[_Participant]) -> list[_Part
         else:
             avg_wins = sum(p.round_wins for p in group) / len(group)
             avg_score = sum(p.total_score for p in group) // len(group)
+            # Same floor-division averaging as total_score above, for the
+            # same reason: a merged competitor is one persona, not a sum of
+            # its re-seated instances.
+            avg_help_received = sum(p.help_received for p in group) // len(group)
+            avg_help_given = sum(p.help_given for p in group) // len(group)
+            avg_hurt_received = sum(p.hurt_received for p in group) // len(group)
+            avg_hurt_given = sum(p.hurt_given for p in group) // len(group)
+            avg_hoard_points = sum(p.hoard_points for p in group) // len(group)
             latest_participant = max(group, key=lambda p: p.last_played_at)
             merged.append(
                 _Participant(
@@ -139,6 +157,11 @@ def _merge_same_key_participants(participants: list[_Participant]) -> list[_Part
                     total_score=avg_score,
                     last_played_at=latest_participant.last_played_at,
                     provider=latest_participant.provider,
+                    help_received=avg_help_received,
+                    help_given=avg_help_given,
+                    hurt_received=avg_hurt_received,
+                    hurt_given=avg_hurt_given,
+                    hoard_points=avg_hoard_points,
                 )
             )
     return merged
@@ -168,9 +191,38 @@ def _logistic_expected(rating_a: float, rating_b: float) -> float:
     return 1.0 / (1.0 + pow(10.0, (rating_b - rating_a) / 400.0))
 
 
+async def _load_cooperation_tallies(db: AsyncSession) -> dict[int, CooperationTally]:
+    """One batched query for every player's cooperation tally across every
+    completed, post-cutoff match — never one query per match. Same filters as
+    `_load_match_bundles`; a player_id that turns out to belong to a
+    smoke-test match `_load_match_bundles` drops is simply never looked up.
+    """
+    rows = (
+        await db.execute(
+            select(
+                TurnSubmission.player_id,
+                TurnSubmission.target_player_id,
+                TurnSubmission.action,
+                TurnSubmission.points_delta,
+                TurnSubmission.was_defaulted,
+            )
+            .join(Turn, Turn.id == TurnSubmission.turn_id)
+            .join(Match, Match.id == Turn.match_id)
+            .where(
+                Match.state == GameState.COMPLETED,
+                Match.scheduled_start >= LEADERBOARD_CUTOFF,
+                Turn.resolved_at.is_not(None),
+            )
+        )
+    ).all()
+    return cooperation_tally(tuple(row) for row in rows)
+
+
 async def _load_match_bundles(db: AsyncSession) -> dict[str, _MatchBundle]:
     """Load completed, post-cutoff matches and fold each one's rows into a single
     `_MatchBundle` keyed by match id, dropping smoke-test matches entirely."""
+    tallies = await _load_cooperation_tallies(db)
+    zero_tally = CooperationTally()
     rows = (
         await db.execute(
             select(Match, Player, Agent, AgentVersion, User)
@@ -224,6 +276,11 @@ async def _load_match_bundles(db: AsyncSession) -> dict[str, _MatchBundle]:
                     total_score=player.total_round_score,
                     last_played_at=match.completed_at or match.started_at or match.scheduled_start,
                     provider=None if agent.kind == AgentKind.BOT else player.played_provider,
+                    help_received=tallies.get(player.id, zero_tally).help_received,
+                    help_given=tallies.get(player.id, zero_tally).help_given,
+                    hurt_received=tallies.get(player.id, zero_tally).hurt_received,
+                    hurt_given=tallies.get(player.id, zero_tally).hurt_given,
+                    hoard_points=tallies.get(player.id, zero_tally).hoard_points,
                 ),
             ],
             has_bots=bundle.has_bots or agent.kind == AgentKind.BOT,
@@ -240,14 +297,33 @@ def _order_game_types(games: dict[str, list[_MatchBundle]]) -> list[str]:
     return ordered_game_types
 
 
+def _default_placement_key(
+    *,
+    round_wins: float,
+    total_score: int,
+    help_received: int = 0,
+    help_given: int = 0,
+    hurt_received: int = 0,
+    hurt_given: int = 0,
+    hoard_points: int = 0,
+) -> tuple[float, ...]:
+    """Adapts `default_match_placement_key` to the widened
+    `match_placement_key` call shape (`_compute_placement_tiers` always
+    passes all seven keyword args). `default_match_placement_key` itself
+    stays narrow on purpose — see its own docstring — so this discards the
+    five cooperation counts rather than adding them to the default."""
+    return default_match_placement_key(round_wins=round_wins, total_score=total_score)
+
+
 def _resolve_placement_key(game_type: str) -> Callable[..., tuple[float, ...]]:
     """Placement is per-game (shared rating math, per-game finish order). PD's key
-    is (round_wins, total_score); a game overrides match_placement_key to rank its
-    own way. Unregistered legacy game types fall back to the default."""
+    is (round_wins, total_score, ...cooperation counts); a game overrides
+    match_placement_key to rank its own way. Unregistered legacy game types
+    fall back to the default."""
     try:
         return get_game_module(game_type).match_placement_key
     except GameError:
-        return default_match_placement_key
+        return _default_placement_key
 
 
 def _compute_placement_tiers(
@@ -259,7 +335,13 @@ def _compute_placement_tiers(
     competitor keys that share the top tier."""
     keys_by_competitor = {
         participant.competitor_key: placement_key(
-            round_wins=participant.round_wins, total_score=participant.total_score
+            round_wins=participant.round_wins,
+            total_score=participant.total_score,
+            help_received=participant.help_received,
+            help_given=participant.help_given,
+            hurt_received=participant.hurt_received,
+            hurt_given=participant.hurt_given,
+            hoard_points=participant.hoard_points,
         )
         for participant in participants
     }

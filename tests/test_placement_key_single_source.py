@@ -21,7 +21,13 @@ hard-coded tuples, so a change to the default is inherited here instead of
 needing this file updated in step — which is the drift all over again.
 
 Liar's Dice deliberately ranks the other way round, and that divergence is
-pinned below so nobody "fixes" it into agreement.
+pinned below so nobody "fixes" it into agreement. Hoard Hurt Help used to
+inherit the bare default unchanged; it now overrides too, extending it with
+the cooperator-wins tiebreak chain (``app/engine/finish_order.py``) — with no
+cooperation stats its key still agrees with the default on the first two
+elements, but it is a longer tuple, and its own divergence (two players level
+on round_wins/total_score but not on cooperation) is pinned below the same
+way Liar's Dice's is.
 """
 
 from __future__ import annotations
@@ -58,12 +64,34 @@ def test_legacy_fallback_matches_the_default(round_wins: float, total_score: int
 
 
 @pytest.mark.parametrize(("round_wins", "total_score"), CASES)
-def test_inheriting_game_matches_the_default(round_wins: float, total_score: int) -> None:
-    """Hoard Hurt Help does not override, so it must rank as the default."""
+def test_hhh_placement_key_extends_the_default(round_wins: float, total_score: int) -> None:
+    """Hoard Hurt Help overrides now, deliberately, with the cooperator-wins
+    tiebreak chain (app/engine/finish_order.py). With no cooperation stats
+    supplied (as here), the chain's five extra fields are all zero, and the
+    first two elements still agree with the shared default — the override
+    extends it, it does not replace it.
+    """
     key = get_game_module("hoard-hurt-help").match_placement_key
     assert key(round_wins=round_wins, total_score=total_score) == (
+        round_wins, float(total_score), 0.0, 0.0, 0.0, 0.0, 0.0,
+    )
+    assert key(round_wins=round_wins, total_score=total_score)[:2] == (
         default_match_placement_key(round_wins=round_wins, total_score=total_score)
     )
+
+
+def test_hhh_divergence_is_deliberate_and_stays() -> None:
+    """Level on round wins and total score, HHH still separates two players
+    by cooperation — the bare default would call them a tie.
+
+    Pinned the same way Liar's Dice's divergence is pinned below, so nobody
+    "fixes" HHH back into matching the default exactly.
+    """
+    key = get_game_module("hoard-hurt-help").match_placement_key
+    cooperative = key(round_wins=2.0, total_score=10, help_received=3)
+    uncooperative = key(round_wins=2.0, total_score=10, help_received=0)
+    assert cooperative > uncooperative
+    assert default_match_placement_key(round_wins=2.0, total_score=10) == (2.0, 10.0)
 
 
 @pytest.mark.parametrize(("round_wins", "total_score"), CASES)

@@ -3,9 +3,12 @@
 These hooks (added so a sequential/hidden game can override them) must, by
 default, behave exactly as PD always has: no extra public state, HOARD as the
 missed-turn move, fixed-grid match end, and the round-wins-then-score finish
-order. PD inherits all of these unchanged, EXCEPT `private_state_for`: PD
-overrides it to surface each pair's current mutual-help pact value (feature
-`mutual-help-pact-value`) instead of the base `{}`.
+order. PD inherits all of these unchanged, EXCEPT `private_state_for` and
+`match_placement_key`: PD overrides `private_state_for` to surface each
+pair's current mutual-help pact value (feature `mutual-help-pact-value`)
+instead of the base `{}`, and overrides `match_placement_key` to extend the
+default finish order with the cooperator-wins tiebreak chain (feature
+`cooperator-wins-tiebreak`, app/engine/finish_order.py).
 """
 
 from __future__ import annotations
@@ -115,7 +118,12 @@ async def test_pd_inherits_default_hooks() -> None:
         # Finish order: equal wins → higher total score first.
         assert await module.final_placement(db, match) == [p2.id, p1.id]
 
-        # Placement key: (round_wins, total_score), higher = better.
-        assert module.match_placement_key(round_wins=2.0, total_score=45) == (2.0, 45.0)
+        # Placement key: (round_wins, total_score, ...cooperator-wins tail),
+        # higher = better. With no cooperation stats given, the tail is all
+        # zero — see tests/test_placement_key_single_source.py for why this
+        # is a deliberate extension of the platform default, not the default.
+        assert module.match_placement_key(round_wins=2.0, total_score=45) == (
+            2.0, 45.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+        )
 
     await engine.dispose()
