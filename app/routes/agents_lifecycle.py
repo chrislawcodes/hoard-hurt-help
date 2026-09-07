@@ -19,7 +19,7 @@ from app.read_models.matches import (
     count_agent_live_seats,
     version_has_active_match,
 )
-from app.routes.agents_queries import load_owned_agent, version_has_rated_history
+from app.read_models.agents_owned import load_owned_agent, version_has_rated_history
 from app.routes.agents_create import clean_agent_blurb, clean_agent_name
 from app.routes.web_support import safe_internal_next
 from app.engine.turn_clock import now_utc

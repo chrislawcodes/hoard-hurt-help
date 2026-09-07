@@ -12,9 +12,9 @@ from app.deps import DbSession, require_user_with_handle
 from app.engine.agent_onboarding import compute_agent_onboarding_state
 from app.engine.connection_health_badge import ConnectionHealth
 from app.models.user import User
-from app.routes.agents_queries import load_owned_agent
+from app.read_models.agents_owned import load_owned_agent
 from app.routes.agents_detail import _build_agent_detail_context, _load_agent_matches
-from app.routes.agents_health_presenter import _is_ready_to_play
+from app.read_models.agents_health import _is_ready_to_play
 from app.routes.sse import sse_response
 from app.templating import templates
 

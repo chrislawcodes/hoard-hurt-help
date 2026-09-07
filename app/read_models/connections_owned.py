@@ -32,7 +32,7 @@ from app.models.connection import Connection, ConnectionProvider, ConnectionStat
 from app.models.connection_provider import ConnectionProvider as ConnectionProviderRow
 from app.models.user import User
 from app.provider_labels import provider_label
-from app.routes.agents_queries import user_agents_select
+from app.read_models.agents_owned import user_agents_select
 from app.routes.connections_connect_guide import _play_prompt, _provider_label
 from app.engine.turn_clock import now_utc
 

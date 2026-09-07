@@ -152,8 +152,8 @@ async def _load_open_turn(
 
 async def _render_live(request: Request, db: DbSession, match: Match) -> HTMLResponse:
     """Re-render the live region so HTMX swaps the panel into its new state."""
-    # Imported lazily to avoid an import cycle (web_viewer doesn't import web_play).
-    from app.routes.web_viewer import _game_view_context
+    # Imported lazily to avoid an import cycle (web_viewer_context doesn't import web_play).
+    from app.routes.web_viewer_context import _game_view_context
 
     ctx = await _game_view_context(request, db, match)
     return templates.TemplateResponse(request, "fragments/live_region.html", ctx)

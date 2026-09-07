@@ -37,7 +37,7 @@ from app.read_models.version_stats import (
     recent_completed_matches_by_version,
     version_stats_by_id,
 )
-from app.routes.agents_health_presenter import (
+from app.read_models.agents_health import (
     MatchEntry,
     VersionRow,
     _count_agent_matches,
@@ -45,7 +45,7 @@ from app.routes.agents_health_presenter import (
     health_view,
     readiness_health_status,
 )
-from app.routes.agents_queries import load_owned_agent, version_fork_preview
+from app.read_models.agents_owned import load_owned_agent, version_fork_preview
 from app.routes.web_support import safe_internal_next
 from app.templating import templates
 

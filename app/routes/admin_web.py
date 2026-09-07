@@ -29,7 +29,7 @@ from app.services.admin_user_actions import (
     reset_handle,
 )
 from app.templating import templates  # shared instance with custom filters
-from app.routes.agents_queries import owned_agent_filter
+from app.read_models.agents_owned import owned_agent_filter
 
 router = APIRouter(tags=["admin"])
 _USERS_PAGE_SIZE = 50

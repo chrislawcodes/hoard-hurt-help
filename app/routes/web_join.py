@@ -30,7 +30,7 @@ from app.models.user import User
 from app.provider_labels import PROVIDER_LABELS
 from app.request_logging import set_request_trace_context
 from app.routes.web_play import seat_human_player
-from app.routes.agents_queries import owned_agent_filter
+from app.read_models.agents_owned import owned_agent_filter
 from app.routes.web_player_shared import (
     _load_user_agents,
     _seat_name,
