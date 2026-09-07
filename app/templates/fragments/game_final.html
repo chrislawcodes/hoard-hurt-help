@@ -4,10 +4,11 @@
    The deep drill-in stays on the Analysis page; the replay sits below, reached by
    the primary button. `viewer_seat` highlights the seat the viewer played. #}
 {% set fs = final_summary %}
-{% if fs and fs.champion %}
+{% if fs and fs.standings %}
 <section class="gf" aria-label="Final result">
 
   <div class="gf-champ">
+    {% if fs.champion %}
     <div class="gf-champ-eyebrow">Champion</div>
     <div class="gf-champ-name"><span class="gf-trophy" aria-hidden="true">🏆</span>{{ fs.champion.display_name }}</div>
     <div class="gf-champ-sub">
@@ -24,16 +25,22 @@
         run by @{{ fs.champion.owner_handle }}
       {%- endif -%}
     </div>
+    {% else %}
+    <div class="gf-champ-eyebrow">Shared win</div>
+    <div class="gf-champ-name">{{ fs.shared_champions | map(attribute='display_name') | join(' & ') }}</div>
+    <div class="gf-champ-sub">Finished level on every tiebreak</div>
+    {% endif %}
   </div>
 
   <div class="gf-standings">
     <div class="gf-head"><span>Final standings</span><span class="gf-head-unit">Rounds won</span></div>
     <ol class="gf-list">
+      {% set shared_ids = fs.shared_champions | map(attribute='agent_id') | list %}
       {% for row in fs.standings %}
       {% if fs.first_zero_rank and row.rank == fs.first_zero_rank %}
       <li class="gf-divider" aria-hidden="true">No rounds won · ordered by points</li>
       {% endif %}
-      <li class="gf-row{% if row.rank == 1 %} is-champ{% endif %}{% if row.round_wins == 0 %} is-zero{% endif %}{% if row.agent_id == viewer_seat %} is-you{% endif %}">
+      <li class="gf-row{% if (fs.champion and row.rank == 1) or (not fs.champion and row.agent_id in shared_ids) %} is-champ{% endif %}{% if row.round_wins == 0 %} is-zero{% endif %}{% if row.agent_id == viewer_seat %} is-you{% endif %}">
         <span class="gf-rk">{{ row.rank }}</span>
         <span class="gf-id">
           <span class="gf-nm-line">

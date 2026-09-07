@@ -197,6 +197,30 @@ def test_fractional_round_wins_format_cleanly() -> None:
     assert labels == {"A": "0.67", "B": "0.33"}
 
 
+def test_shared_top_has_no_single_champion() -> None:
+    # AI_1 and AI_2 mirror each other all game (same round wins, same points,
+    # same cooperation tallies) and the engine records no single winner —
+    # the shape hit by tests/test_end_to_end.py::test_full_game_runs_to_completion.
+    summary = build_final_summary(
+        total_rounds=2,
+        scoreboard=[
+            _row("AI_1", round_wins=1),
+            _row("AI_2", round_wins=1),
+        ],
+        total_scores={"AI_1": 20, "AI_2": 20},
+        history=[],
+        winner_seat=None,
+    )
+    assert summary is not None
+    assert summary["champion"] is None
+    assert {r["display_name"] for r in summary["shared_champions"]} == {"AI_1", "AI_2"}
+    # The full standings list still renders — a shared win loses the crown,
+    # not the table.
+    assert [r["display_name"] for r in summary["standings"]] == ["AI_1", "AI_2"]
+    # No single champion means it was never "decided by points".
+    assert summary["champion_decided_by_points"] is False
+
+
 def test_no_players_returns_none() -> None:
     assert build_final_summary(
         total_rounds=3, scoreboard=[], total_scores={}, history=[], winner_seat=None

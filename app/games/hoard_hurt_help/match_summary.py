@@ -152,6 +152,29 @@ def _superlatives(
     return stats, quiet
 
 
+def _chain_key(
+    row: dict[str, Any],
+    tallies: dict[str, CooperationTally],
+    zero_tally: CooperationTally,
+) -> tuple[float, int, int, int, int, int, int]:
+    """The cooperator-wins tiebreak chain for one standings row, as a tuple
+    that sorts/compares lower-first: rounds won, then total score, then (most
+    HELP received, most HELP given, most HURT received, FEWEST HURT given,
+    most HOARD points) — the higher-is-better keys negated, hurt-given left
+    alone since fewer is better there.
+    """
+    tally = tallies.get(row["agent_id"], zero_tally)
+    return (
+        -row["round_wins"],
+        -row["total_score"],
+        -tally.help_received,
+        -tally.help_given,
+        -tally.hurt_received,
+        tally.hurt_given,
+        -tally.hoard_points,
+    )
+
+
 def build_final_summary(
     *,
     total_rounds: int,
@@ -204,36 +227,48 @@ def build_final_summary(
     # deterministic display order for a group level on all of those — this
     # page always ranks 1..n in order, ties or not, so a fully level group
     # just sits adjacent in the list rather than sharing a rank number.
-    standings.sort(
-        key=lambda r: (
-            -r["round_wins"],
-            -r["total_score"],
-            -tallies.get(r["agent_id"], zero_tally).help_received,
-            -tallies.get(r["agent_id"], zero_tally).help_given,
-            -tallies.get(r["agent_id"], zero_tally).hurt_received,
-            tallies.get(r["agent_id"], zero_tally).hurt_given,
-            -tallies.get(r["agent_id"], zero_tally).hoard_points,
-            r["display_name"],
-        )
-    )
+    standings.sort(key=lambda r: (*_chain_key(r, tallies, zero_tally), r["display_name"]))
     for i, row in enumerate(standings, start=1):
         row["rank"] = i
 
-    # Champion is the engine's recorded winner; fall back to the top of the
-    # rule-sorted standings (they should agree).
+    # A shared win: the top two seats are level on every key of the chain, so
+    # there is no single seat the sort alone can crown.
+    shared_top = len(standings) > 1 and _chain_key(standings[0], tallies, zero_tally) == _chain_key(
+        standings[1], tallies, zero_tally
+    )
+
+    # Champion is the engine's recorded winner. When the engine recorded none
+    # (a real, meaningful outcome — see app/engine/finish_order.py), fall back
+    # to the top of the rule-sorted standings only when it is unambiguous; a
+    # shared top means no fallback exists to invent, so champion stays None
+    # and the shared group is reported instead.
     champion = next((r for r in standings if r["agent_id"] == winner_seat), None)
+    shared_champions: list[dict[str, Any]] = []
     if champion is None:
-        champion = standings[0]
+        if shared_top:
+            top_key = _chain_key(standings[0], tallies, zero_tally)
+            shared_champions = [
+                r for r in standings if _chain_key(r, tallies, zero_tally) == top_key
+            ]
+        else:
+            champion = standings[0]
 
     # The champion won "on points" when someone else tied them on rounds won.
-    decided_by_points = (
+    # A shared win has no single champion, so it was never decided by points.
+    decided_by_points = champion is not None and (
         sum(1 for r in standings if r["round_wins"] == champion["round_wins"]) > 1
     )
 
     # Where to draw the "no rounds won — ordered by points" divider: the first
-    # seat with zero round wins, but only if a winner sits above it.
+    # seat with zero round wins, but only if a winner (shared or not) sits
+    # above it — if the very top of the table has zero round wins too, there
+    # is no winner to divide from.
     first_zero_rank = next(
-        (r["rank"] for r in standings if r["round_wins"] == 0 and r["rank"] > 1),
+        (
+            r["rank"]
+            for r in standings
+            if r["round_wins"] == 0 and r["rank"] > 1 and standings[0]["round_wins"] > 0
+        ),
         None,
     )
 
@@ -242,6 +277,7 @@ def build_final_summary(
     return {
         "champion": champion,
         "champion_decided_by_points": decided_by_points,
+        "shared_champions": shared_champions,
         "total_rounds": total_rounds,
         "standings": standings,
         "first_zero_rank": first_zero_rank,
