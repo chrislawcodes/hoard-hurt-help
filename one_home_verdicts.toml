@@ -635,12 +635,6 @@ kind = "source"
 note = "PR S6: +7 lines — fill_and_start_auto_matches now takes start_game as a parameter instead of importing it, to untangle the arena<->scheduler import cycle. PR U1: +1 line — now_utc() import (inline datetime.now(timezone.utc) sweep). PR U6: +1 line — seated_filter() import (left_at is-None sweep)."
 
 [[oversized]]
-file = "app/engine/connection_activity.py"
-lines = 412
-kind = "source"
-note = "PR U1: +1 line — now_utc() import (inline datetime.now(timezone.utc) sweep). PR U6: +1 line — seated_filter() import (left_at is-None sweep)."
-
-[[oversized]]
 file = "app/engine/provider_readiness.py"
 lines = 420
 kind = "source"
@@ -677,9 +671,9 @@ note = "cooperator-wins-tiebreak PR: +28 lines — new match_placement_key overr
 
 [[oversized]]
 file = "app/games/hoard_hurt_help/rules.py"
-lines = 510
+lines = 505
 kind = "source"
-note = "cooperator-wins-tiebreak PR: +9 lines — RULES_VERSION comment explaining why the tiebreak change does not bump it, and the reworded Tiebreaker rules-text line."
+note = "cooperator-wins-tiebreak PR: +9 lines — RULES_VERSION comment explaining why the tiebreak change does not bump it, and the reworded Tiebreaker rules-text line. shape-and-safety cleanup PR: -5 lines — deleted dead mode_uses_last_turn (no callers)."
 
 [[oversized]]
 file = "app/games/hoard_hurt_help/viewer.py"
@@ -700,9 +694,9 @@ note = "cooperator-wins-tiebreak PR: +82 lines — _Participant gained the five 
 
 [[oversized]]
 file = "app/read_models/matches.py"
-lines = 521
+lines = 515
 kind = "source"
-note = "PR U4: -11 lines — deleted dead _agent_count (no callers; _agent_counts already covers every real use). PR U6: +1 line — seated_filter() import (left_at is-None sweep)."
+note = "PR U4: -11 lines — deleted dead _agent_count (no callers; _agent_counts already covers every real use). PR U6: +1 line — seated_filter() import (left_at is-None sweep). shape-and-safety cleanup PR: -6 lines — deleted dead load_resolved_turn_rows (no callers; _load_turn_rows keeps its other caller)."
 
 [[oversized]]
 file = "app/routes/matches_user.py"
@@ -1388,7 +1382,7 @@ pr = "PR U3"
 [[idiom_baselines]]
 idiom = "humanize_game_type"
 file = "app/engine/bots/roster.py"
-line = 59
+line = 57
 note = "humanizes a strategy id on an underscore separator, not a game-type slug on a hyphen — different rule; recorded for completeness even though the hyphen-based scan below cannot match it"
 pr = "PR U3"
 
@@ -1439,3 +1433,101 @@ pr = "PR U5"
 #
 # Read by tests/test_seated_players_have_one_home.py, which fails the build
 # when a new inline copy appears with no matching entry here.
+
+# --- zero_callers (shape-and-safety cleanup PR) ---
+# A module-level function under app/ or mcp_server/ whose name appears
+# nowhere else in app/, mcp_server/, scripts/, or tests/ — the same plain-text
+# check ("grep -rnE '\bname\b' app mcp_server scripts tests") this PR's Part 1
+# used by hand to find six dead functions to delete. Six were deleted outright
+# (no entry needed — they're gone). What's recorded here is what the scan
+# still flags after that cleanup: nine strategy-rule functions in
+# app/engine/bots/plan_rules.py, dispatched by string id through
+# @register_strategy(...) rather than referenced by their Python name (a real
+# blind spot of a name-based scan, not dead code), plus one function
+# (wait_for_leaderboard_refreshes) that has the same "await any in-flight
+# background refresh, for tests and shutdown" shape as two siblings this PR
+# did delete (wait_for_lobby_refreshes, wait_for_showcase_refreshes) but
+# wasn't named in Part 1's list, so it's left for a person to judge rather
+# than deleted on this scan's say-so.
+#
+# verdict is one of: unjudged | leave
+#   unjudged = flagged by the scan, nobody has decided yet whether to delete
+#              it or keep it.
+#   leave    = looked at, kept on purpose (with a reason in `note`).
+# There is no "delete" verdict: a function someone decides to delete should
+# just be deleted, and its row removed here — not marked and left in place.
+#
+# Read by tests/test_zero_caller_functions_ratchet.py, which fails the build
+# when a new zero-caller function appears with no entry here, and also fails
+# when a recorded entry's function has since gained a caller (or been
+# deleted) — the ratchet only tightens.
+
+[[zero_callers]]
+file = "app/engine/bots/plan_rules.py"
+name = "_coalition_seeker"
+line = 182
+verdict = "unjudged"
+note = "registered via @register_strategy(\"coalition_seeker\"); dispatch keys off the strategy id string, not this Python name"
+
+[[zero_callers]]
+file = "app/engine/bots/plan_rules.py"
+name = "_pragmatist"
+line = 187
+verdict = "unjudged"
+note = "registered via @register_strategy(\"pragmatist\"); dispatch keys off the strategy id string, not this Python name"
+
+[[zero_callers]]
+file = "app/engine/bots/plan_rules.py"
+name = "_loyal_partner"
+line = 205
+verdict = "unjudged"
+note = "registered via @register_strategy(\"loyal_partner\"); dispatch keys off the strategy id string, not this Python name"
+
+[[zero_callers]]
+file = "app/engine/bots/plan_rules.py"
+name = "_grudger"
+line = 221
+verdict = "unjudged"
+note = "registered via @register_strategy(\"grudger\"); dispatch keys off the strategy id string, not this Python name"
+
+[[zero_callers]]
+file = "app/engine/bots/plan_rules.py"
+name = "_leader_pressure"
+line = 234
+verdict = "unjudged"
+note = "registered via @register_strategy(\"leader_pressure\"); dispatch keys off the strategy id string, not this Python name"
+
+[[zero_callers]]
+file = "app/engine/bots/plan_rules.py"
+name = "_opportunist"
+line = 248
+verdict = "unjudged"
+note = "registered via @register_strategy(\"opportunist\"); dispatch keys off the strategy id string, not this Python name"
+
+[[zero_callers]]
+file = "app/engine/bots/plan_rules.py"
+name = "_endgame_sniper"
+line = 261
+verdict = "unjudged"
+note = "registered via @register_strategy(\"endgame_sniper\"); dispatch keys off the strategy id string, not this Python name"
+
+[[zero_callers]]
+file = "app/engine/bots/plan_rules.py"
+name = "_diplomat"
+line = 278
+verdict = "unjudged"
+note = "registered via @register_strategy(\"diplomat\"); dispatch keys off the strategy id string, not this Python name"
+
+[[zero_callers]]
+file = "app/engine/bots/plan_rules.py"
+name = "_crowd_follower"
+line = 289
+verdict = "unjudged"
+note = "registered via @register_strategy(\"crowd_follower\"); dispatch keys off the strategy id string, not this Python name"
+
+[[zero_callers]]
+file = "app/read_models/leaderboard_cache.py"
+name = "wait_for_leaderboard_refreshes"
+line = 55
+verdict = "unjudged"
+note = "same 'await any in-flight background refresh, for tests and shutdown' shape as wait_for_lobby_refreshes and wait_for_showcase_refreshes, both deleted by this PR — this one wasn't in Part 1's named list of six, left for a person to judge"

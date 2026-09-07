@@ -408,12 +408,6 @@ async def _load_turn_rows(
     )
 
 
-async def load_resolved_turn_rows(db: AsyncSession, match_id: str) -> ResolvedTurnRows:
-    """Load players plus resolved turns with grouped messages and submissions."""
-
-    return await _load_turn_rows(db, match_id, resolved_only=True)
-
-
 async def load_match_timeline(
     db: AsyncSession,
     match_id: str,

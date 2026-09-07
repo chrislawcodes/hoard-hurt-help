@@ -104,11 +104,6 @@ def clear_showcase_replay_cache() -> None:
     _cache.clear()
 
 
-async def wait_for_showcase_refreshes() -> None:
-    """Await any in-flight background refreshes. For tests and shutdown."""
-    await _cache.wait_for_refreshes()
-
-
 async def _build_showcase_replay(request: Request, db: AsyncSession) -> ShowcaseReplay:
     """Pick the most-recent completed public showcase game and build its replay.
 

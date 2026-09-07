@@ -39,8 +39,3 @@ async def load_lobby_recent_views_cached() -> dict[str, list[dict[str, Any]]]:
 def clear_lobby_cache() -> None:
     """Drop the cached lobby views. Used by tests for isolation."""
     _cache.clear()
-
-
-async def wait_for_lobby_refreshes() -> None:
-    """Await any in-flight background refreshes. For tests and shutdown."""
-    await _cache.wait_for_refreshes()
