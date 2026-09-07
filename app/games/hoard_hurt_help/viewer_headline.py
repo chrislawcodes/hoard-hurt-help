@@ -101,21 +101,28 @@ def _pact_values(actions: list[dict]) -> dict[frozenset[str], int]:
     }
 
 
-def _turn_headline(
-    actions: list[dict],
-    prev_actions: list[dict],
-    leader: str | None,
-    prev_leader: str | None,
-    ordinal: int,
-) -> str:
-    """A deterministic one-line play-by-play for a turn."""
+def _phrase(kind: str, idx: int) -> str:
+    """Pick this beat kind's phrase deterministically from its bank."""
+    bank = _HEADLINE_PHRASES[kind]
+    return bank[idx % len(bank)]
 
-    def phrase(kind: str, idx: int) -> str:
-        bank = _HEADLINE_PHRASES[kind]
-        return bank[idx % len(bank)]
 
+def _render_beat(kind: str, idx: int, b: dict) -> str:
+    """Render one beat as a capitalized sentence fragment (no trailing period)."""
+    s = _phrase(kind, idx).format(
+        a=b.get("a"),
+        b=b.get("b"),
+        t=b.get("t"),
+        n=_num_word(b.get("n", 0)),
+        d=b.get("d", ""),
+        v=b.get("v", ""),
+    )
+    return s[0].upper() + s[1:]
+
+
+def _betrayal_beats(actions: list[dict]) -> list[tuple[int, dict]]:
+    """One beat per betrayal this turn, prioritized by how hard it hit."""
     beats: list[tuple[int, dict]] = []
-
     for a in actions:
         if a.get("betrayal"):
             beats.append(
@@ -124,14 +131,26 @@ def _turn_headline(
                     {"kind": "betray", "a": a["agent_id"], "b": a["target_id"]},
                 )
             )
+    return beats
 
+
+def _pact_beats(actions: list[dict], prev_actions: list[dict]) -> list[tuple[int, dict]]:
+    """One beat per newly-formed pact this turn (a mutual HELP that wasn't
+    already mutual last turn)."""
+    beats: list[tuple[int, dict]] = []
     prev_pairs = _mutual_pairs(prev_actions)
     pact_values = _pact_values(actions)
     for pair in _mutual_pairs(actions):
         if pair not in prev_pairs:
             x, y = sorted(pair)
             beats.append((70, {"kind": "pact", "a": x, "b": y, "v": pact_values[pair]}))
+    return beats
 
+
+def _pileon_beats(actions: list[dict], prev_actions: list[dict]) -> list[tuple[int, dict]]:
+    """One beat per target hit by two or more attackers this turn — "revenge"
+    if the target betrayed someone last turn, "gangup" otherwise."""
+    beats: list[tuple[int, dict]] = []
     hits: dict[str, list[str]] = {}
     for a in actions:
         if a["action"] == "HURT" and a["target_id"]:
@@ -141,7 +160,12 @@ def _turn_headline(
         if len(hitters) >= 2:
             kind = "revenge" if target in prev_betrayers else "gangup"
             beats.append((75 + len(hitters), {"kind": kind, "t": target, "n": len(hitters)}))
+    return beats
 
+
+def _swing_beat(actions: list[dict]) -> tuple[int, dict] | None:
+    """The turn's biggest non-betrayal HURT, if it landed hard enough (>= 4)
+    to be worth its own beat."""
     swing = max(
         (
             a
@@ -153,16 +177,46 @@ def _turn_headline(
     )
     if swing is not None and abs(swing.get("display_delta") or 0) >= 4:
         d = swing.get("display_delta") or 0
-        beats.append(
-            (
-                60,
-                {"kind": "swing", "a": swing["agent_id"], "b": swing["target_id"], "d": str(d)},
-            )
-        )
+        return (60, {"kind": "swing", "a": swing["agent_id"], "b": swing["target_id"], "d": str(d)})
+    return None
 
+
+def _lead_change_beat(leader: str | None, prev_leader: str | None) -> tuple[int, dict] | None:
+    """A lead-change beat, if the in-round leader actually changed this turn."""
     if leader and prev_leader and leader != prev_leader:
-        beats.append((90, {"kind": "lead", "a": leader}))
+        return (90, {"kind": "lead", "a": leader})
+    return None
 
+
+def _collect_beats(
+    actions: list[dict],
+    prev_actions: list[dict],
+    leader: str | None,
+    prev_leader: str | None,
+) -> list[tuple[int, dict]]:
+    """This turn's candidate beats — betrayals, newly-formed pacts, gangup/
+    revenge pile-ons, the biggest non-betrayal swing, and a lead change —
+    each tagged with the priority that decides which get told."""
+    beats: list[tuple[int, dict]] = []
+    beats.extend(_betrayal_beats(actions))
+    beats.extend(_pact_beats(actions, prev_actions))
+    beats.extend(_pileon_beats(actions, prev_actions))
+
+    swing_beat = _swing_beat(actions)
+    if swing_beat is not None:
+        beats.append(swing_beat)
+
+    lead_beat = _lead_change_beat(leader, prev_leader)
+    if lead_beat is not None:
+        beats.append(lead_beat)
+
+    return beats
+
+
+def _select_beats(beats: list[tuple[int, dict]]) -> tuple[list[dict], dict | None]:
+    """Sort candidate beats by priority, then greedily take up to two whose
+    actors don't overlap — pulling the lead-change beat out on its own,
+    since it gets folded into a chosen sentence or said standalone."""
     beats.sort(key=lambda b: -b[0])
 
     used: set[str] = set()
@@ -179,32 +233,47 @@ def _turn_headline(
         chosen.append(b)
         if len(chosen) == 2:
             break
+    return chosen, lead_beat
 
-    def render(kind: str, idx: int, b: dict) -> str:
-        s = phrase(kind, idx).format(
-            a=b.get("a"),
-            b=b.get("b"),
-            t=b.get("t"),
-            n=_num_word(b.get("n", 0)),
-            d=b.get("d", ""),
-            v=b.get("v", ""),
-        )
-        return s[0].upper() + s[1:]
 
+def _render_sentences(chosen: list[dict], lead_beat: dict | None, ordinal: int) -> list[str]:
+    """Render the chosen beats as sentences, folding a lead change into the
+    first one when its actor differs, or appending it as its own sentence
+    otherwise."""
     sentences: list[str] = []
     for i, b in enumerate(chosen):
-        s = render(b["kind"], ordinal + i, b)
+        s = _render_beat(b["kind"], ordinal + i, b)
         if i == 0 and lead_beat is not None and lead_beat["a"] != b.get("a"):
-            s += " — " + phrase("lead", ordinal).format(a=lead_beat["a"])
+            s += " — " + _phrase("lead", ordinal).format(a=lead_beat["a"])
             lead_beat = None
         sentences.append(s + ".")
     if lead_beat is not None:
-        sentences.append(render("lead", ordinal, lead_beat) + ".")
+        sentences.append(_render_beat("lead", ordinal, lead_beat) + ".")
+    return sentences
 
+
+def _finish_headline(sentences: list[str], actions: list[dict], ordinal: int) -> str:
+    """No beats worth telling → a quiet-turn line; otherwise append a
+    residual-hoarders trailer when at least half the table just hoarded,
+    then join every sentence into the turn's headline."""
     if not sentences:
-        return render("quiet", ordinal, {}) + "."
+        return _render_beat("quiet", ordinal, {}) + "."
 
     hoards = sum(1 for a in actions if a["action"] == "HOARD")
     if hoards >= len(actions) / 2:
-        sentences.append(render("residual", ordinal, {"n": hoards}) + ".")
+        sentences.append(_render_beat("residual", ordinal, {"n": hoards}) + ".")
     return " ".join(sentences)
+
+
+def _turn_headline(
+    actions: list[dict],
+    prev_actions: list[dict],
+    leader: str | None,
+    prev_leader: str | None,
+    ordinal: int,
+) -> str:
+    """A deterministic one-line play-by-play for a turn."""
+    beats = _collect_beats(actions, prev_actions, leader, prev_leader)
+    chosen, lead_beat = _select_beats(beats)
+    sentences = _render_sentences(chosen, lead_beat, ordinal)
+    return _finish_headline(sentences, actions, ordinal)
