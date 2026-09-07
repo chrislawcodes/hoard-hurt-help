@@ -323,6 +323,216 @@ def _build_rc_data(
     )
 
 
+def _build_turn_actions(t: TimelineTurn, bot_ids: set[str]) -> list[dict[str, Any]]:
+    """This turn's action dicts with their nominal per-move delta attached.
+
+    HOARD's value is decided by the whole turn (the pot is split between the
+    hoarders), so it cannot come from the per-move `move_effect` hook. Count
+    this turn's hoarders once and override that move's actor delta below.
+    """
+    actions: list[dict[str, Any]] = []
+    turn_hoard_each = hoard_share(sum(1 for a in t.actions if a.action == "HOARD"))
+    for action in t.actions:
+        actor_delta, target_delta = pd_move_effect(action.action)
+        if action.action == "HOARD":
+            actor_delta = turn_hoard_each
+        actions.append(
+            {
+                "agent_id": action.agent_id,
+                # Bots' "thinking" is canned strategy text, so the feed hides
+                # it (turn_block.html) — real agents' reasoning still shows.
+                "is_bot": action.agent_id in bot_ids,
+                "action": action.action,
+                "target_id": action.target_id,
+                "quantity": action.quantity,
+                "face": action.face,
+                # This player's in-round score AS OF this turn (post-resolution).
+                # The feed chips show this per-turn value, not the live current
+                # score, so an old turn keeps showing the points it had then —
+                # they don't get overwritten by a later round's reset score.
+                "round_score_after": action.round_score_after,
+                # Nominal per-move effect, attributed to who it lands on.
+                "actor_delta": actor_delta,
+                "target_delta": target_delta,
+                "thinking": action.thinking,
+                "was_defaulted": action.was_defaulted,
+                "mutual": False,
+                "betrayal": False,
+                # HURT against a player who is HELPing you this same turn: the
+                # attacker gains BETRAYAL_BONUS (the victim takes the normal HURT_POINTS).
+                "betrayed_helper": False,
+                "betrayal_bonus": 0,
+            }
+        )
+    return actions
+
+
+def _tag_pacts_and_betrayals(
+    actions: list[dict[str, Any]], prev_mutual: set[frozenset[str]]
+) -> set[frozenset[str]]:
+    """Tag this turn's pacts (mutual HELP) and betrayals (HURT on last turn's
+    pact partner), so the feed can mark them without re-deriving in JS."""
+    helps = {
+        a["agent_id"]: a["target_id"]
+        for a in actions
+        if a["action"] == "HELP" and a["target_id"]
+    }
+    this_mutual: set[frozenset[str]] = set()
+    for a in actions:
+        tgt = a["target_id"]
+        if not tgt:
+            continue
+        pair = frozenset((a["agent_id"], tgt))
+        if a["action"] == "HELP" and helps.get(tgt) == a["agent_id"]:
+            a["mutual"] = True
+            this_mutual.add(pair)
+        elif a["action"] == "HURT":
+            # Betraying a helper: HURT a player who is HELPing you this turn.
+            # The attacker gains BETRAYAL_BONUS (victim takes the normal HURT_POINTS).
+            if helps.get(tgt) == a["agent_id"]:
+                a["betrayed_helper"] = True
+                a["betrayal_bonus"] = BETRAYAL_BONUS
+            # Cross-turn betrayal: HURT last turn's pact partner.
+            if pair in prev_mutual:
+                a["betrayal"] = True
+    return this_mutual
+
+
+def _pact_values_for_turn(
+    match: Match,
+    this_mutual: set[frozenset[str]],
+    pact_counts: dict[frozenset[str], int],
+    last_turn_mutual: set[frozenset[str]],
+) -> dict[frozenset[str], int]:
+    """Per-side value for each of this turn's pacts (one per pair). Computed once
+    and shared by the display below and both apply_inround_turn callers (the
+    action dicts carry `mutual_value`), so the win-prob loop — which resets
+    its running score per round — still sees the match-scoped k. The payout
+    comes from the same function the resolver uses, so the replay can never
+    show a number the game didn't actually pay."""
+    mode = match.mutual_help_mode or LEGACY_MUTUAL_HELP_MODE.value
+    pact_value: dict[frozenset[str], int] = {}
+    for pair in this_mutual:
+        k = pact_counts.get(pair, 0)
+        pact_value[pair] = mutual_help_value(
+            mode, k, repeated_last_turn=pair in last_turn_mutual
+        )
+        pact_counts[pair] = k + 1
+    return pact_value
+
+
+def _attach_messages_and_display_fields(
+    actions: list[dict[str, Any]],
+    messages_by_agent: dict[str, dict[str, Any]],
+    pact_value: dict[frozenset[str], int],
+) -> None:
+    """Attach each action's paired talk message and its display action/delta
+    — the text and numbers the feed actually renders."""
+    for a in actions:
+        paired_message = messages_by_agent.get(a["agent_id"])
+        if paired_message is not None:
+            a["message"] = paired_message["text"]
+            a["message_thinking"] = paired_message["thinking"]
+            a["message_was_defaulted"] = paired_message["was_defaulted"]
+        else:
+            a["message"] = ""
+            a["message_thinking"] = ""
+            a["message_was_defaulted"] = True
+
+        if a["action"] == "HOARD":
+            a["display_action"] = "Hoard"
+            a["display_delta"] = a["actor_delta"]
+        elif a["action"] == "HELP":
+            a["display_action"] = "Help"
+            if a["mutual"]:
+                value = pact_value[frozenset((a["agent_id"], a["target_id"]))]
+                a["mutual_value"] = value
+                a["display_delta"] = value
+            else:
+                a["display_delta"] = a["target_delta"]
+        else:
+            a["display_action"] = "HURT"
+            # The HURT chip's delta is always the victim's loss (-4). The
+            # attacker's betrayal gain rides the separate `betrayal_bonus` key
+            # (rendered as its own +4 chip), so `display_delta` stays negative
+            # and match_summary's positive-delta "biggest gift" scan is unaffected.
+            a["display_delta"] = a["target_delta"]
+
+
+def _advance_round_leader(
+    t: TimelineTurn,
+    actions: list[dict[str, Any]],
+    prev_actions: list[dict[str, Any]],
+    prev_leader: str | None,
+    inround: dict[str, int],
+    inround_round: int | None,
+    players: list[Player],
+    seq: int,
+) -> tuple[dict[str, int], int | None, str | None, str]:
+    """Running in-round score (resets each round) → who leads, for the
+    play-by-play "lead change" beat."""
+    if t.round != inround_round:
+        inround_round = t.round
+        inround = {p.seat_name: 0 for p in players}
+    inround = apply_inround_turn(inround, actions)
+    # Highest score, ties broken alphabetically — deterministic.
+    leader = min(inround, key=lambda k: (-inround[k], k)) if inround else None
+    headline = _turn_headline(actions, prev_actions, leader, prev_leader, seq)
+    return inround, inround_round, leader, headline
+
+
+def _history_entry(
+    seq: int,
+    t: TimelineTurn,
+    messages: list[dict[str, Any]],
+    actions: list[dict[str, Any]],
+    headline: str,
+) -> dict[str, Any]:
+    """This turn's entry in the replay feed's ``history`` list."""
+    return {
+        "seq": seq,
+        "round": t.round,
+        "turn": t.turn,
+        "messages": messages,
+        "actions": actions,
+        # Per-turn in-round score by seat, so the feed shows the points each
+        # robot had AT THIS TURN (within its own round) — not the single
+        # live current score painted on every turn. Every active seat acts
+        # each turn, so keying on the actor covers actors and targets alike.
+        "score_after": {a["agent_id"]: a["round_score_after"] for a in actions},
+        # `actions` stays in submission order for the animation; the feed
+        # renders `feed_actions` (highlights first) and `summary` (counts).
+        "feed_actions": sorted(actions, key=_feed_sort_key),
+        "summary": _turn_summary(actions),
+        "groups": _turn_groups(actions),
+        "headline": headline,
+    }
+
+
+def _add_final_summary(
+    payload: dict[str, Any],
+    g: Match,
+    players: list[Player],
+    scoreboard: list[dict[str, Any]],
+    history: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Finale: a completed match leads with the final scoreboard, not a replay
+    rewound to turn 1. Rounds won is the score; points are only the tiebreaker.
+    Built once on the completed page (a finished game has no live SSE swaps)."""
+    if g.state == GameState.COMPLETED:
+        winner_seat = next(
+            (p.seat_name for p in players if p.id == g.winner_player_id), None
+        )
+        payload["final_summary"] = build_final_summary(
+            total_rounds=g.total_rounds,
+            scoreboard=scoreboard,
+            total_scores={p.seat_name: p.total_round_score for p in players},
+            history=history,
+            winner_seat=winner_seat,
+        )
+    return payload
+
+
 async def build_pd_replay_view(
     db: AsyncSession,
     match: Match,
@@ -360,155 +570,26 @@ async def build_pd_replay_view(
     pact_counts: dict[frozenset[str], int] = {}
     for seq, t in enumerate(timeline, start=1):
         messages, messages_by_agent = project_turn_messages(t)
-        actions: list[dict[str, Any]] = []
-        # HOARD's value is decided by the whole turn (the pot is split between the
-        # hoarders), so it cannot come from the per-move `move_effect` hook. Count
-        # this turn's hoarders once and override that move's actor delta below.
-        turn_hoard_each = hoard_share(sum(1 for a in t.actions if a.action == "HOARD"))
-        for action in t.actions:
-            actor_delta, target_delta = pd_move_effect(action.action)
-            if action.action == "HOARD":
-                actor_delta = turn_hoard_each
-            actions.append(
-                {
-                    "agent_id": action.agent_id,
-                    # Bots' "thinking" is canned strategy text, so the feed hides
-                    # it (turn_block.html) — real agents' reasoning still shows.
-                    "is_bot": action.agent_id in bot_ids,
-                    "action": action.action,
-                    "target_id": action.target_id,
-                    "quantity": action.quantity,
-                    "face": action.face,
-                    # This player's in-round score AS OF this turn (post-resolution).
-                    # The feed chips show this per-turn value, not the live current
-                    # score, so an old turn keeps showing the points it had then —
-                    # they don't get overwritten by a later round's reset score.
-                    "round_score_after": action.round_score_after,
-                    # Nominal per-move effect, attributed to who it lands on.
-                    "actor_delta": actor_delta,
-                    "target_delta": target_delta,
-                    "thinking": action.thinking,
-                    "was_defaulted": action.was_defaulted,
-                    "mutual": False,
-                    "betrayal": False,
-                    # HURT against a player who is HELPing you this same turn: the
-                    # attacker gains BETRAYAL_BONUS (the victim takes the normal HURT_POINTS).
-                    "betrayed_helper": False,
-                    "betrayal_bonus": 0,
-                }
-            )
+        actions = _build_turn_actions(t, bot_ids)
 
-        # Tag this turn's pacts (mutual HELP) and betrayals (HURT on last turn's
-        # pact partner), so the feed can mark them without re-deriving in JS.
-        helps = {
-            a["agent_id"]: a["target_id"]
-            for a in actions
-            if a["action"] == "HELP" and a["target_id"]
-        }
-        this_mutual: set[frozenset[str]] = set()
-        for a in actions:
-            tgt = a["target_id"]
-            if not tgt:
-                continue
-            pair = frozenset((a["agent_id"], tgt))
-            if a["action"] == "HELP" and helps.get(tgt) == a["agent_id"]:
-                a["mutual"] = True
-                this_mutual.add(pair)
-            elif a["action"] == "HURT":
-                # Betraying a helper: HURT a player who is HELPing you this turn.
-                # The attacker gains BETRAYAL_BONUS (victim takes the normal HURT_POINTS).
-                if helps.get(tgt) == a["agent_id"]:
-                    a["betrayed_helper"] = True
-                    a["betrayal_bonus"] = BETRAYAL_BONUS
-                # Cross-turn betrayal: HURT last turn's pact partner.
-                if pair in prev_mutual:
-                    a["betrayal"] = True
         # Keep LAST turn's pacts before overwriting — the no-repeats mode pays the
         # bonus only when a pair did NOT also go mutual on the previous turn, so
         # reading `prev_mutual` after the reassignment would compare this turn
         # against itself and never withhold the bonus.
         last_turn_mutual = prev_mutual
+        this_mutual = _tag_pacts_and_betrayals(actions, prev_mutual)
         prev_mutual = this_mutual
 
-        # Per-side value for each of this turn's pacts (one per pair). Computed once
-        # and shared by the display below and both apply_inround_turn callers (the
-        # action dicts carry `mutual_value`), so the win-prob loop — which resets
-        # its running score per round — still sees the match-scoped k. The payout
-        # comes from the same function the resolver uses, so the replay can never
-        # show a number the game didn't actually pay.
-        mode = match.mutual_help_mode or LEGACY_MUTUAL_HELP_MODE.value
-        pact_value: dict[frozenset[str], int] = {}
-        for pair in this_mutual:
-            k = pact_counts.get(pair, 0)
-            pact_value[pair] = mutual_help_value(
-                mode, k, repeated_last_turn=pair in last_turn_mutual
-            )
-            pact_counts[pair] = k + 1
+        pact_value = _pact_values_for_turn(match, this_mutual, pact_counts, last_turn_mutual)
+        _attach_messages_and_display_fields(actions, messages_by_agent, pact_value)
 
-        for a in actions:
-            paired_message = messages_by_agent.get(a["agent_id"])
-            if paired_message is not None:
-                a["message"] = paired_message["text"]
-                a["message_thinking"] = paired_message["thinking"]
-                a["message_was_defaulted"] = paired_message["was_defaulted"]
-            else:
-                a["message"] = ""
-                a["message_thinking"] = ""
-                a["message_was_defaulted"] = True
-
-            if a["action"] == "HOARD":
-                a["display_action"] = "Hoard"
-                a["display_delta"] = a["actor_delta"]
-            elif a["action"] == "HELP":
-                a["display_action"] = "Help"
-                if a["mutual"]:
-                    value = pact_value[frozenset((a["agent_id"], a["target_id"]))]
-                    a["mutual_value"] = value
-                    a["display_delta"] = value
-                else:
-                    a["display_delta"] = a["target_delta"]
-            else:
-                a["display_action"] = "HURT"
-                # The HURT chip's delta is always the victim's loss (-4). The
-                # attacker's betrayal gain rides the separate `betrayal_bonus` key
-                # (rendered as its own +4 chip), so `display_delta` stays negative
-                # and match_summary's positive-delta "biggest gift" scan is unaffected.
-                a["display_delta"] = a["target_delta"]
-
-        # Running in-round score (resets each round) → who leads, for the
-        # play-by-play "lead change" beat.
-        if t.round != inround_round:
-            inround_round = t.round
-            inround = {p.seat_name: 0 for p in players}
-        inround = apply_inround_turn(inround, actions)
-        # Highest score, ties broken alphabetically — deterministic.
-        leader = min(inround, key=lambda k: (-inround[k], k)) if inround else None
-        headline = _turn_headline(actions, prev_actions, leader, prev_leader, seq)
+        inround, inround_round, leader, headline = _advance_round_leader(
+            t, actions, prev_actions, prev_leader, inround, inround_round, players, seq
+        )
         prev_leader = leader
         prev_actions = actions
 
-        history.append(
-            {
-                "seq": seq,
-                "round": t.round,
-                "turn": t.turn,
-                "messages": messages,
-                "actions": actions,
-                # Per-turn in-round score by seat, so the feed shows the points each
-                # robot had AT THIS TURN (within its own round) — not the single
-                # live current score painted on every turn. Every active seat acts
-                # each turn, so keying on the actor covers actors and targets alike.
-                "score_after": {
-                    a["agent_id"]: a["round_score_after"] for a in actions
-                },
-                # `actions` stays in submission order for the animation; the feed
-                # renders `feed_actions` (highlights first) and `summary` (counts).
-                "feed_actions": sorted(actions, key=_feed_sort_key),
-                "summary": _turn_summary(actions),
-                "groups": _turn_groups(actions),
-                "headline": headline,
-            }
-        )
+        history.append(_history_entry(seq, t, messages, actions, headline))
 
     payload: dict[str, Any] = {
         "history": history,
@@ -522,19 +603,4 @@ async def build_pd_replay_view(
         "show_replay_stage": True,
     }
 
-    # Finale: a completed match leads with the final scoreboard, not a replay
-    # rewound to turn 1. Rounds won is the score; points are only the tiebreaker.
-    # Built once on the completed page (a finished game has no live SSE swaps).
-    if g.state == GameState.COMPLETED:
-        winner_seat = next(
-            (p.seat_name for p in players if p.id == g.winner_player_id), None
-        )
-        payload["final_summary"] = build_final_summary(
-            total_rounds=g.total_rounds,
-            scoreboard=scoreboard,
-            total_scores={p.seat_name: p.total_round_score for p in players},
-            history=history,
-            winner_seat=winner_seat,
-        )
-
-    return payload
+    return _add_final_summary(payload, g, players, scoreboard, history)

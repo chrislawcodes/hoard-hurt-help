@@ -678,8 +678,9 @@ note = "cooperator-wins-tiebreak PR: +9 lines — RULES_VERSION comment explaini
 
 [[oversized]]
 file = "app/games/hoard_hurt_help/viewer.py"
-lines = 540
+lines = 606
 kind = "source"
+note = "split-viewer-builders PR: +66 lines — build_pd_replay_view split into 7 named helpers (_build_turn_actions, _tag_pacts_and_betrayals, _pact_values_for_turn, _attach_messages_and_display_fields, _advance_round_leader, _history_entry, _add_final_summary), each with its own def/docstring; logic moved verbatim."
 
 [[oversized]]
 file = "app/games/liars_dice/game.py"
@@ -1692,20 +1693,6 @@ name = "resolve_turn"
 line = 122
 branches = 37
 note = "excluded on purpose: the core payoff math for a turn, not to be split. See app/games/hoard_hurt_help/rules.py's RULES_VERSION comment for how carefully this logic is versioned."
-
-[[oversized_functions]]
-file = "app/games/hoard_hurt_help/viewer_headline.py"
-name = "_turn_headline"
-line = 104
-branches = 42
-note = "target of the next PR in the shape-and-safety cleanup series; not split here"
-
-[[oversized_functions]]
-file = "app/games/hoard_hurt_help/viewer.py"
-name = "build_pd_replay_view"
-line = 326
-branches = 32
-note = "target of the next PR in the shape-and-safety cleanup series; not split here"
 
 [[oversized_functions]]
 file = "app/games/hoard_hurt_help/viewer.py"
