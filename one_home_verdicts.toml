@@ -1666,3 +1666,85 @@ note = "a page module (has its own routes) whose seat_human_player (raises HTTPE
 [[route_infrastructure]]
 module = "app/routes/web_viewer_context.py"
 note = "the Request-bound page-data assembly (_game_view_context, _load_viewer_prompt_version) web_viewer.py's thin route layer delegates to; showcase_replay.py and web_play.py now import _game_view_context from here directly instead of via web_viewer.py"
+
+# --- oversized_functions (split-compute-trust-map PR) -------------------------
+# A function over 20 branches (if/for/while/except/with-item/bool-and/
+# bool-or/ternary/comprehension-generator-or-condition, counted by AST —
+# see tests/test_branch_count_ratchet.py's module docstring for the exact
+# rule) is recorded here with its current branch count as a ceiling. `name`
+# is the dotted qualified name (ClassName.method for a method, plain name
+# for module-level or a nested closure like `outer.inner`) so two
+# same-named functions in one file are never conflated.
+#
+# Read by tests/test_branch_count_ratchet.py, which fails the build when a
+# function crosses 20 branches with no entry here ("split it, or record
+# it"), when a recorded function grows past its recorded ceiling, or when a
+# recorded entry's function has shrunk back under its ceiling (stale).
+#
+# Baseline measured on this PR's branch: 10 functions over 20 branches
+# before the compute_trust_map split (app/engine/bots/trust.py), 9 after —
+# that split's own function dropped out of this table entirely (61 branches
+# down to a 4-branch orchestrator plus 7 helpers, each well under 20).
+
+[[oversized_functions]]
+file = "app/games/hoard_hurt_help/scoring.py"
+name = "resolve_turn"
+line = 122
+branches = 37
+note = "excluded on purpose: the core payoff math for a turn, not to be split. See app/games/hoard_hurt_help/rules.py's RULES_VERSION comment for how carefully this logic is versioned."
+
+[[oversized_functions]]
+file = "app/games/hoard_hurt_help/viewer_headline.py"
+name = "_turn_headline"
+line = 104
+branches = 42
+note = "target of the next PR in the shape-and-safety cleanup series; not split here"
+
+[[oversized_functions]]
+file = "app/games/hoard_hurt_help/viewer.py"
+name = "build_pd_replay_view"
+line = 326
+branches = 32
+note = "target of the next PR in the shape-and-safety cleanup series; not split here"
+
+[[oversized_functions]]
+file = "app/games/hoard_hurt_help/viewer.py"
+name = "_build_rc_data"
+line = 204
+branches = 31
+note = ""
+
+[[oversized_functions]]
+file = "app/read_models/admin_reports.py"
+name = "load_turn_timing_report"
+line = 99
+branches = 28
+note = ""
+
+[[oversized_functions]]
+file = "app/routes/web_my_matches.py"
+name = "my_matches"
+line = 33
+branches = 25
+note = ""
+
+[[oversized_functions]]
+file = "app/games/hoard_hurt_help/insights.py"
+name = "_round_events"
+line = 103
+branches = 24
+note = ""
+
+[[oversized_functions]]
+file = "app/engine/agent_play.py"
+name = "submit_action"
+line = 189
+branches = 21
+note = ""
+
+[[oversized_functions]]
+file = "app/routes/matches_user.py"
+name = "create_match_submit"
+line = 191
+branches = 21
+note = ""
