@@ -5,7 +5,7 @@ work both of those numbers out in JavaScript, and both were its own invention:
 
 - It ranked the rail by in-round points first, round-wins second. Every ranking
   on the server puts round-wins first (``rank_standings``,
-  ``finish_order_sort_key``). A finished match renders the final scoreboard and
+  ``app.engine.finish_order``). A finished match renders the final scoreboard and
   the rail on the same page, so the two lists openly disagreed: a seat with 2
   round-wins and 3 points led one list and sat below a 0-win, 9-point seat in
   the other.
@@ -20,6 +20,16 @@ carrying each seat's running round-wins tally. The ranking comes from
 
 This is the same lesson the ``score_after`` field learned in #645: ship the
 answer, never the rule.
+
+This module deliberately does NOT rank through ``app.engine.finish_order``
+(the completed-match cooperator-wins tiebreak chain). ``stamp_turn_standings``
+stamps a snapshot before AND after every turn, ranked by ``round_score`` — the
+running score within the CURRENT round, not a match's final ``total_score``.
+That makes every snapshot, including the last one, a within-round running
+view — the same category as ``app.engine.agent_play_reads._scoreboard_order``,
+which is left alone for the same reason. Applying the finish-order chain here
+would need per-turn running HELP/HURT counts and would change a live display,
+not just a finished match's recorded result.
 """
 
 from __future__ import annotations

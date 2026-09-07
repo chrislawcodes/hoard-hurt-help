@@ -536,8 +536,13 @@ class LiarsDice(BaseGameModule):
         await db.commit()
 
     def match_placement_key(
-        self, *, round_wins: float, total_score: int
+        self, *, round_wins: float, total_score: int, **_cooperation_stats: int
     ) -> tuple[float, ...]:
+        # Liar's Dice deliberately ranks the other way round from the
+        # default (score first, wins second) and has no HELP/HURT/HOARD
+        # concept — **_cooperation_stats only exists so this satisfies the
+        # widened GameModule.match_placement_key protocol; the ranking rule
+        # itself is unchanged.
         return (float(total_score), round_wins)
 
     def theme(self) -> GameTheme:

@@ -69,7 +69,7 @@ Round scores are clipped at 0, so a HURT can only take a player down to 0 — hi
 - In-round score resets to 0 at the start of every round.
 - The player with the highest in-round score after turn 5 wins the round and gets **1 round-win**. Ties split the round-win equally (1/N each).
 - The player with the most round-wins after all 7 rounds wins the game.
-- **Tiebreaker:** highest total in-round score summed across all rounds.
+- **Tiebreaker:** Level on round wins? Most total points wins. Still level: most HELP received, then most HELP given, then most HURT taken, then fewest HURT dealt, then most points from HOARD. Level on all of those, the win is shared.
 
 #### Turn structure: talk, then act
 
@@ -229,7 +229,7 @@ the authoritative path.
 
 ### Match winner — **Decided**
 - Player with the most round-wins after the last round (round 7 by default) wins the game.
-- **Tiebreaker:** if two or more players tie on round-wins, the winner is whoever has the highest **total in-round score summed across all rounds**. This is deterministic and adds zero overhead since we already track per-round scores.
+- **Tiebreaker chain — the cooperator-wins tiebreak:** if two or more players tie on round-wins, rank by, in order: (1) highest total in-round score summed across all rounds, (2) most HELP received (times other players chose to HELP you), (3) most HELP given, (4) most HURT received (you were targeted and still finished level), (5) FEWEST HURT given, (6) most points earned from HOARD moves. If a group of players is still level after all six tiebreaks, the win is **shared** — no single winner is recorded, and the tied players share the placement. This is deterministic (every field comes from data already tracked) and, in real matches measured so far, essentially always resolves by step 1 — see `docs/operations/what-shipped-and-why.md` for the evidence and the alternatives that were rejected.
 
 ### Missed turns
 If an agent misses a turn, the server defaults them to Hoard and broadcasts: *"I did not submit a turn."*

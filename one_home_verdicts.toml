@@ -665,19 +665,21 @@ kind = "source"
 
 [[oversized]]
 file = "app/games/base.py"
-lines = 632
+lines = 641
 kind = "source"
+note = "cooperator-wins-tiebreak PR: +9 lines — match_placement_key protocol/default widened with the five cooperation-count keyword args, and final_placement routed through app/engine/finish_order.py."
 
 [[oversized]]
 file = "app/games/hoard_hurt_help/game.py"
-lines = 409
+lines = 437
 kind = "source"
-note = "PR U5: -5 lines — private_state_for's all_players lookup and record_player_action's target lookup now go through app.read_models.matches.load_players instead of their own select(Player).where(...) queries."
+note = "cooperator-wins-tiebreak PR: +28 lines — new match_placement_key override (the cooperator-wins tiebreak chain) and finalize() now passes self into resolver.finalize_game."
 
 [[oversized]]
 file = "app/games/hoard_hurt_help/rules.py"
-lines = 501
+lines = 510
 kind = "source"
+note = "cooperator-wins-tiebreak PR: +9 lines — RULES_VERSION comment explaining why the tiebreak change does not bump it, and the reworded Tiebreaker rules-text line."
 
 [[oversized]]
 file = "app/games/hoard_hurt_help/viewer.py"
@@ -686,14 +688,15 @@ kind = "source"
 
 [[oversized]]
 file = "app/games/liars_dice/game.py"
-lines = 554
+lines = 559
 kind = "source"
-note = "PR U6: +1 line — is_seated() import (left_at is-None sweep)."
+note = "cooperator-wins-tiebreak PR: +5 lines — match_placement_key gained **_cooperation_stats to satisfy the widened protocol; ranking rule itself unchanged."
 
 [[oversized]]
 file = "app/read_models/leaderboard.py"
-lines = 490
+lines = 572
 kind = "source"
+note = "cooperator-wins-tiebreak PR: +82 lines — _Participant gained the five cooperation counts, a new batched _load_cooperation_tallies query, and _resolve_placement_key/_compute_placement_tiers widened to pass them through."
 
 [[oversized]]
 file = "app/read_models/matches.py"
@@ -1393,18 +1396,22 @@ pr = "PR U3"
 # "All the players of a match" has one home: app/read_models/matches.py's
 # load_players (ORDER BY seat_name). Nine of the twelve inline
 # `select(Player).where(Player.match_id == …)` sites found at PR U5 time were
-# routed through it; these three were looked at and left inline on purpose
+# routed through it; these two were looked at and left inline on purpose
 # because load_players' ORDER BY seat_name would change the order the caller
 # sees, and in each case that order is load-bearing:
 #
 #   - match_export.py: the row order of the JSON export's "players" array is
 #     user-visible.
-#   - resolver.py (finalize_game): the winner is `sorted(players,
-#     key=finish_order_sort_key)[0]`, and that sort is stable — a full tie on
-#     (round_wins, total_score) keeps the query's own row order to break it.
-#     Reordering to seat_name would change who wins a tied match.
 #   - match_manage_web.py (match_detail): the query's row order becomes the
 #     row order of the rendered admin player table.
+#
+# A third entry, resolver.py (finalize_game), was removed by the
+# cooperator-wins-tiebreak PR: that inline query is gone, replaced by
+# app/engine/finish_order.py's load_finish_records (which itself calls
+# load_players). Its stated reason — "a full tie breaks on the query's row
+# order" — no longer applies: a full tie is now a deliberate shared win (no
+# seat-order or id-based key), not something load_players' ORDER BY could
+# accidentally flip.
 #
 # Read by tests/test_match_players_have_one_home.py, which fails the build
 # when a new inline copy appears with no matching entry here.
@@ -1413,12 +1420,6 @@ pr = "PR U3"
 file = "app/read_models/match_export.py"
 line = 180
 note = "row order of the JSON export's players array is user-visible; load_players' ORDER BY seat_name is not provably the same order, so routing it would risk changing the export"
-pr = "PR U5"
-
-[[match_players_baseline]]
-file = "app/engine/resolver.py"
-line = 126
-note = "finalize_game picks ranked[0] from a stable sort on (round_wins, total_score); a full tie breaks on the query's row order, which load_players' ORDER BY seat_name would change — could flip who wins a tied match"
 pr = "PR U5"
 
 [[match_players_baseline]]

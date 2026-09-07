@@ -5,15 +5,17 @@ talk-phase materialization, round-win awarding, and end-of-game ranking. The
 PD-specific per-turn scoring moved to app/games/hoard_hurt_help/scoring.py.
 """
 
+from __future__ import annotations
+
 from collections.abc import Mapping
 from typing import TypeVar
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.engine.finish_order import MatchPlacementKeyed, load_finish_records, winner
 from app.engine.state_machine import assert_transition
 from app.models.match import Match, GameState
-from app.models.player import Player
 from app.models.turn import Turn, TurnMessage
 from app.engine.turn_clock import now_utc
 from app.read_models.matches import load_players
@@ -102,41 +104,29 @@ async def award_round_winners(db: AsyncSession, game: Match, round_num: int) -> 
     await db.commit()
 
 
-def finish_order_sort_key(player: Player) -> tuple[float, float]:
-    """Sort key for the finish order: most round-wins, then highest total score.
+async def finalize_game(db: AsyncSession, game: Match, game_module: MatchPlacementKeyed) -> None:
+    """End-of-game: pick winner, transition state, set completed_at.
 
-    ``finalize_game`` (winner pick) and ``BaseGameModule.final_placement``
-    (default finish order) both sort with it so the two can't diverge.
-    Ascending sort on the negated fields ranks winner first and, being stable,
-    keeps input order for full ties — exactly the behavior of the two inline
-    sorts this key replaced.
+    ``game_module`` is the completing game's own module — its ``finalize``
+    hook already has ``self``, so it is passed in rather than resolved from
+    the registry here: importing ``app.games`` from this module would import
+    every game module, including the one that imports this module at its own
+    top level, closing an import cycle.
 
-    NOT the only encoding: leaderboard/Elo tiers rank via the per-game
-    ``GameModule.match_placement_key`` protocol method (PD's returns
-    ``(round_wins, total_score)`` — the same ordering, different signature).
-    A PD tiebreak change must update both, or the match page's winner and the
-    rating tiers will disagree.
+    The winner comes from the shared cooperator-wins chain
+    (:mod:`app.engine.finish_order`) — the same one
+    ``BaseGameModule.final_placement`` sorts with, so the recorded winner and
+    the full finish order can't diverge. A match level on every tiebreak all
+    the way down has no winner recorded (see the module docstring on
+    ``app.engine.finish_order``): that is a real, honest outcome, not a bug.
     """
-    return (-player.total_round_wins, -player.total_round_score)
-
-
-async def finalize_game(db: AsyncSession, game: Match) -> None:
-    """End-of-game: pick winner, transition state, set completed_at."""
-    players: list[Player] = list(
-        (await db.execute(select(Player).where(Player.match_id == game.id)))
-        .scalars()
-        .all()
-    )
-    if not players:
-        winner = None
-    else:
-        ranked = sorted(players, key=finish_order_sort_key)
-        winner = ranked[0]
+    records = await load_finish_records(db, game.id)
+    top_winner = winner(records, game_module)
 
     assert_transition(game.state, GameState.COMPLETED)
     game.state = GameState.COMPLETED
     game.completed_at = now_utc()
-    if winner is not None:
-        game.winner_player_id = winner.id
+    if top_winner is not None:
+        game.winner_player_id = top_winner.player_id
 
     await db.commit()

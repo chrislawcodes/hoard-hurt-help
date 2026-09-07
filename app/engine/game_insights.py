@@ -27,6 +27,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+from app.engine.finish_order import CooperationTally, cooperation_tally
 from app.engine.game_records import ActionRecord, PlayerRecord
 
 SURGE_RANK_JUMP = 2
@@ -199,7 +200,22 @@ def default_season_overview(
     results — all score / round-win derived. No grudges or alliances (those need a
     game's relationship model; PD overrides to add them).
     """
-    standings_sorted = sorted(players, key=lambda p: (-p.round_wins, -p.total_score, p.agent_id))
+    tallies = cooperation_tally(
+        (a.actor_id, a.target_id, a.action, a.points_delta, a.was_defaulted) for a in actions
+    )
+
+    def _tiebreak_tail(agent_id: str) -> tuple[int, int, int, int, int]:
+        # The same cooperator-wins later keys as app/engine/finish_order.py's
+        # chain (most HELP received, then given, most HURT received, FEWEST
+        # HURT given, most HOARD points) — display-order tiebreak only, this
+        # is not the DB-backed winner pick. No id tail: there is deliberately
+        # no seat-order or id-based key (see finish_order.py's docstring).
+        t = tallies.get(agent_id, CooperationTally())
+        return (-t.help_received, -t.help_given, -t.hurt_received, t.hurt_given, -t.hoard_points)
+
+    standings_sorted = sorted(
+        players, key=lambda p: (-p.round_wins, -p.total_score, *_tiebreak_tail(p.agent_id))
+    )
     standings = [
         StandingRow(p.agent_id, p.round_wins, p.total_score, i + 1)
         for i, p in enumerate(standings_sorted)
@@ -211,7 +227,13 @@ def default_season_overview(
     tiebreaker = None
     if standings:
         top_wins = standings[0].round_wins
-        leaders_by_score = sorted(players, key=lambda p: (-p.total_score, p.agent_id))
+        # Different question from the standings above (who has the most
+        # points, not who wins) — total_score leads. Where that still ties,
+        # break with the cooperator-wins chain's later keys instead of a bare
+        # id, for the same reason the standings above do.
+        leaders_by_score = sorted(
+            players, key=lambda p: (-p.total_score, *_tiebreak_tail(p.agent_id))
+        )
         score_leader = leaders_by_score[0] if leaders_by_score else None
         if score_leader is not None and score_leader.round_wins < top_wins:
             tiebreaker = (

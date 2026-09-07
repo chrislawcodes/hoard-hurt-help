@@ -10,6 +10,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.engine.resolver import award_round_winners, finalize_game
+from app.games.hoard_hurt_help.game import HoardHurtHelp
 from app.games.hoard_hurt_help.rules import (
     BETRAYAL_BONUS,
     HELP_POINTS,
@@ -483,77 +484,76 @@ async def test_finalize_game_with_tiebreaker(db):
     b.total_round_wins = 5
     b.total_round_score = 130
     await db.commit()
-    await finalize_game(db, game)
+    await finalize_game(db, game, HoardHurtHelp())
     await db.refresh(game)
     assert game.state == GameState.COMPLETED
     assert game.winner_player_id == b.id
 
 
-# --- One shared finish-order key (finalize_game winner == final_placement) ---
+# --- One shared finish order (finalize_game winner == final_placement) ---
 
 
-class _Standing:
-    """A minimal stand-in with the two fields the finish-order sorts read."""
+def test_placement_groups_and_winner_agree_across_permutations() -> None:
+    """The shared finish-order functions agree with each other for every
+    input permutation, including how ties group.
 
-    def __init__(self, pid: int, wins: float, score: int) -> None:
-        self.id = pid
-        self.total_round_wins = wins
-        self.total_round_score = score
-
-    def __repr__(self) -> str:  # readable assertion diffs
-        return f"P{self.id}(w={self.total_round_wins}, s={self.total_round_score})"
-
-
-def test_finish_order_key_matches_both_old_sorts() -> None:
-    """The shared key reproduces BOTH old encodings — winner pick and placement.
-
-    Old finalize_game winner sort: ascending on (-wins, -score) — stable, so
-    full ties keep input order. Old final_placement sort: (wins, score) with
-    reverse=True — Python's reverse sort is also stable, so full ties keep
-    input order too. The shared key must reproduce both orderings exactly,
-    including tie order, for every input permutation.
+    ``winner`` must always pick the same player ``placement_groups`` puts
+    alone in the top group, and grouping must be permutation-invariant:
+    shuffling the input records can't change who groups with whom — grouping
+    comes from the placement key and (within a group) seat_name, never
+    input/seed order.
     """
     from itertools import permutations
 
-    from app.engine.resolver import finish_order_sort_key
+    from app.engine.finish_order import FinishRecord, placement_groups
+    from app.engine.finish_order import winner as pick_winner
 
-    cases: list[list[_Standing]] = [
+    def record(pid: int, seat: str, wins: float, score: int) -> FinishRecord:
+        return FinishRecord(
+            player_id=pid,
+            seat_name=seat,
+            round_wins=wins,
+            total_score=score,
+            help_received=0,
+            help_given=0,
+            hurt_received=0,
+            hurt_given=0,
+            hoard_points=0,
+        )
+
+    game = HoardHurtHelp()
+    cases: list[list[FinishRecord]] = [
         # Equal round wins; score breaks the tie.
-        [_Standing(1, 5.0, 120), _Standing(2, 5.0, 130), _Standing(3, 5.0, 120)],
-        # Equal round wins AND equal score — a full tie (input order decides).
-        [_Standing(1, 2.0, 40), _Standing(2, 2.0, 40), _Standing(3, 2.0, 40)],
+        [record(1, "A", 5.0, 120), record(2, "B", 5.0, 130), record(3, "C", 5.0, 120)],
+        # Equal round wins AND equal score — a full tie: no seat-order or
+        # id-based tiebreak, so this is one shared-top-group, no winner.
+        [record(1, "A", 2.0, 40), record(2, "B", 2.0, 40), record(3, "C", 2.0, 40)],
         # Mixed: distinct wins, partial score ties, fractional wins.
         [
-            _Standing(1, 1.5, 30),
-            _Standing(2, 3.0, 10),
-            _Standing(3, 1.5, 30),
-            _Standing(4, 0.0, 99),
+            record(1, "A", 1.5, 30),
+            record(2, "B", 3.0, 10),
+            record(3, "C", 1.5, 30),
+            record(4, "D", 0.0, 99),
         ],
     ]
     for case in cases:
+        expected_groups = [{r.player_id for r in g} for g in placement_groups(case, game)]
+        expected_winner = pick_winner(case, game)
         for players in permutations(case):
-            seeded = list(players)
-            old_winner_order = sorted(
-                seeded, key=lambda p: (-p.total_round_wins, -p.total_round_score)
-            )
-            old_placement_order = sorted(
-                seeded,
-                key=lambda p: (p.total_round_wins, p.total_round_score),
-                reverse=True,
-            )
-            shared_order = sorted(seeded, key=finish_order_sort_key)
-            assert [p.id for p in shared_order] == [p.id for p in old_winner_order]
-            assert [p.id for p in shared_order] == [p.id for p in old_placement_order]
+            shuffled = list(players)
+            groups = [{r.player_id for r in g} for g in placement_groups(shuffled, game)]
+            assert groups == expected_groups
+            assert pick_winner(shuffled, game) == expected_winner
 
 
-async def test_finalize_game_winner_matches_final_placement_on_full_tie(db):
-    """Equal round wins AND equal score: winner == final_placement[0].
+async def test_finalize_game_on_full_tie_is_a_shared_win(db):
+    """Equal round wins, equal total score, and (no turns played) equal
+    cooperation stats all the way down: a genuine full tie.
 
-    Both paths query players the same way and sort with the same stable key, so
-    on a full tie both must pick the same (first-seeded) player.
+    No single winner is recorded — the cooperator-wins chain refuses to
+    invent one from seat order — and final_placement puts both players in
+    the same (first) group.
     """
-    from app.games.hoard_hurt_help.game import HoardHurtHelp
-
     game, [a, b] = await _make_decay_game_with_bots(db, 2)
     a.total_round_wins = 3
     a.total_round_score = 50
@@ -562,13 +562,13 @@ async def test_finalize_game_winner_matches_final_placement_on_full_tie(db):
     await db.commit()
 
     placement = await HoardHurtHelp().final_placement(db, game)
-    await finalize_game(db, game)
+    await finalize_game(db, game, HoardHurtHelp())
     await db.refresh(game)
     assert game.state == GameState.COMPLETED
-    # Full tie: the stable sorts keep seed order, so the first-seeded player
-    # wins — and the winner is exactly the head of final_placement.
-    assert game.winner_player_id == a.id
-    assert game.winner_player_id == placement[0]
+    assert game.winner_player_id is None
+    # Both players share the top placement group (order within it is
+    # seat_name, display only — not a real ranking between them).
+    assert set(placement[:2]) == {a.id, b.id}
 
 
 # --- Mutual-help decay (feature mutual-help-decay, Slice 1) ---

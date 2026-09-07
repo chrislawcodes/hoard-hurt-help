@@ -142,6 +142,15 @@ DEFAULT_TURNS_PER_ROUND = 5
 # moves: match length and `mutual_help_mode` are stored per match in their own
 # columns, so they are already recorded exactly, and bumping this for them would
 # make the version say a match is unlike another that differs only by a setting.
+#
+# The cooperator-wins tiebreak chain (docs/operations/what-shipped-and-why.md)
+# deliberately does NOT bump this either, on purpose, even though it changes
+# match-end behavior: scripts/match_runner/pooled_report.py identifies which
+# rules a match ran under by fingerprinting one payoff number
+# (HOARDER_TAKE_BY_VERSION), and this change moves no payoff. A "v12" would
+# collide on the same take as v11, and test_version_fingerprint_current.py
+# would force relabelling every past v11 match as v12 — silently corrupting
+# how old matches get pooled for analysis.
 RULES_VERSION = "v11"
 
 
@@ -471,7 +480,7 @@ Round scores are clipped at {SCORE_FLOOR}, so a HURT can only take a player down
 - In-round score resets to {SCORE_FLOOR} at the start of every round.
 - The player with the highest in-round score after turn {turns_per_round} wins the round and gets **1 round-win**. Ties split the round-win equally (1/N each).
 - The player with the most round-wins after all {total_rounds} rounds wins the game.
-- **Tiebreaker:** highest total in-round score summed across all rounds.
+- **Tiebreaker:** Level on round wins? Most total points wins. Still level: most HELP received, then most HELP given, then most HURT taken, then fewest HURT dealt, then most points from HOARD. Level on all of those, the win is shared.
 
 ## Turn structure: talk, then act
 

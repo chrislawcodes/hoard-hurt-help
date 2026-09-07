@@ -321,11 +321,22 @@ class GameModule(Protocol):
         ...
 
     def match_placement_key(
-        self, *, round_wins: float, total_score: int
+        self,
+        *,
+        round_wins: float,
+        total_score: int,
+        help_received: int = 0,
+        help_given: int = 0,
+        hurt_received: int = 0,
+        hurt_given: int = 0,
+        hoard_points: int = 0,
     ) -> tuple[float, ...]:
         """Sort key (descending = better) ranking a completed match's participants
-        for the shared rating engine; equal keys are a placement tie. Default:
-        ``default_match_placement_key``."""
+        for the shared rating engine and the finish order; equal keys are a
+        placement tie. Default: ``default_match_placement_key`` (round_wins,
+        total_score only — the five cooperation counts exist for a game that
+        wants a deeper tiebreak chain, e.g. Hoard Hurt Help's; see
+        ``app/engine/finish_order.py``)."""
         ...
 
     # --- Spectator insights (the contract owns "what the analysis shows") ---
@@ -556,28 +567,26 @@ class BaseGameModule:
         return await self.default_move(db, match, player)
 
     async def final_placement(self, db: AsyncSession, match: Match) -> list[int]:
-        # PD's existing order: most round-wins, then highest total in-round
-        # score — the same shared key finalize_game picks the winner with, so
-        # placement and winner can't diverge.
-        from sqlalchemy import select
+        # The same cooperator-wins chain finalize_game picks the winner with
+        # (this module's own match_placement_key), so placement and winner
+        # can't diverge. A shared top group (tie all the way down) flattens in
+        # seat_name order — display only, not a real tiebreak.
+        from app.engine.finish_order import load_finish_records, placement_groups
 
-        from app.engine.resolver import finish_order_sort_key
-        from app.models.player import Player as PlayerModel
-
-        players = list(
-            (
-                await db.execute(
-                    select(PlayerModel).where(PlayerModel.match_id == match.id)
-                )
-            )
-            .scalars()
-            .all()
-        )
-        ranked = sorted(players, key=finish_order_sort_key)
-        return [p.id for p in ranked]
+        records = await load_finish_records(db, match.id)
+        groups = placement_groups(records, self)
+        return [r.player_id for group in groups for r in group]
 
     def match_placement_key(
-        self, *, round_wins: float, total_score: int
+        self,
+        *,
+        round_wins: float,
+        total_score: int,
+        help_received: int = 0,
+        help_given: int = 0,
+        hurt_received: int = 0,
+        hurt_given: int = 0,
+        hoard_points: int = 0,
     ) -> tuple[float, ...]:
         return default_match_placement_key(round_wins=round_wins, total_score=total_score)
 

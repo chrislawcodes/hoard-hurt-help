@@ -75,7 +75,9 @@ class _ScoreOnlyGame(BaseGameModule):
 
     game_type = "score-only-test"
 
-    def match_placement_key(self, *, round_wins: float, total_score: int) -> tuple[float, ...]:
+    def match_placement_key(
+        self, *, round_wins: float, total_score: int, **_cooperation_stats: int
+    ) -> tuple[float, ...]:
         return (float(total_score),)
 
 
