@@ -212,6 +212,8 @@ def install_request_logging(app: FastAPI) -> None:
         try:
             response = await call_next(request)
         except Exception as exc:
+            # route handler: this middleware wraps every request and must
+            # turn any handler crash into a logged 500, not a dead server.
             logger.exception(
                 "request error id=%s method=%s path=%s user_id=%s query=%s",
                 request_id,

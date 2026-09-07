@@ -70,9 +70,9 @@ class SwrCache(Generic[K, V]):
             value = await build()
             self._store[key] = (time.monotonic() + self._ttl, value)
         except Exception:
-            # fail-open: advisory background refresh. Keep serving the stale
-            # value and let a later request try again — never break a page
-            # because a cache refresh failed.
+            # fail-open: advisory only — this is a background refresh. Keep
+            # serving the stale value and let a later request try again;
+            # never break a page because a cache refresh failed.
             logger.exception("SWR cache refresh failed for key %r", key)
         finally:
             self._refreshing.discard(key)

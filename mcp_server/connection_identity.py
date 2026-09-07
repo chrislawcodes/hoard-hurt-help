@@ -100,7 +100,7 @@ def _dcr_client_id_from_request() -> str | None:
         client_id = claims.get("client_id")
         return client_id if isinstance(client_id, str) and client_id else None
     except Exception:
-        # fail-open: advisory routing only — fall back to provider/single lookup.
+        # fail-open: advisory only — routing falls back to provider/single lookup.
         logger.debug("could not read DCR client_id from bearer token", exc_info=True)
         return None
 

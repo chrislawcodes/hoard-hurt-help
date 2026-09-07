@@ -17,6 +17,43 @@ header promising "what shipped and what is now unblocked".
 
 ---
 
+## Every `except Exception` explained, or narrowed
+
+- **Every `except Exception` explained, or narrowed** (2026-09-06, branch
+  `fail-loud-review`, Direct Path) — CLAUDE.md's "Fail Loud" rule allows a broad
+  `except Exception` in exactly two cases: the top of a route handler or
+  background task that must keep running, or a deliberate advisory path allowed
+  to fail open. Every other broad catch is supposed to re-raise or narrow to the
+  specific exception the code expects. This PR checked all 13 `except Exception`
+  sites in `app/` and `mcp_server/` against that rule.
+
+  All 13 landed in one of the two allowed classes — 4 are the top of a route
+  handler or background task (the MCP OAuth callback, the request-logging
+  middleware, the overdue-turn sweeper, the turn-loop's crash chokepoint), and 9
+  are deliberate fail-open paths (cache warm-up, the SWR cache's background
+  refresh, first-touch attribution, the poller's per-subsystem guard, DCR
+  client-id routing, and three MCP sign-in bootstraps). None needed narrowing or
+  a re-raise — this codebase already went through earlier fail-loud cleanups
+  (see the "Fail-loudly cleanup" entries above), so what was left really is the
+  legitimate remainder. 8 of the 13 already carried a comment; this PR added a
+  marker to the other 5, and reworded 4 existing comments that were close to but
+  not exactly the house style (e.g. "advisory routing only" → "advisory only",
+  "advisory background refresh" → "advisory only — this is a background
+  refresh") so every kept site now reads consistently. No behavior changed —
+  same exceptions caught, same log lines, same control flow.
+
+  A new tripwire test, `tests/test_except_exception_is_explained.py`, scans
+  `app/` and `mcp_server/` for `except Exception` and fails on any site whose
+  marker (`# fail-open: advisory only — <why>`, or `# background task: <why>` /
+  `# route handler: <why>`) is not within one line of the except. A second test
+  proves the scanner actually flags an unmarked site, using a small fixture
+  module in `tmp_path`.
+
+  The full classification table (file:line, class, what was done) is in the PR
+  body.
+
+---
+
 ## One winner, almost always: the cooperator-wins tiebreak chain
 
 - **One winner, almost always: the cooperator-wins tiebreak chain** (2026-09-06, branch `cooperator-wins-tiebreak`, Direct Path, [PR #795](https://github.com/chrislawcodes/hoard-hurt-help/pull/795)) — a completed Hoard Hurt Help match used to break a round-wins tie on total score and stop there: a further tie fell back to whatever order the DB query happened to return rows in, which is arbitrary and could flip who "won" a match on nothing more than row order. Chris decided a longer, principled chain: most round wins, then highest total points, then most HELP received, then most HELP given, then most HURT received, then FEWEST HURT given, then most points earned from HOARD moves. If a match is still level after all seven, the win is **shared** — no single winner is recorded, and the tied players share the placement. There is deliberately no seat-order or id-based key as a last resort; a real seven-way tie needs two players who never help, are never helped, and match on points too, so it will essentially never fire — the shared-win path exists so the code returns something honest rather than inventing a winner.
