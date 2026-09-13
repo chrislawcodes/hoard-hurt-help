@@ -33,8 +33,9 @@ from __future__ import annotations
 import csv
 import io
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
@@ -164,6 +165,59 @@ async def build_csv_export(
     )
 
 
+# The three answers to "what does a blank ``model`` mean in this export?",
+# spelled out as values instead of left to a boolean: one of the three is
+# genuinely "we cannot tell you yet", and a boolean would have to pick a side.
+ModelRecording = Literal["recorded", "never_recorded", "nothing_served_yet"]
+
+
+def model_recording(players: Sequence[Player]) -> ModelRecording:
+    """Whether this match's ``model`` values can be read as a record at all.
+
+    A seat's ``model`` is null in two unrelated situations, and both render as
+    nothing, so a reader cannot tell them apart:
+
+    1. nothing was ever recorded for this match — model recording shipped
+       2026-08-28 (PR #736, migration 0056), and every match served before that
+       carries a null on every seat; or
+    2. this seat has not been served a turn, so there is nothing to record yet.
+
+    Reading (1) as (2) is not hypothetical. It nearly landed a wrong conclusion
+    in a real analysis: "no model recorded" was taken for "ran without a model",
+    and the fallback was an older saved export whose model names came from the
+    build that read the agent's CURRENT ``preferred_model`` — today's settings
+    wearing history's clothes.
+
+    Decided from the match's own rows rather than a cutover date, because the
+    rows say it outright. ``served_pinned_at`` is stamped by the same update
+    that stamps ``played_model`` (``_claim_pin`` in
+    app/engine/next_turn_payload.py) and shipped two months earlier (migration
+    0026), so a seat pinned with no model is proof that a real turn was served
+    with nowhere to record the model. A date constant would additionally have to
+    guess which timestamp to compare, since a match scheduled before the deploy
+    could still have been played after it.
+
+    ``never_recorded`` states the fact and not a reason, because there are two:
+    a match from before recording existed, and a match played entirely on an
+    MCP-only provider (hermes, openclaw), for which ``resolve_seat_model``
+    returns no model by design — the server does not know which model those
+    clients ran. The reader's conclusion is the same either way: no blank in
+    this export means anything.
+
+    Per match, so a mixed roster reports ``recorded`` as soon as one seat has a
+    model. That is the honest per-match answer — recording existed when this
+    match ran — and the per-seat answer is already in the payload below: a seat
+    that was served names its provider in ``model_self_report``, and a seat that
+    was never served is null there too.
+    """
+
+    if any(p.played_model is not None for p in players):
+        return "recorded"
+    if any(p.served_pinned_at is not None for p in players):
+        return "never_recorded"
+    return "nothing_served_yet"
+
+
 async def build_json_export(
     db: AsyncSession, match: Match, *, viewer: ExportViewer
 ) -> StreamingResponse:
@@ -256,6 +310,10 @@ async def build_json_export(
             "started_at": match.started_at.isoformat() if match.started_at else None,
             "completed_at": match.completed_at.isoformat() if match.completed_at else None,
             "rules_version": match.rules_version,
+            # What a blank ``model`` on a seat below means — see
+            # ``model_recording``. Without it "we never recorded this" and
+            # "this seat has not played yet" are the same empty string.
+            "model_recording": model_recording(players),
         },
         "players": players_payload,
         "submissions": rows,

@@ -19,6 +19,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from sqlalchemy.ext.asyncio import async_sessionmaker
+
 from app.engine.model_provider_match import resolve_seat_model
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -288,3 +290,112 @@ async def test_the_export_carries_both_questions_separately(client, reset_db):
     assert seat["model_to_play"] == "claude-opus-5", (
         "the runner has nothing to launch this seat with"
     )
+
+
+async def _one_seat_match(
+    reset_db: async_sessionmaker,
+    *,
+    match_id: str,
+    served: bool,
+    played_model: str | None,
+) -> int:
+    """Build a match with a single seat, and return the admin who may export it.
+
+    ``served`` stamps ``served_pinned_at``, which is what a connection claiming
+    the seat does. ``played_model`` is the stamp written beside it — so
+    ``served=True, played_model=None`` is the exact shape of a seat that really
+    played back when there was nowhere to record the model.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    from app.models.agent import Agent, AgentKind
+    from app.models.match import GameState, Match
+    from app.models.player import Player
+    from app.models.user import User, UserRole
+
+    now = datetime.now(timezone.utc)
+    async with reset_db() as db:
+        admin = User(
+            google_sub="sub-admin", email="admin@test.com", name="admin",
+            role=UserRole.ADMIN,
+        )
+        db.add(admin)
+        await db.flush()
+        db.add(
+            Match(
+                id=match_id, name=match_id,
+                state=GameState.COMPLETED if served else GameState.REGISTERING,
+                scheduled_start=now - timedelta(hours=1) if served else now + timedelta(hours=1),
+            )
+        )
+        agent = Agent(
+            user_id=admin.id, name=f"a-{match_id}", kind=AgentKind.HUMAN,
+            game="hoard-hurt-help", preferred_model="claude-opus-5",
+        )
+        db.add(agent)
+        await db.flush()
+        db.add(
+            Player(
+                match_id=match_id, user_id=admin.id, agent_id=agent.id,
+                seat_name="Seat", chosen_provider="claude", joined_at=now,
+                played_provider="claude" if served else None,
+                served_pinned_at=now if served else None,
+                played_model=played_model,
+            )
+        )
+        await db.commit()
+        return admin.id
+
+
+async def _exported_game(client, admin_id: int, match_id: str) -> dict:
+    """The export's per-match block, fetched as an admin."""
+    from tests.conftest import signed_in_cookies as _cookies
+
+    r = await client.get(
+        f"/api/admin/matches/{match_id}/export.json", cookies=_cookies(admin_id)
+    )
+    assert r.status_code == 200, r.text
+    return r.json()["game"]
+
+
+async def test_an_export_says_when_no_model_was_ever_recorded(client, reset_db):
+    """The case that nearly caused a wrong conclusion, pinned.
+
+    A match served before PR #736 has a null ``model`` on every seat, and so
+    does a match nobody has played yet. Without the marker both read as nothing,
+    and "we never recorded this" gets treated as "there was no model".
+    """
+    admin_id = await _one_seat_match(
+        reset_db, match_id="G_PRE736", served=True, played_model=None
+    )
+
+    game = await _exported_game(client, admin_id, "G_PRE736")
+    assert game["model_recording"] == "never_recorded", (
+        "a match that played with nothing recorded looks identical to one that "
+        "has not played — which is the confusion this marker exists to remove"
+    )
+
+
+async def test_an_export_says_when_the_models_are_a_real_record(client, reset_db):
+    """With a stamp present, a null on another seat means that seat, not the era."""
+    admin_id = await _one_seat_match(
+        reset_db, match_id="G_RECORDED", served=True, played_model="claude-sonnet-5"
+    )
+
+    game = await _exported_game(client, admin_id, "G_RECORDED")
+    assert game["model_recording"] == "recorded"
+
+
+async def test_a_match_that_has_not_played_is_not_called_unrecorded(client, reset_db):
+    """The third state, and the reason this is not a boolean.
+
+    A registering match has no model on any seat either, but nothing is missing
+    — no seat has been served. Calling that "never recorded" would invent a
+    history problem for a match that simply has not started.
+    """
+    admin_id = await _one_seat_match(
+        reset_db, match_id="G_WAITING", served=False, played_model=None
+    )
+
+    game = await _exported_game(client, admin_id, "G_WAITING")
+    assert game["model_recording"] == "nothing_served_yet"

@@ -1414,8 +1414,8 @@ pr = "PR U3"
 
 [[match_players_baseline]]
 file = "app/read_models/match_export.py"
-line = 173
-note = "row order of the JSON export's players array is user-visible; load_players' ORDER BY seat_name is not provably the same order, so routing it would risk changing the export. Line moved 180->173 when the per-row-query batching PR reformatted the surrounding function; the query itself is unchanged."
+line = 227
+note = "row order of the JSON export's players array is user-visible; load_players' ORDER BY seat_name is not provably the same order, so routing it would risk changing the export. Line moved 180->173 when the per-row-query batching PR reformatted the surrounding function, then 173->227 when the model_recording marker was added above build_json_export; the query itself is unchanged."
 pr = "PR U5"
 
 [[match_players_baseline]]
